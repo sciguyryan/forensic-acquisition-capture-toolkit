@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fact-forensic-toolkit"
-version = "2.6.0"
+version = "2.7.0"
 description = "Source-agnostic forensic acquisition, capture, packaging, signing, and verification toolkit"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -20,7 +20,7 @@ dev = [
     "build>=1.2",
     "pytest>=8",
     "pytest-cov>=6",
-    "ruff>=0.15",
+    "ruff==0.16.6",
 ]
 
 [tool.pytest.ini_options]

@@ -7,12 +7,14 @@ shell command and an ordinary CLI command resolve the same active case.
 
 from __future__ import annotations
 
+import tomllib
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-import tomllib
 
 from ..core.context import discover_project_root, get_selected_case
 from ..errors import ToolkitError
+from .registry import register_project, resolve_registered_project
 
 
 @dataclass(slots=True)
@@ -33,12 +35,27 @@ class ShellSession:
             project_root = discover_project_root(start)
         except ToolkitError:
             project_root = None
-        return cls(project_root=project_root)
+        session = cls(project_root=project_root)
+        if project_root is not None:
+            with suppress(ToolkitError):
+                register_project(project_root)
+        return session
 
     def bind_project(self, path: Path) -> Path:
         """Bind an existing FACT project selected explicitly by the operator."""
 
         self.project_root = discover_project_root(path)
+        with suppress(ToolkitError):
+            register_project(self.project_root)
+        return self.project_root
+
+    def bind_project_selector(self, selector: str) -> Path:
+        """Bind a project by explicit path or a uniquely registered project ID."""
+
+        candidate = Path(selector).expanduser()
+        if candidate.exists() or candidate.is_absolute() or "/" in selector:
+            return self.bind_project(candidate)
+        self.project_root = resolve_registered_project(selector)
         return self.project_root
 
     def clear_project(self) -> None:
@@ -55,7 +72,9 @@ class ShellSession:
         try:
             data = tomllib.loads(project_file.read_text(encoding="utf-8"))
         except (OSError, tomllib.TOMLDecodeError) as exc:
-            raise ToolkitError(f"Unable to read FACT project record: {project_file}") from exc
+            raise ToolkitError(
+                f"Unable to read FACT project record: {project_file}"
+            ) from exc
         project_id = str(data.get("project_id", "")).strip()
         if not project_id:
             raise ToolkitError(f"FACT project record has no project_id: {project_file}")

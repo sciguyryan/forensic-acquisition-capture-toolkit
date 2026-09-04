@@ -2,11 +2,6 @@
 
 This document records accepted future work that has not yet been implemented. Items are architectural commitments or investigation targets rather than promises that a particular interface is final.
 
-## Shell and workflow
-
-- Extend the interactive shell foundation with safe completion and optional local command history while preserving a single command/core implementation.
-- Investigate a trusted project registry or equivalent mechanism before allowing project selection by project ID alone from outside a project tree.
-
 ## Ownership and responsibility
 
 - Add project and case ownership as first-class auditable state based on owner ID.

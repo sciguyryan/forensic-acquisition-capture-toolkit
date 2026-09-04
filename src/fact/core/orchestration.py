@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -143,8 +144,6 @@ def run_collector_acquisition(
         # The first exception is the evidentially useful failure. Catalogue
         # bookkeeping must not conceal it if marking the identifier also fails.
         if catalogued:
-            try:
+            with suppress(Exception):
                 fail_identifier(root, run_id, str(exc))
-            except Exception:
-                pass
         raise

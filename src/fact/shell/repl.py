@@ -11,10 +11,15 @@ from __future__ import annotations
 
 import shlex
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from pathlib import Path
 
+from ..core.catalogue import list_identifiers
 from ..errors import ToolkitError
+from .interactive import ReadlineFeatures
+from .registry import registered_projects
 from .session import ShellSession
+
 
 Dispatch = Callable[[Sequence[str]], int]
 Input = Callable[[str], str]
@@ -24,7 +29,8 @@ _HELP = """FACT interactive shell
 
 Context:
   context                         Show the selected project and case
-  project select PATH             Select an existing FACT project
+  project select PATH|PROJECT-ID  Select an existing FACT project
+  projects                        Show validated locally registered projects
   select project PATH             Alias for project select
   project clear                   Leave the current project context
   case select [CASE-ID]           Select a case (numbered selector if omitted)
@@ -40,7 +46,7 @@ Operations:
   project init ...                Create a project using the normal FACT command
 
 Shell:
-  help                            Show this help
+  help [COMMAND ...]              Show shell or command-specific help
   exit | quit                     Leave the shell
 
 Future case ownership, notes, audit/seal/package lifecycle operations and
@@ -94,7 +100,20 @@ def _dispatch_line(
     if command in {"exit", "quit"}:
         return False
     if command == "help":
-        output_fn(_HELP.rstrip())
+        if len(tokens) == 1:
+            output_fn(_HELP.rstrip())
+        else:
+            dispatch(["help", *tokens[1:]])
+        return True
+    if command == "projects":
+        projects = registered_projects()
+        if not projects:
+            output_fn("No validated projects are registered")
+        for project_id, paths in projects.items():
+            if len(paths) == 1:
+                output_fn(f"{project_id}\t{paths[0]}")
+            else:
+                output_fn(f"{project_id}\tambiguous ({len(paths)} paths)")
         return True
     if command == "context":
         _show_context(session, output_fn)
@@ -106,8 +125,8 @@ def _dispatch_line(
     # mutate the project or its catalogue, and therefore needs no CLI dispatch.
     if tokens[:2] == ["project", "select"]:
         if len(tokens) != 3:
-            raise ToolkitError("Usage: project select PATH")
-        root = session.bind_project(Path(tokens[2]))
+            raise ToolkitError("Usage: project select PATH|PROJECT-ID")
+        root = session.bind_project_selector(tokens[2])
         output_fn(f"Selected project: {session.project_id()} ({root})")
         try:
             case_id = session.case_id()
@@ -138,13 +157,11 @@ def _dispatch_line(
                 if len(tokens) > 2 and not tokens[2].startswith("-")
                 else Path.cwd()
             )
-            try:
+            # Project creation has already reported success. Failure to bind
+            # shell context must not be misreported as failed project
+            # initialisation; the operator can select it later.
+            with suppress(ToolkitError):
                 session.bind_project(positional_path)
-            except ToolkitError:
-                # Project creation has already reported success. Failure to
-                # bind shell context must not be misreported as failed project
-                # initialisation; the operator can select it later.
-                pass
         return True
 
     # Archive verification is deliberately usable without project context.
@@ -157,6 +174,58 @@ def _dispatch_line(
     return True
 
 
+def _completion_candidates(session: ShellSession, text: str) -> list[str]:
+    """Return conservative command/project completions for the current token."""
+
+    commands = [
+        "acquire",
+        "case",
+        "catalogue",
+        "context",
+        "exit",
+        "help",
+        "package",
+        "project",
+        "projects",
+        "quit",
+        "select",
+        "verify",
+        "checkpoint",
+        "clear",
+        "create",
+        "current",
+        "init",
+        "list",
+        "retire",
+        "screenshot",
+        "youtube",
+    ]
+    candidates = commands
+    if text:
+        candidates = [item for item in candidates if item.startswith(text)]
+    return candidates
+
+
+def _readline_candidates(session: ShellSession, text: str) -> list[str]:
+    """Add registered project IDs to ordinary command completion candidates."""
+
+    candidates = _completion_candidates(session, text)
+    candidates.extend(
+        project_id
+        for project_id in registered_projects()
+        if not text or project_id.startswith(text)
+    )
+    if session.project_root is not None:
+        with suppress(ToolkitError):
+            candidates.extend(
+                str(item["identifier"])
+                for item in list_identifiers(session.project_root, "case")
+                if item["state"] == "active"
+                and (not text or str(item["identifier"]).startswith(text))
+            )
+    return candidates
+
+
 def run_shell(
     *,
     start: Path,
@@ -164,6 +233,7 @@ def run_shell(
     input_fn: Input = input,
     output_fn: Output = print,
     show_banner: bool = True,
+    history_enabled: bool = True,
 ) -> int:
     """Run the FACT interactive shell until EOF, ``exit`` or ``quit``.
 
@@ -177,26 +247,34 @@ def run_shell(
         output_fn("FACT interactive shell. Type 'help' for commands.")
         _show_context(session, output_fn)
 
-    while True:
-        try:
-            line = input_fn(session.prompt())
-        except EOFError:
-            output_fn("")
-            return 0
-        except KeyboardInterrupt:
-            output_fn("^C")
-            continue
+    interactive = ReadlineFeatures(
+        lambda text: _readline_candidates(session, text),
+        enabled=input_fn is input,
+        history_enabled=history_enabled,
+    )
+    with interactive:
+        while True:
+            interactive.before_input()
+            try:
+                line = input_fn(session.prompt())
+            except EOFError:
+                output_fn("")
+                return 0
+            except KeyboardInterrupt:
+                output_fn("^C")
+                continue
+            interactive.after_input(line)
 
-        try:
-            tokens = shlex.split(line, posix=True)
-        except ValueError as exc:
-            output_fn(f"ERROR: {exc}")
-            continue
+            try:
+                tokens = shlex.split(line, posix=True)
+            except ValueError as exc:
+                output_fn(f"ERROR: {exc}")
+                continue
 
-        try:
-            keep_running = _dispatch_line(session, tokens, dispatch, output_fn)
-        except ToolkitError as exc:
-            output_fn(f"ERROR: {exc}")
-            continue
-        if not keep_running:
-            return 0
+            try:
+                keep_running = _dispatch_line(session, tokens, dispatch, output_fn)
+            except ToolkitError as exc:
+                output_fn(f"ERROR: {exc}")
+                continue
+            if not keep_running:
+                return 0

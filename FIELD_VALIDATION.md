@@ -1,6 +1,6 @@
-# FACT v2.6.0 field validation
+# FACT v2.7.0 field validation
 
-This release introduces the interactive shell foundation. Field validation should concentrate on context visibility, safe project and case switching, normal command dispatch, and unchanged screenshot/YouTube acquisition behaviour.
+This release completes the interactive shell foundation. Field validation should concentrate on context visibility, safe project and case switching, project-ID registry behaviour, explicit help, optional local history/completion, normal command dispatch, and unchanged screenshot/YouTube acquisition behaviour.
 
 ## Fresh environment
 
@@ -24,6 +24,8 @@ Confirm the new command is present:
 
 ```fish
 fact --help
+fact help
+fact help acquire
 fact shell
 ```
 
@@ -69,7 +71,7 @@ context
 project select /mnt/storage/Forensic/projects/james-koash-2026
 ```
 
-FACT should bind the explicit project and change the prompt. It must not guess a project merely because other FACT projects exist elsewhere on the system.
+FACT should bind the explicit project and change the prompt. Run `projects` and confirm the project is now listed. Clear the project, then select it again by project ID and confirm FACT resolves the validated registry entry. It must not guess an unregistered or ambiguous project ID.
 
 ## Case selection
 
@@ -102,7 +104,7 @@ FACT must not silently choose another active case. Select a valid case explicitl
 With the correct project and case visible in the prompt, run:
 
 ```text
-acquire screenshot --acquisition-comment "FACT v2.6 shell screenshot validation"
+acquire screenshot --acquisition-comment "FACT v2.7 shell screenshot validation"
 ```
 
 Expected behaviour is identical to the ordinary CLI screenshot workflow. On Wayland, the desktop/compositor should present its trusted capture selector. FACT must preserve the returned original screenshot bytes without annotations, redactions, resizing, or re-encoding.
@@ -115,9 +117,13 @@ Confirm:
 
 ```text
 help
+help acquire
 context
+projects
 catalogue verify
 ```
+
+Start a second shell with `fact shell --no-history` and confirm tab completion still works while new commands are not persisted to the local history file. In a normal shell, confirm command history is bounded local state and that a command containing a sensitive option such as `--cookies` is not retained.
 
 Then test the following interaction behaviour:
 

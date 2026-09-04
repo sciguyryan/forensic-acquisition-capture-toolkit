@@ -35,7 +35,9 @@ def test_session_discovers_project_and_renders_context(tmp_path: Path) -> None:
     assert session.prompt() == f"P-1 / {case_id}> "
 
 
-def test_session_can_start_unbound_and_requires_explicit_project(tmp_path: Path) -> None:
+def test_session_can_start_unbound_and_requires_explicit_project(
+    tmp_path: Path,
+) -> None:
     """Do not guess a project when the shell starts outside one."""
 
     session = ShellSession.from_start(tmp_path)
@@ -44,7 +46,9 @@ def test_session_can_start_unbound_and_requires_explicit_project(tmp_path: Path)
         session.require_project()
 
 
-def test_project_selection_and_clear_are_shell_context_operations(tmp_path: Path) -> None:
+def test_project_selection_and_clear_are_shell_context_operations(
+    tmp_path: Path,
+) -> None:
     """Bind and clear project context without invoking evidential handlers."""
 
     root, _ = make_project(tmp_path)
@@ -133,7 +137,15 @@ def test_shell_eof_exits_cleanly(tmp_path: Path) -> None:
     def eof(_: str) -> str:
         raise EOFError
 
-    assert run_shell(start=tmp_path, dispatch=lambda argv: 0, input_fn=eof, output_fn=output.append) == 0
+    assert (
+        run_shell(
+            start=tmp_path,
+            dispatch=lambda argv: 0,
+            input_fn=eof,
+            output_fn=output.append,
+        )
+        == 0
+    )
 
 
 def test_nested_shell_is_refused() -> None:
@@ -171,3 +183,113 @@ def test_context_display_handles_stale_case_selection(tmp_path: Path) -> None:
         output.append,
     )
     assert output[-1] == "Case:    invalid selection; run 'case select'"
+
+
+def test_project_registry_resolves_unique_registered_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resolve a project ID only after an explicit path has registered it."""
+
+    from fact.shell.registry import register_project, resolve_registered_project
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    root, _ = make_project(tmp_path)
+    project_id, registered = register_project(root)
+    assert project_id == "P-1"
+    assert registered == root.resolve()
+    assert resolve_registered_project("P-1") == root.resolve()
+
+
+def test_project_registry_refuses_unknown_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never guess a path for a project ID absent from validated local state."""
+
+    from fact.shell.registry import resolve_registered_project
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    with pytest.raises(ToolkitError, match="No validated project"):
+        resolve_registered_project("UNKNOWN")
+
+
+def test_project_registry_refuses_ambiguous_duplicate_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Require an explicit path when two validated projects share an ID."""
+
+    from fact.shell.registry import register_project, resolve_registered_project
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    initialise_project(first, "DUPLICATE", "First")
+    initialise_project(second, "DUPLICATE", "Second")
+    register_project(first)
+    register_project(second)
+    with pytest.raises(ToolkitError, match="ambiguous"):
+        resolve_registered_project("DUPLICATE")
+
+
+def test_shell_selects_registered_project_by_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Allow convenient project-ID selection after an explicit trusted encounter."""
+
+    from fact.shell.registry import register_project
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    root, _ = make_project(tmp_path)
+    register_project(root)
+    session = ShellSession()
+    output: list[str] = []
+    assert _dispatch_line(
+        session,
+        ["project", "select", "P-1"],
+        lambda argv: 0,
+        output.append,
+    )
+    assert session.project_root == root.resolve()
+
+
+def test_shell_projects_lists_validated_registry_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """List only locally registered project discovery hints."""
+
+    from fact.shell.registry import register_project
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    root, _ = make_project(tmp_path)
+    register_project(root)
+    output: list[str] = []
+    assert _dispatch_line(
+        ShellSession(),
+        ["projects"],
+        lambda argv: 0,
+        output.append,
+    )
+    assert output == [f"P-1\t{root.resolve()}"]
+
+
+def test_command_specific_shell_help_uses_canonical_dispatcher() -> None:
+    """Route contextual help to the same parser used by ordinary CLI calls."""
+
+    calls: list[list[str]] = []
+    assert _dispatch_line(
+        ShellSession(),
+        ["help", "acquire"],
+        lambda argv: calls.append(list(argv)) or 0,
+        lambda _: None,
+    )
+    assert calls == [["help", "acquire"]]
+
+
+def test_history_filter_excludes_sensitive_commands() -> None:
+    """Keep obvious secret-bearing commands out of persistent local history."""
+
+    from fact.shell.interactive import should_retain_history
+
+    assert should_retain_history("case list")
+    assert not should_retain_history("   ")
+    assert not should_retain_history("command --token abc")
+    assert not should_retain_history("export-keypair")

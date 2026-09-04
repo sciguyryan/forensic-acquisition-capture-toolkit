@@ -14,14 +14,15 @@ from pathlib import Path
 
 from .acquire import acquire
 from .capabilities.screenshot import CaptureTarget
+from .collectors.registry import default_registry
 from .collectors.screenshot.collector import ScreenshotRequest
 from .console import log, security_warning, summary
-from .collectors.registry import default_registry
-from .errors import ToolkitError
-from .identity import interactive_identity, resolve_identity
-from .keys import ensure_key, export_keypair
-from .models import CaseInfo
-from .core.orchestration import run_collector_acquisition
+from .core.catalogue import (
+    list_identifiers,
+    verify_chain,
+    verify_checkpoint,
+    write_checkpoint,
+)
 from .core.context import (
     choose_case_interactively,
     clear_selected_case,
@@ -31,10 +32,14 @@ from .core.context import (
     selected_case_path,
     set_selected_case,
 )
+from .core.orchestration import run_collector_acquisition
 from .core.packaging import create_project_package
-from .core.catalogue import list_identifiers, verify_chain, verify_checkpoint, write_checkpoint
 from .core.project import create_case, initialise_project, retire_case
 from .core.verification import verify_archive
+from .errors import ToolkitError
+from .identity import interactive_identity, resolve_identity
+from .keys import ensure_key, export_keypair
+from .models import CaseInfo
 
 
 def parser() -> argparse.ArgumentParser:
@@ -66,15 +71,25 @@ def parser() -> argparse.ArgumentParser:
     acquire_parser.add_argument(
         "target",
         nargs="?",
-        help="Collector target; required for YouTube and omitted for interactive screenshots",
+        help=(
+            "Collector target; required for YouTube and omitted for "
+            "interactive screenshots"
+        ),
     )
     acquire_parser.add_argument(
         "--case-id",
-        help="Legacy explicit case override; normally FACT resolves case context automatically",
+        help=(
+            "Legacy explicit case override; normally FACT resolves case context "
+            "automatically"
+        ),
     )
 
     comment_group = acquire_parser.add_mutually_exclusive_group(required=False)
-    comment_group.add_argument("--acquisition-comment", "--case-comment", dest="case_comment")
+    comment_group.add_argument(
+        "--acquisition-comment",
+        "--case-comment",
+        dest="case_comment",
+    )
     comment_group.add_argument(
         "--acquisition-comment-file",
         "--case-comment-file",
@@ -122,7 +137,10 @@ def parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--force", action="store_true")
 
     project_parser = subcommands.add_parser("project")
-    project_commands = project_parser.add_subparsers(dest="project_command", required=True)
+    project_commands = project_parser.add_subparsers(
+        dest="project_command",
+        required=True,
+    )
     project_init = project_commands.add_parser("init")
     project_init.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     project_init.add_argument("--project-id", required=True)
@@ -142,14 +160,25 @@ def parser() -> argparse.ArgumentParser:
     case_commands.add_parser("current")
 
     catalogue_parser = subcommands.add_parser("catalogue")
-    catalogue_commands = catalogue_parser.add_subparsers(dest="catalogue_command", required=True)
+    catalogue_commands = catalogue_parser.add_subparsers(
+        dest="catalogue_command",
+        required=True,
+    )
     catalogue_verify = catalogue_commands.add_parser("verify")
     catalogue_verify.add_argument("--checkpoint", action="store_true")
     catalogue_verify.add_argument("--public-key", type=Path)
     catalogue_checkpoint = catalogue_commands.add_parser("checkpoint")
     catalogue_checkpoint.add_argument("--toolkit-root", type=Path)
 
-    subcommands.add_parser("shell")
+    help_parser = subcommands.add_parser("help")
+    help_parser.add_argument("topic", nargs="*")
+
+    shell_parser = subcommands.add_parser("shell")
+    shell_parser.add_argument(
+        "--no-history",
+        action="store_true",
+        help="Disable persistent local shell history while retaining completion",
+    )
 
     package_parser = subcommands.add_parser("package")
     package_parser.add_argument("--toolkit-root", type=Path)
@@ -296,7 +325,9 @@ def _acquire(args: argparse.Namespace) -> int:
         )
         return 0
 
-    raise ToolkitError(f"Collector is registered but has no CLI request adapter: {source_name}")
+    raise ToolkitError(
+        f"Collector is registered but has no CLI request adapter: {source_name}"
+    )
 
 
 def _verify(args: argparse.Namespace) -> int:
@@ -332,6 +363,20 @@ def _export_keypair(args: argparse.Namespace) -> int:
         args.output or args.root / "keys",
         force=args.force,
     )
+    return 0
+
+
+def _command_help(topic: Sequence[str]) -> int:
+    """Print top-level or command-specific help through the canonical parser."""
+
+    argument_parser = parser()
+    if not topic:
+        argument_parser.print_help()
+        return 0
+    try:
+        argument_parser.parse_args([*topic, "--help"])
+    except SystemExit as exc:
+        return int(exc.code or 0)
     return 0
 
 
@@ -384,7 +429,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     selected = set_selected_case(project_root, args.case_id)
                 else:
                     selected = choose_case_interactively(project_root)
-                log("PASS", f"Selected case: {selected.case_id} - {selected.title or 'Untitled case'}")
+                log(
+                    "PASS",
+                    f"Selected case: {selected.case_id} - "
+                    f"{selected.title or 'Untitled case'}",
+                )
                 return 0
             if args.case_command == "current":
                 selected = get_selected_case(project_root)
@@ -407,10 +456,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     result = verify_chain(project_root)
                 log("PASS", f"Catalogue valid: {result['event_count']} events")
                 return 0
+        if args.command == "help":
+            return _command_help(args.topic)
         if args.command == "shell":
             from .shell import run_shell
 
-            return run_shell(start=args.root, dispatch=main)
+            return run_shell(
+                start=args.root,
+                dispatch=main,
+                history_enabled=not args.no_history,
+            )
         if args.command == "package":
             project_root = discover_project_root(args.root)
             outputs = create_project_package(

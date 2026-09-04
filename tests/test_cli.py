@@ -70,3 +70,19 @@ def test_screenshot_collector_syntax_has_no_positional_target() -> None:
     assert args.source == "screenshot"
     assert args.target is None
     assert args.screenshot_target == "window"
+
+
+def test_help_command_parses_topic() -> None:
+    """Expose explicit command help alongside conventional --help syntax."""
+
+    args = parser().parse_args(["help", "case", "select"])
+    assert args.command == "help"
+    assert args.topic == ["case", "select"]
+
+
+def test_shell_no_history_option() -> None:
+    """Allow operators to disable persistent shell history explicitly."""
+
+    args = parser().parse_args(["shell", "--no-history"])
+    assert args.command == "shell"
+    assert args.no_history is True

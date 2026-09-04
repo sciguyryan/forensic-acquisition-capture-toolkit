@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.7.0
+
+- Completed the interactive shell foundation with explicit command help, safe local history, tab completion, and validated project-ID selection.
+- Added a local non-evidential project registry that revalidates project records and refuses ambiguous duplicate IDs.
+- Added `fact help [command ...]` while preserving conventional `--help` behaviour.
+- Prevented non-interactive shell callers from reading or writing local command history.
+- Corrected Ruff-visible import, simplification, and formatting issues across the shell work and pre-existing lint hotspots.
+- Retired the completed shell-foundation items from the development TODO.
+
 ## 2.6.0 - Interactive Shell Foundation
 
 - Added `fact shell` as a thin in-process REPL over the existing FACT command handlers and core services.

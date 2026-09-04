@@ -1,6 +1,6 @@
 # Interactive FACT shell
 
-FACT 2.6 introduces the first interactive shell foundation. The shell is an operator interface over the existing command handlers and core services. It is not a separate evidential implementation and must not duplicate acquisition, catalogue, cryptographic, verification, or packaging logic.
+FACT 2.7 completes the interactive shell foundation. The shell is an operator interface over the existing command handlers and core services. It is not a separate evidential implementation and must not duplicate acquisition, catalogue, cryptographic, verification, or packaging logic.
 
 ## Starting the shell
 
@@ -8,6 +8,12 @@ Run:
 
 ```bash
 fact shell
+```
+
+To disable persistent local command history while retaining completion, run:
+
+```bash
+fact shell --no-history
 ```
 
 When started inside a FACT project, including a case subdirectory, the shell discovers the containing project automatically. When started elsewhere, it remains deliberately unbound until the operator selects a project.
@@ -45,7 +51,13 @@ This does not alter the project, catalogue, cases, or evidence.
 
 Use `context` at any time to print the selected project path and selected case.
 
-Project selection by a global project ID alone is intentionally not implemented yet because FACT does not currently maintain a trusted global project registry. The shell therefore requires a project path unless it was started inside a project. This avoids guessing between unrelated projects that happen to exist on the host.
+After FACT has explicitly encountered a project by path, the shell records its project ID and path in a per-user local registry. The registry is operational convenience state, not evidence, and every entry is revalidated against the project's canonical `PROJECT.toml` before use. You can then select a uniquely registered project by ID:
+
+```text
+fact> project select JAMES-KOASH-2026
+```
+
+Use `projects` to show currently validated registry entries. If multiple valid paths claim the same project ID, FACT treats the ID as ambiguous and requires an explicit path rather than guessing.
 
 ## Case context
 
@@ -99,7 +111,7 @@ Evidence archive verification remains usable without a selected project because 
 
 ## Input behaviour
 
-`help` prints the current shell command summary. `exit` and `quit` leave the shell. End-of-file also exits cleanly.
+`help` prints the current shell command summary. `help COMMAND ...` delegates to the canonical CLI parser for command-specific help. `exit` and `quit` leave the shell. End-of-file also exits cleanly.
 
 `Ctrl-C` cancels the current shell input and returns to a fresh prompt rather than terminating the shell. Malformed shell quoting is reported as an input error and does not end the session.
 
@@ -107,9 +119,11 @@ The shell uses POSIX-style quoting rules through Python's `shlex` parser. Paths 
 
 ## History and completion
 
-The v2.6 foundation deliberately does not persist command history and does not add an interactive completion dependency. The implementation keeps those concerns outside the evidential command path so future history and completion support can be added without changing command semantics.
+When the platform provides Python's optional `readline` module and the shell is attached through the normal interactive input path, FACT enables tab completion and a bounded local command history. These features are convenience state only and never enter the evidential catalogue or packages.
 
-Any future persistent shell history must be treated as local operational data rather than evidence and must avoid retaining secrets or other sensitive arguments unnecessarily.
+History is stored under the user's XDG state directory, or `~/.local/state/fact/` when `XDG_STATE_HOME` is not set. FACT writes the state directory owner-only and the history file mode `0600` where the platform permits it. Obvious sensitive command forms such as password, passphrase, token, private-key, cookie-file, identity-file, requestor, acquisition-comment, case-comment, and key-export commands are not retained. Automated or injected input functions do not activate readline history. Operators can disable persistent history entirely with `fact shell --no-history`.
+
+Completion includes the shell command surface, common subcommands and collector names, validated registered project IDs, and active case IDs in the selected project. It does not execute acquisitions or other evidential operations.
 
 ## Future command families
 

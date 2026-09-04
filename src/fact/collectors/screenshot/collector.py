@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import json
 import platform
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from dataclasses import dataclass
 
 from ... import __version__
 from ...capabilities.screenshot import CaptureTarget, LinuxScreenshotCapability

@@ -240,6 +240,8 @@ FACT also provides an interactive operator shell:
 fact shell
 ```
 
+Explicit command help is also available with `fact help [command ...]`, alongside the conventional `--help` form.
+
 When the shell is started inside a FACT project it displays the selected project and case directly in the prompt, allowing routine operations such as `acquire screenshot` without repeatedly transcribing project paths or case identifiers. Detailed shell behaviour is documented in [`docs/SHELL.md`](docs/SHELL.md).
 
 During the transition from the original YouTube Forensics project, command names and package structure may change as the generic FACT architecture is introduced.

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+from contextlib import suppress
 from pathlib import Path
 
+from ..errors import ToolkitError
 from .catalogue import (
     PROJECT_NAME,
     fail_identifier,
@@ -12,7 +14,7 @@ from .catalogue import (
     issue_identifier,
     retire_identifier,
 )
-from ..errors import ToolkitError
+
 
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
@@ -66,10 +68,8 @@ def create_case(project_root: Path, title: str = "", comment: str = "") -> str:
         # A case identifier is never returned to the sequence even when the
         # filesystem record could not be completed. This prevents a later case
         # from inheriting an identifier already observed in the audit history.
-        try:
+        with suppress(Exception):
             fail_identifier(project_root, identifier, str(exc))
-        except Exception:
-            pass
         raise
     return identifier
 
