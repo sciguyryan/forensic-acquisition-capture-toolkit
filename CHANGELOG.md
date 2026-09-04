@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.6.0 - Interactive Shell Foundation
+
+- Added `fact shell` as a thin in-process REPL over the existing FACT command handlers and core services.
+- Added project-aware and case-aware prompts so the current evidential context remains visible before commands are executed.
+- Added safe project selection by path, project-context clearing, case-selection aliases, context display, help, clean EOF/exit handling, and non-fatal `Ctrl-C` input cancellation.
+- Added conservative stale-case handling that displays an invalid-context marker rather than silently selecting another case.
+- Preserved archive verification outside project context and prevented accidental nested FACT shells.
+- Added detailed shell architecture and usage documentation in `docs/SHELL.md`.
+- Added `docs/TODO.md` as the canonical list of accepted ownership, notes, case lifecycle, review-layer, and project-browser follow-on work.
+- Adopted the user-reviewed `.gitignore` baseline, added the generated `coverage.xml` report, and continued excluding generated `*.egg-info/` metadata and sensitive runtime material from source releases.
+
 ## 2.5.0 - Context and Review Foundation
 
 - Added automatic project and case context discovery so routine acquisitions no longer require operators to retype case identifiers.

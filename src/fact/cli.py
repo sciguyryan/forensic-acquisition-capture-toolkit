@@ -149,6 +149,8 @@ def parser() -> argparse.ArgumentParser:
     catalogue_checkpoint = catalogue_commands.add_parser("checkpoint")
     catalogue_checkpoint.add_argument("--toolkit-root", type=Path)
 
+    subcommands.add_parser("shell")
+
     package_parser = subcommands.add_parser("package")
     package_parser.add_argument("--toolkit-root", type=Path)
     package_parser.add_argument("--output", type=Path)
@@ -405,6 +407,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     result = verify_chain(project_root)
                 log("PASS", f"Catalogue valid: {result['event_count']} events")
                 return 0
+        if args.command == "shell":
+            from .shell import run_shell
+
+            return run_shell(start=args.root, dispatch=main)
         if args.command == "package":
             project_root = discover_project_root(args.root)
             outputs = create_project_package(

@@ -234,6 +234,14 @@ The installed command-line interface is intended to be exposed as:
 fact
 ```
 
+FACT also provides an interactive operator shell:
+
+```bash
+fact shell
+```
+
+When the shell is started inside a FACT project it displays the selected project and case directly in the prompt, allowing routine operations such as `acquire screenshot` without repeatedly transcribing project paths or case identifiers. Detailed shell behaviour is documented in [`docs/SHELL.md`](docs/SHELL.md).
+
 During the transition from the original YouTube Forensics project, command names and package structure may change as the generic FACT architecture is introduced.
 
 ## Development
@@ -311,4 +319,4 @@ FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records,
 
 Routine acquisitions no longer require operators to retype a case identifier. FACT can infer the current case from the working directory, use the project's selected case, automatically use the sole active case, or present an interactive numbered selector when a choice is required. New cases are allocated sequentially and selected automatically.
 
-Detailed design and operational behaviour are documented in [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md) and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).
+Detailed design and operational behaviour are documented in [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md) and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The interactive workflow is described in [`docs/SHELL.md`](docs/SHELL.md), while accepted future workflow work is recorded in [`docs/TODO.md`](docs/TODO.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).

@@ -176,7 +176,9 @@ without making the screenshot collector depend on one operating system.
 
 ## Review layers
 
-FACT now has the foundation for annotation and proposed-redaction layers, while the graphical editor remains future work. The review system loads the immutable original and maintains separate structured overlay layers. Shapes such as arrows, circles, rectangles, highlights, markers, and text will be stored as scalable/normalised geometry rather than burned into the source image. Proposed redactions will form a separate layer and each redaction will require a reason.
+FACT now has the foundation for annotation and proposed-redaction layers, while the graphical editor remains future work.
+
+The review system loads the immutable original and maintains separate structured overlay layers. Shapes such as arrows, circles, rectangles, highlights, markers, and text will be stored as scalable/normalised geometry rather than burned into the source image. Proposed redactions will form a separate layer and each redaction will require a reason.
 
 The same layer data is designed to drive:
 
