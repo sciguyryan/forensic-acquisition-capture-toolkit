@@ -126,6 +126,14 @@ The archive itself is cryptographically hashed and signed after creation.
 
 Generated records should not be confused with independently acquired evidence. FACT should make that distinction clear wherever generated documentation, summaries or other derived material are introduced.
 
+### Project packages
+
+FACT can package the current state of a project into a canonical project archive. Project packaging verifies the tamper-evident catalogue before export, embeds the catalogue event count and chain head as an external rollback anchor, writes an internal SHA-256 manifest, creates a detached OpenPGP signature and archive checksum, and verifies the generated package before reporting success.
+
+The canonical package remains unencrypted so its evidential identity is independent of its recipients. Optional OpenPGP encryption creates a separate encrypted envelope without replacing the signed canonical package. Private signing keys and local operational secrets are never included.
+
+Detailed package-format, encryption and recovery documentation is provided in `docs/PROJECT_PACKAGES.md`.
+
 ## Cryptographic integrity
 
 FACT uses cryptographic hashes and OpenPGP signatures to protect completed evidence packages.
@@ -260,8 +268,3 @@ The original YouTube acquisition implementation forms FACT's first source-specif
 ## Licence
 
 See the repository's licence information for the terms under which FACT is distributed.
-## Projects and catalogue
-
-FACT is introducing a project-oriented hierarchy in which projects contain cases and cases contain acquisitions. Case identifiers are allocated automatically and are never reused after issue, including after retirement. Project state is maintained in a tamper-evident SQLite catalogue with a cryptographically chained audit journal and optional signed checkpoints.
-
-Detailed design, integrity guarantees, threat model, operational commands and rollback limitations are documented in [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md).

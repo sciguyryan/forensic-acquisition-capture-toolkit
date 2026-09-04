@@ -141,6 +141,9 @@ def _append_event(
 
 @contextmanager
 def _write_transaction(project_root: Path) -> Iterator[sqlite3.Connection]:
+    package_lock = project_root / CATALOGUE_DIR / "package.lock"
+    if package_lock.exists():
+        raise ToolkitError("FACT project is currently being packaged; catalogue mutation is blocked")
     connection = _connect(project_root)
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -290,6 +293,7 @@ def verify_chain(project_root: Path) -> dict[str, object]:
             "event_count": len(rows),
             "chain_head": previous,
             "state_digest": _state_digest(connection),
+            "last_event_at": str(rows[-1]["occurred_at"]) if rows else None,
         }
     finally:
         connection.close()

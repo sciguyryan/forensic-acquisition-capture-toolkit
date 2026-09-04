@@ -18,6 +18,7 @@ from .errors import ToolkitError
 from .identity import interactive_identity, resolve_identity
 from .keys import ensure_key, export_keypair
 from .models import CaseInfo
+from .packaging import create_project_package
 from .catalogue import list_identifiers, verify_chain, verify_checkpoint, write_checkpoint
 from .project import create_case, initialise_project, retire_case
 from .verify import verify_archive
@@ -100,6 +101,12 @@ def parser() -> argparse.ArgumentParser:
     catalogue_verify.add_argument("--public-key", type=Path)
     catalogue_checkpoint = catalogue_commands.add_parser("checkpoint")
     catalogue_checkpoint.add_argument("--toolkit-root", type=Path)
+
+    package_parser = subcommands.add_parser("package")
+    package_parser.add_argument("--toolkit-root", type=Path)
+    package_parser.add_argument("--output", type=Path)
+    package_parser.add_argument("--encrypt-to", action="append", default=[])
+    package_parser.add_argument("--force", action="store_true")
 
     return argument_parser
 
@@ -262,6 +269,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     result = verify_chain(args.root)
                 log("PASS", f"Catalogue valid: {result['event_count']} events")
                 return 0
+        if args.command == "package":
+            outputs = create_project_package(
+                args.root,
+                args.toolkit_root or Path.cwd(),
+                args.output,
+                encrypt_to=args.encrypt_to,
+                force=args.force,
+            )
+            log("PASS", f"FACT project package created: {outputs['archive']}")
+            if "encrypted" in outputs:
+                log("PASS", f"Encrypted package created: {outputs['encrypted']}")
+            return 0
     except ToolkitError as exc:
         log("ERROR", str(exc))
         return 1

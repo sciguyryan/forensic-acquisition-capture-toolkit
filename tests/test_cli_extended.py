@@ -120,3 +120,32 @@ def test_acquire_helper_builds_case_and_forwards_options(
     assert case.operator_username == "login-user"
     assert case.operator_source == "active_profile"
     assert calls[0]["live_chat"] is False
+
+
+def test_package_command_dispatches_project_packaging(tmp_path: Path, monkeypatch) -> None:
+    """Create a project package through the public command-line dispatcher."""
+    calls = []
+    archive = tmp_path / "P-1.fact.tar.gz"
+    monkeypatch.setattr(
+        cli,
+        "create_project_package",
+        lambda *args, **kwargs: calls.append((args, kwargs))
+        or {"archive": archive},
+    )
+    monkeypatch.setattr(cli, "log", lambda *args: None)
+
+    assert (
+        cli.main(
+            [
+                "--root",
+                str(tmp_path / "project"),
+                "package",
+                "--toolkit-root",
+                str(tmp_path / "toolkit"),
+                "--encrypt-to",
+                "RECIPIENT",
+            ]
+        )
+        == 0
+    )
+    assert calls[0][1]["encrypt_to"] == ["RECIPIENT"]

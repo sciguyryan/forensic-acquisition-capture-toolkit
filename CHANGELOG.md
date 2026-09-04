@@ -1,3 +1,18 @@
+# Changelog
+
+## 2.2.0 - 2026-09-04
+
+- Added canonical project-scope packaging with `fact package`.
+- Added deterministic `tar.gz` package generation with normalised archive metadata.
+- Added an internal SHA-256 manifest plus external archive checksum, detached OpenPGP signature, public-key sidecar and fingerprint sidecar.
+- Added package self-verification before successful completion.
+- Bound project packages to the tamper-evident catalogue event count, chain head and state digest to provide an external rollback anchor.
+- Added consistent SQLite catalogue snapshots using the SQLite backup API.
+- Added cooperative package locking that blocks catalogue mutation during package creation.
+- Added optional multi-recipient OpenPGP encryption as a separate outer envelope after hashing and signing.
+- Added strict package allow-listing and symbolic-link rejection to prevent accidental inclusion or unsafe path semantics.
+- Added detailed package-format, encryption, failure and threat-model documentation under `docs/PROJECT_PACKAGES.md`.
+
 ## 2.0.0
 
 - Initial full release.
@@ -71,14 +86,3 @@
 - Added active-profile digest pinning in `config.json` and per-acquisition `--identity-file` override.
 - Added operator identity/public-key snapshots and mandatory personal detached archive signatures.
 - Extended verification to validate the operator signature and exact signing fingerprint.
-
-## 2.1.0 - Catalogue foundation
-
-- Renamed the primary command-line entry point to `fact`, retaining `youtube-forensics` as a compatibility alias during transition.
-- Added FACT project initialisation with `PROJECT.toml` metadata.
-- Added automatic, monotonic case identifier allocation with permanent non-reuse after retirement.
-- Added a transactional SQLite project catalogue with owner-only filesystem permissions.
-- Added an append-only logical audit journal with SHA-256 hash chaining.
-- Added deterministic current-state digests and GnuPG-signed catalogue checkpoints.
-- Added isolated-public-key checkpoint verification and explicit catalogue integrity verification.
-- Added project/catalogue architecture and threat-model documentation under `docs/`.

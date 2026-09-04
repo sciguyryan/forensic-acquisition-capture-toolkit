@@ -1,3 +1,3 @@
-"""YouTube Forensic Toolkit."""
+"""Forensic Acquisition & Capture Toolkit."""
 
-__version__ = "2.0.0"
+__version__ = "2.2.0"
