@@ -1,3 +1,19 @@
+Metadata-Version: 2.4
+Name: fact-forensic-toolkit
+Version: 2.1.0
+Summary: Source-agnostic forensic acquisition, capture, packaging, signing, and verification toolkit
+Author: FACT contributors
+License-Expression: LGPL-2.1-or-later
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Provides-Extra: dev
+Requires-Dist: build>=1.2; extra == "dev"
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: pytest-cov>=6; extra == "dev"
+Requires-Dist: ruff>=0.15; extra == "dev"
+Dynamic: license-file
+
 # FACT
 
 **Forensic Acquisition & Capture Toolkit**

@@ -18,6 +18,8 @@ from .errors import ToolkitError
 from .identity import interactive_identity, resolve_identity
 from .keys import ensure_key, export_keypair
 from .models import CaseInfo
+from .catalogue import list_identifiers, verify_chain, verify_checkpoint, write_checkpoint
+from .project import create_case, initialise_project, retire_case
 from .verify import verify_archive
 
 
@@ -25,8 +27,8 @@ def parser() -> argparse.ArgumentParser:
     """Build and return the toolkit's command-line argument parser."""
 
     argument_parser = argparse.ArgumentParser(
-        prog="youtube-forensic",
-        description="Forensic YouTube acquisition and verification toolkit",
+        prog="fact",
+        description="Forensic Acquisition & Capture Toolkit",
     )
     argument_parser.add_argument(
         "--root",
@@ -73,6 +75,31 @@ def parser() -> argparse.ArgumentParser:
     export_parser = subcommands.add_parser("export-keypair")
     export_parser.add_argument("--output", type=Path)
     export_parser.add_argument("--force", action="store_true")
+
+    project_parser = subcommands.add_parser("project")
+    project_commands = project_parser.add_subparsers(dest="project_command", required=True)
+    project_init = project_commands.add_parser("init")
+    project_init.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    project_init.add_argument("--project-id", required=True)
+    project_init.add_argument("--title", required=True)
+
+    case_parser = subcommands.add_parser("case")
+    case_commands = case_parser.add_subparsers(dest="case_command", required=True)
+    case_create = case_commands.add_parser("create")
+    case_create.add_argument("--title", default="")
+    case_create.add_argument("--comment", default="")
+    case_retire = case_commands.add_parser("retire")
+    case_retire.add_argument("case_id")
+    case_retire.add_argument("--reason")
+    case_commands.add_parser("list")
+
+    catalogue_parser = subcommands.add_parser("catalogue")
+    catalogue_commands = catalogue_parser.add_subparsers(dest="catalogue_command", required=True)
+    catalogue_verify = catalogue_commands.add_parser("verify")
+    catalogue_verify.add_argument("--checkpoint", action="store_true")
+    catalogue_verify.add_argument("--public-key", type=Path)
+    catalogue_checkpoint = catalogue_commands.add_parser("checkpoint")
+    catalogue_checkpoint.add_argument("--toolkit-root", type=Path)
 
     return argument_parser
 
@@ -203,6 +230,38 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _keygen(args)
         if args.command == "export-keypair":
             return _export_keypair(args)
+        if args.command == "project":
+            if args.project_command == "init":
+                path = initialise_project(args.path, args.project_id, args.title)
+                log("PASS", f"FACT project created: {path.parent}")
+                return 0
+        if args.command == "case":
+            if args.case_command == "create":
+                identifier = create_case(args.root, args.title, args.comment)
+                log("PASS", f"Case created: {identifier}")
+                return 0
+            if args.case_command == "retire":
+                retire_case(args.root, args.case_id, args.reason)
+                log("PASS", f"Case retired: {args.case_id}")
+                return 0
+            if args.case_command == "list":
+                for item in list_identifiers(args.root):
+                    print(f"{item['identifier']}\t{item['state']}")
+                return 0
+        if args.command == "catalogue":
+            if args.catalogue_command == "checkpoint":
+                path = write_checkpoint(args.root, args.toolkit_root or args.root)
+                log("PASS", f"Catalogue checkpoint signed: {path}")
+                return 0
+            if args.catalogue_command == "verify":
+                if args.checkpoint:
+                    if args.public_key is None:
+                        raise ToolkitError("--public-key is required with --checkpoint")
+                    result = verify_checkpoint(args.root, args.public_key)
+                else:
+                    result = verify_chain(args.root)
+                log("PASS", f"Catalogue valid: {result['event_count']} events")
+                return 0
     except ToolkitError as exc:
         log("ERROR", str(exc))
         return 1

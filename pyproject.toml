@@ -3,13 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "youtube-forensic-toolkit"
-version = "2.0.0"
-description = "Forensic acquisition, packaging, signing, and verification of YouTube evidence"
+name = "fact-forensic-toolkit"
+version = "2.1.0"
+description = "Source-agnostic forensic acquisition, capture, packaging, signing, and verification toolkit"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "LGPL-2.1-or-later"
-authors = [{name = "YouTube Forensic Toolkit contributors"}]
+authors = [{name = "FACT contributors"}]
 dependencies = []
 
 [project.optional-dependencies]
@@ -68,6 +68,7 @@ line-ending = "lf"
 docstring-code-format = true
 
 [project.scripts]
+fact = "youtube_forensics.cli:main"
 youtube-forensics = "youtube_forensics.cli:main"
 
 [tool.setuptools]
