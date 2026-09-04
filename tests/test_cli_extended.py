@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from youtube_forensics import cli
-from youtube_forensics.errors import ToolkitError
-from youtube_forensics.identity import OperatorIdentity
-from youtube_forensics.models import VerificationSummary
+from fact import cli
+from fact.errors import ToolkitError
+from fact.identity import OperatorIdentity
+from fact.models import VerificationSummary
 
 IDENTITY = OperatorIdentity(1, "jane", "Jane Doe", None, None, None, "A" * 40, "B" * 40)
 

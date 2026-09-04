@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-from youtube_forensics import verify
-from youtube_forensics.hashing import digest, write_manifest
-from youtube_forensics.models import ToolResult
+from fact.core import verification as verify
+from fact.services.hashing import digest, write_manifest
+from fact.models import ToolResult
 
 
 def test_verify_archive_happy_path(tmp_path: Path, monkeypatch) -> None:

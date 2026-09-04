@@ -1,6 +1,6 @@
 """Tests for terminal summary formatting."""
 
-from youtube_forensics.console import summary
+from fact.console import summary
 
 
 def test_summary_aligns_values_after_longest_label(capsys) -> None:

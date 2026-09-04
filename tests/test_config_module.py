@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from youtube_forensics.config import config_path
+from fact.config import config_path
 
 
 def test_config_path_resolves_root() -> None:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from youtube_forensics.cli import parser
+from fact.cli import parser
 
 
 def test_case_comment_is_required() -> None:
@@ -37,3 +37,21 @@ def test_init_arguments() -> None:
 
     assert args.command == "init"
     assert args.test_key is True
+
+
+def test_explicit_youtube_collector_syntax() -> None:
+    """Accept the new collector-oriented acquisition spelling."""
+
+    args = parser().parse_args(
+        [
+            "acquire",
+            "youtube",
+            "https://youtu.be/abc",
+            "--case-id",
+            "CASE-1",
+            "--case-comment",
+            "Purpose",
+        ]
+    )
+    assert args.source == "youtube"
+    assert args.target == "https://youtu.be/abc"

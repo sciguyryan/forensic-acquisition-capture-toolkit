@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fact-forensic-toolkit"
-version = "2.2.0"
+version = "2.3.0"
 description = "Source-agnostic forensic acquisition, capture, packaging, signing, and verification toolkit"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,14 +25,25 @@ testpaths = ["tests"]
 addopts = [
     "--strict-config",
     "--strict-markers",
-    "--cov=youtube_forensics",
+    "--cov=fact",
     "--cov-report=term-missing",
     "--cov-report=xml",
 ]
 
 [tool.coverage.run]
 branch = true
-source = ["youtube_forensics"]
+source = ["fact"]
+omit = [
+    "src/fact/__main__.py",
+    "src/fact/archive.py",
+    "src/fact/catalogue.py",
+    "src/fact/commands.py",
+    "src/fact/hashing.py",
+    "src/fact/packaging.py",
+    "src/fact/project.py",
+    "src/fact/records.py",
+    "src/fact/verify.py",
+]
 
 [tool.coverage.report]
 show_missing = true
@@ -68,8 +79,8 @@ line-ending = "lf"
 docstring-code-format = true
 
 [project.scripts]
-fact = "youtube_forensics.cli:main"
-youtube-forensics = "youtube_forensics.cli:main"
+fact = "fact.cli:main"
+youtube-forensics = "fact.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

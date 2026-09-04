@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from youtube_forensics.archive import unsafe_members
+from fact.services.archive import unsafe_members
 
 
 def test_rejects_traversal_and_absolute_members(tmp_path: Path) -> None:
@@ -12,5 +12,5 @@ def test_rejects_traversal_and_absolute_members(tmp_path: Path) -> None:
     archive.write_bytes(b"")
 
     members = ["evidence/a", "../escape", "/absolute"]
-    with patch("youtube_forensics.archive.list_members", return_value=members):
+    with patch("fact.services.archive.list_members", return_value=members):
         assert unsafe_members(archive) == ["../escape", "/absolute"]

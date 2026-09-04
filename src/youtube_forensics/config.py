@@ -1,10 +1,6 @@
-"""Expose configuration-path helpers for the toolkit.
+"""Compatibility import path for :mod:`fact.config`."""
 
-The canonical implementation remains in :mod:`identity`; this module provides
-a stable import location for callers that treat configuration as a separate
-concern.
-"""
+import sys
+from fact import config as _implementation
 
-from .identity import config_path
-
-__all__ = ["config_path"]
+sys.modules[__name__] = _implementation

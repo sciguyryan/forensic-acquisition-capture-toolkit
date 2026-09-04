@@ -1,30 +1,72 @@
-# 2.0.0 field-validation checklist
+# FACT v2.3.0 field validation
 
-Run this checklist on the intended GNU/Linux evidence workstation before treating the release candidate as production-ready.
+This release is primarily an architectural refactor. Field validation should therefore concentrate on proving that existing YouTube behaviour still works while the canonical Python implementation has moved to the generic FACT architecture.
 
-1. Confirm `python3 --version` is 3.11 or newer.
-2. Confirm `yt-dlp`, `ffprobe`, `gpg`, and `7z` or `7zz` are installed.
-3. Run `youtube-forensic keygen` against a disposable test root, or confirm the existing evidence fingerprint is reused in the production root.
-4. Acquire a short public video with captions and no live chat.
-5. Acquire a video with available live-chat replay.
-6. Repeat with `--no-live-chat`.
-7. Repeat using a title containing spaces, Unicode, punctuation, and vertical-bar characters.
-8. Confirm `INCOMPLETE` is absent from `FILELIST.txt`, `SHA256SUMS.txt`, and `SHA512SUMS.txt`.
-9. Confirm `CASE_RECORD.json` and `CASE_RECORD.md` contain the supplied case comments.
-10. Run independent verification from a separate working directory.
-11. Tamper with a copied archive and confirm external hash and signature verification fail.
-12. Tamper with an extracted evidence file, rebuild an unsigned test archive, and confirm the internal manifest fails.
-13. Confirm cookies are not copied into staging or the archive.
-14. Confirm a failed acquisition retains staging and an `INCOMPLETE` marker.
-15. Confirm successful staging is retained without `INCOMPLETE`.
+## Fresh environment
 
-## Operator identity
+From the extracted release directory on Arch Linux with fish:
 
-Operator resolution uses the following precedence:
+```fish
+python -m venv .venv
+source .venv/bin/activate.fish
+python -m pip install -e '.[dev]'
+```
 
-1. `--operator`
-2. `YOUTUBE_FORENSIC_OPERATOR`
-3. `ROOT/config.json`
-4. current system username
+Confirm both console names resolve to the same FACT CLI:
 
-Explicit values must contain non-whitespace text. The fallback system username is accepted with a prominent warning. `ROOT/config.json` must be a regular JSON file and is written with mode `0600` by `youtube-forensic init`.
+```fish
+fact --help
+youtube-forensics --help
+```
+
+Run the automated suite:
+
+```fish
+python -m pytest
+ruff check .
+ruff format --check .
+```
+
+## Collector syntax
+
+Confirm the preferred explicit collector form parses correctly:
+
+```fish
+fact acquire youtube --help
+```
+
+The current parser also preserves the v2.2 URL-only form for compatibility. During this release the actual acquisition options remain the same as the existing YouTube workflow.
+
+## Representative YouTube acquisition
+
+Perform one representative acquisition using the explicit collector form and the same operator profile/key material you would normally use.
+
+Confirm that the resulting staging directory contains the familiar acquisition records plus the new:
+
+```text
+ARTEFACTS.json
+```
+
+Inspect `ARTEFACTS.json` and confirm the captured media is identified as `primary` and supporting collector output is listed separately.
+
+Confirm `TOOLKIT.json` identifies FACT and records `youtube` as the collector.
+
+Confirm the archive is hashed, signed by the FACT evidence key, signed by the operator, and passes mandatory self-verification as before.
+
+## Failure state
+
+If practical in a disposable test case, attempt an acquisition with a deliberately invalid or unavailable YouTube target.
+
+Confirm the staging directory remains present and retains:
+
+```text
+INCOMPLETE
+CASE_RECORD.json
+CASE_RECORD.md
+```
+
+A failed capture must not be reported as sealed evidence.
+
+## Regression expectation
+
+The refactor is accepted when ordinary YouTube acquisition and verification remain operational, the new explicit collector syntax works, and no new code path depends on the historical `youtube_forensics` implementation namespace.

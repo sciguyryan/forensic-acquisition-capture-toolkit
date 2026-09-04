@@ -2,7 +2,7 @@
 
 ## Purpose
 
-FACT organises work as projects containing cases and, subsequently, acquisitions. Project state is deliberately separated from acquired evidence. Human-readable project and case metadata use TOML, while transactional identifier allocation and audit history use SQLite.
+FACT organises work as projects containing cases and, subsequently, acquisitions. Project state is separated from acquired evidence. Human-readable project and case metadata use TOML, while transactional identifier allocation and audit history use SQLite.
 
 The catalogue is designed to make casual or accidental rewriting of project history detectable. It is not claimed to make a fully compromised host trustworthy.
 
@@ -38,7 +38,7 @@ Allocation uses a SQLite `BEGIN IMMEDIATE` transaction. This serialises concurre
 
 FACT distinguishes retirement from deletion. Retirement changes the current state of an identifier but preserves its allocation record and audit history permanently.
 
-The current implementation deliberately does not delete case material when a case is retired. Destructive evidence/project-data deletion requires a separately designed policy and must not be conflated with identifier retirement.
+The current implementation does not delete case material when a case is retired. Destructive evidence/project-data deletion requires a separately designed policy and must not be conflated with identifier retirement.
 
 ## Audit journal
 

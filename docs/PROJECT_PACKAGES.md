@@ -4,7 +4,7 @@
 
 `fact package` exports a complete, self-contained representation of the FACT-managed state of a project. The package is intended for preservation, controlled transfer, backup and independent later examination without weakening the catalogue integrity model.
 
-Project packaging is deliberately separate from source acquisition. Acquisition records what FACT obtained from a source. Packaging records and protects a selected FACT project state.
+Project packaging is separate from source acquisition. Acquisition records what FACT obtained from a source. Packaging records and protects a selected FACT project state.
 
 Version 2.2 implements project-scope packages. Case-scope and acquisition-scope packages are part of the intended architecture but are not yet implemented.
 
@@ -44,7 +44,7 @@ FACT-PACKAGE/
 
 The `.fact/catalogue.sqlite` member is produced through SQLite's backup API so that the package receives a transactionally consistent database snapshot.
 
-The allow-list intentionally prevents unrelated working files, prior package outputs, caches, local configuration and private keyrings from being swept into an evidential package merely because they are present below the project directory.
+The allow-list prevents unrelated working files, prior package outputs, caches, local configuration and private keyrings from being swept into an evidential package merely because they are present below the project directory.
 
 Private keys are never included by the project packager.
 
@@ -159,7 +159,7 @@ fact \
 
 ## Encryption
 
-Encryption is optional and is deliberately an outer confidentiality layer rather than part of canonical package identity.
+Encryption is optional and is an outer confidentiality layer rather than part of canonical package identity.
 
 The order of operations is:
 
@@ -204,7 +204,7 @@ fact \
 
 The recipient keys must already be available to the GnuPG keyring FACT is using. The resulting encrypted copy has an additional `.gpg` suffix.
 
-FACT deliberately retains the unencrypted canonical package when encryption is requested. This prevents encryption from becoming the only surviving representation of the evidence and avoids accidental permanent loss if all recipient private keys are later unavailable. A future explicit encrypted-only workflow would require a separately documented recovery policy rather than silently deleting the canonical package.
+FACT retains the unencrypted canonical package when encryption is requested. This prevents encryption from becoming the only surviving representation of the evidence and avoids accidental permanent loss if all recipient private keys are later unavailable. A future explicit encrypted-only workflow would require a separately documented recovery policy rather than silently deleting the canonical package.
 
 ## Confidentiality limits
 
@@ -216,7 +216,7 @@ Encryption does not replace access controls on the live FACT project.
 
 FACT creates `.fact/package.lock` while it is constructing the snapshot. Catalogue-writing operations cooperate with this lock and refuse mutation while packaging is active.
 
-If a process is forcibly terminated, a stale lock can remain. FACT intentionally does not silently delete a pre-existing lock because doing so could defeat a real concurrent packaging operation. The operator should first establish that no FACT packaging process is active and then remove the stale lock deliberately.
+If a process is forcibly terminated, a stale lock can remain. FACT intentionally does not silently delete a pre-existing lock because doing so could defeat a real concurrent packaging operation. The operator should first establish that no FACT packaging process is active and then remove the stale lock manually.
 
 This lock protects cooperative FACT operations. It cannot prevent an administrator or another program from directly altering project files on the host.
 

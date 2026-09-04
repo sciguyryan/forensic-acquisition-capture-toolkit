@@ -4,9 +4,9 @@ from collections.abc import Sequence
 
 import pytest
 
-from youtube_forensics import keys
-from youtube_forensics.errors import ToolkitError
-from youtube_forensics.models import ToolResult
+from fact import keys
+from fact.errors import ToolkitError
+from fact.models import ToolResult
 
 
 def make_result(

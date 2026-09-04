@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-from youtube_forensics.models import CaseInfo
-from youtube_forensics.records import initial_record, write_record
+from fact.models import CaseInfo
+from fact.core.records import initial_record, write_record
 
 
 def test_case_comments_written_to_both_formats(tmp_path: Path) -> None:

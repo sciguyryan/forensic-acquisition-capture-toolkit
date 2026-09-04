@@ -98,6 +98,20 @@ Some source acquisition is inherently best-effort. For example, material that is
 
 Additional source types will be introduced as FACT's generic acquisition architecture develops.
 
+### Collector architecture
+
+FACT now uses an explicit collector boundary. Source-specific collectors receive a generic acquisition context and register the artefacts they intentionally produce; project management, staging state, evidence-set manifests, signing, sealing and mandatory verification remain source-independent core responsibilities.
+
+The canonical Python package is `fact`. The historical `youtube_forensics` package and `youtube-forensics` console command are compatibility aliases and do not contain a second copy of evidential logic.
+
+For YouTube, the preferred collector-oriented command form is:
+
+```bash
+fact acquire youtube URL --case-id CASE-ID --case-comment "Purpose"
+```
+
+The v2.2 `fact acquire URL` spelling remains accepted during migration. Detailed module boundaries, collector responsibilities and artefact-registry rules are documented in `docs/ARCHITECTURE.md`.
+
 ## Evidence staging
 
 FACT uses a staging area while an acquisition is in progress.

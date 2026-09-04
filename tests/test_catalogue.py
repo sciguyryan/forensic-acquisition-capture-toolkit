@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from youtube_forensics.catalogue import catalogue_path, issue_identifier, retire_identifier, verify_chain
-from youtube_forensics.errors import ToolkitError
-from youtube_forensics.project import create_case, initialise_project
+from fact.core.catalogue import catalogue_path, issue_identifier, retire_identifier, verify_chain
+from fact.errors import ToolkitError
+from fact.core.project import create_case, initialise_project
 
 
 def test_case_ids_are_monotonic_and_retired_ids_are_not_reused(tmp_path: Path) -> None:
@@ -41,10 +41,10 @@ def test_project_refuses_overwrite(tmp_path: Path) -> None:
     with pytest.raises(ToolkitError, match="already exists"):
         initialise_project(tmp_path, "P-2", "Other")
 
-from youtube_forensics.catalogue import list_identifiers, verify_checkpoint, write_checkpoint
-from youtube_forensics import catalogue as catalogue_module
-from youtube_forensics.models import ToolResult
-from youtube_forensics.project import retire_case
+from fact.core.catalogue import list_identifiers, verify_checkpoint, write_checkpoint
+from fact.core import catalogue as catalogue_module
+from fact.models import ToolResult
+from fact.core.project import retire_case
 
 
 def test_list_and_retirement_errors(tmp_path: Path) -> None:

@@ -1,9 +1,6 @@
-"""Define expected operational and verification exceptions."""
+"""Compatibility import path for :mod:`fact.errors`."""
 
+import sys
+from fact import errors as _implementation
 
-class ToolkitError(RuntimeError):
-    """Expected operational failure."""
-
-
-class VerificationError(ToolkitError):
-    """Evidence verification failed."""
+sys.modules[__name__] = _implementation

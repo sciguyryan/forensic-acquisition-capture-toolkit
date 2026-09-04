@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from youtube_forensics import identity
-from youtube_forensics.errors import ToolkitError
-from youtube_forensics.models import ToolResult
+from fact import identity
+from fact.errors import ToolkitError
+from fact.models import ToolResult
 
 FINGERPRINT = "A" * 40
 SIGNING_FINGERPRINT = "B" * 40

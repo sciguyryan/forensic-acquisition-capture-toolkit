@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.3.0 - 2026-09-04
+
+- Renamed the canonical internal Python package from `youtube_forensics` to `fact`, retaining thin compatibility aliases rather than duplicate implementations.
+- Added a generic acquisition context and staging workspace with explicit `INCOMPLETE` lifecycle handling.
+- Added a first-class artefact registry with evidential roles and path/symlink safety checks.
+- Added an explicit collector protocol and registry, and migrated YouTube source interaction into `collectors/youtube/`.
+- Added an injectable command-runner service for collector command execution and transcripts.
+- Extracted collector-independent sealing, manifests, signing and mandatory self-verification into `core/sealing.py`.
+- Changed evidence-set identity generation to hash explicitly registered collector artefacts rather than relying on hard-coded payload directories.
+- Added `ARTEFACTS.json` to new acquisitions as a machine-readable description of intentional collector outputs.
+- Added the preferred collector-oriented CLI form `fact acquire youtube URL` while preserving the v2.2 URL-only spelling during migration.
+- Added detailed architecture, collector-boundary, artefact-registry and review-boundary documentation in `docs/ARCHITECTURE.md`.
+
 ## 2.2.0 - 2026-09-04
 
 - Added canonical project-scope packaging with `fact package`.

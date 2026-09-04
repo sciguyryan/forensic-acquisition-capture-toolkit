@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from youtube_forensics import packaging
-from youtube_forensics.commands import ToolResult
-from youtube_forensics.errors import ToolkitError
-from youtube_forensics.project import create_case, initialise_project
+from fact.core import packaging
+from fact.services.commands import ToolResult
+from fact.errors import ToolkitError
+from fact.core.project import create_case, initialise_project
 
 PUBLIC_KEY = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nTEST\n-----END PGP PUBLIC KEY BLOCK-----\n"
 

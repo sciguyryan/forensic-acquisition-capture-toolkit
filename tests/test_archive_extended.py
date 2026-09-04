@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from youtube_forensics import archive
-from youtube_forensics.errors import ToolkitError
-from youtube_forensics.models import ToolResult
+from fact.services import archive
+from fact.errors import ToolkitError
+from fact.models import ToolResult
 
 
 def test_create_archive_invokes_7zip(tmp_path: Path, monkeypatch) -> None:

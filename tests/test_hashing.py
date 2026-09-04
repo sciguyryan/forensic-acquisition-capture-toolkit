@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from youtube_forensics.hashing import verify_manifest, write_manifest
+from fact.services.hashing import verify_manifest, write_manifest
 
 
 def test_transient_incomplete_is_never_manifested(tmp_path: Path) -> None:

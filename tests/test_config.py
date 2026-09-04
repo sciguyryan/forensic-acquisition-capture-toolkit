@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from youtube_forensics.errors import ToolkitError
-from youtube_forensics.identity import (
+from fact.errors import ToolkitError
+from fact.identity import (
     OperatorIdentity,
     active_identity,
     load_identity_file,
