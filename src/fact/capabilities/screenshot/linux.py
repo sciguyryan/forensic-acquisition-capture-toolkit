@@ -28,7 +28,9 @@ class LinuxScreenshotCapability:
         self.backend = backend
         self._portal_backend = portal_backend or XdgDesktopPortalBackend()
 
-    def capture(self, destination_dir: Path, target: CaptureTarget) -> ScreenshotCapture:
+    def capture(
+        self, destination_dir: Path, target: CaptureTarget
+    ) -> ScreenshotCapture:
         """Capture with the selected Linux backend or fail conservatively."""
 
         if not sys.platform.startswith("linux"):

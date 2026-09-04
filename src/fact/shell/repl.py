@@ -20,7 +20,6 @@ from .interactive import ReadlineFeatures
 from .registry import registered_projects
 from .session import ShellSession
 
-
 Dispatch = Callable[[Sequence[str]], int]
 Input = Callable[[str], str]
 Output = Callable[[str], None]

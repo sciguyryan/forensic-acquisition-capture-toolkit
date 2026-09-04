@@ -396,11 +396,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _keygen(args)
         if args.command == "export-keypair":
             return _export_keypair(args)
-        if args.command == "project":
-            if args.project_command == "init":
-                path = initialise_project(args.path, args.project_id, args.title)
-                log("PASS", f"FACT project created: {path.parent}")
-                return 0
+        if args.command == "project" and args.project_command == "init":
+            path = initialise_project(args.path, args.project_id, args.title)
+            log("PASS", f"FACT project created: {path.parent}")
+            return 0
         if args.command == "case":
             project_root = discover_project_root(args.root)
             if args.case_command == "create":

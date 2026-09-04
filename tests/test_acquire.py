@@ -115,7 +115,9 @@ def _patch_sealing(monkeypatch) -> None:
 def test_video_id_supports_watch_and_short_urls() -> None:
     """Retain the original helper while source parsing lives in the collector."""
 
-    assert acquire_module._video_id("https://www.youtube.com/watch?v=abc123") == "abc123"
+    assert (
+        acquire_module._video_id("https://www.youtube.com/watch?v=abc123") == "abc123"
+    )
     assert acquire_module._video_id("https://youtu.be/xyz789") == "xyz789"
     assert acquire_module._video_id("https://example.test/video") is None
 
@@ -147,7 +149,9 @@ def test_acquire_happy_path(tmp_path: Path, monkeypatch) -> None:
     assert not (staging / "INCOMPLETE").exists()
 
 
-def test_acquire_retains_incomplete_state_on_collector_failure(tmp_path: Path, monkeypatch) -> None:
+def test_acquire_retains_incomplete_state_on_collector_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Retain a clearly marked workspace when mandatory capture fails."""
 
     monkeypatch.setattr(orchestration_module, "ensure_key", lambda *args: "E" * 40)

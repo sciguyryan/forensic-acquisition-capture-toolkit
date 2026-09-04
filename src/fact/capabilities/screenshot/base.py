@@ -39,6 +39,8 @@ class ScreenshotBackend(Protocol):
 
     name: str
 
-    def capture(self, destination_dir: Path, target: CaptureTarget) -> ScreenshotCapture:
+    def capture(
+        self, destination_dir: Path, target: CaptureTarget
+    ) -> ScreenshotCapture:
         """Capture a screenshot and return the preserved original file."""
         ...

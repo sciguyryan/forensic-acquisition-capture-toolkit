@@ -74,7 +74,9 @@ class ArtefactRegistry:
         try:
             relative = resolved.relative_to(self._staging_root)
         except ValueError as exc:
-            raise ValueError(f"Artefact is outside acquisition staging: {path}") from exc
+            raise ValueError(
+                f"Artefact is outside acquisition staging: {path}"
+            ) from exc
         if path.is_symlink() or not resolved.is_file():
             raise ValueError(f"Artefact must be an existing regular file: {path}")
         key = relative.as_posix()
@@ -116,7 +118,9 @@ class AcquisitionWorkspace:
     incomplete_marker: Path
 
     @classmethod
-    def create(cls, root: Path, case_id: str, acquisition_id: str) -> "AcquisitionWorkspace":
+    def create(
+        cls, root: Path, case_id: str, acquisition_id: str
+    ) -> AcquisitionWorkspace:
         """Create the common staging and logging structure for an acquisition."""
 
         root = root.resolve()

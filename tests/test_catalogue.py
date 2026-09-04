@@ -34,7 +34,9 @@ def test_chain_detects_manual_event_tampering(tmp_path: Path) -> None:
     initialise_project(tmp_path, "P-1", "Test")
     create_case(tmp_path)
     connection = sqlite3.connect(catalogue_path(tmp_path))
-    connection.execute("UPDATE audit_events SET object_id = 'CASE-999999' WHERE event_sequence = 2")
+    connection.execute(
+        "UPDATE audit_events SET object_id = 'CASE-999999' WHERE event_sequence = 2"
+    )
     connection.commit()
     connection.close()
     with pytest.raises(ToolkitError, match="event hash is invalid"):
@@ -78,7 +80,9 @@ def test_chain_detects_discontinuity_and_previous_hash(tmp_path: Path) -> None:
     create_case(tmp_path)
     path = catalogue_path(tmp_path)
     connection = sqlite3.connect(path)
-    connection.execute("UPDATE audit_events SET event_sequence = 7 WHERE event_sequence = 2")
+    connection.execute(
+        "UPDATE audit_events SET event_sequence = 7 WHERE event_sequence = 2"
+    )
     connection.commit()
     connection.close()
     with pytest.raises(ToolkitError, match="discontinuous"):
@@ -88,14 +92,19 @@ def test_chain_detects_discontinuity_and_previous_hash(tmp_path: Path) -> None:
     initialise_project(other, "P-2", "Test")
     create_case(other)
     connection = sqlite3.connect(catalogue_path(other))
-    connection.execute("UPDATE audit_events SET previous_hash = ? WHERE event_sequence = 2", ("f" * 64,))
+    connection.execute(
+        "UPDATE audit_events SET previous_hash = ? WHERE event_sequence = 2",
+        ("f" * 64,),
+    )
     connection.commit()
     connection.close()
     with pytest.raises(ToolkitError, match="hash chain is broken"):
         verify_chain(other)
 
 
-def test_checkpoint_write_and_verify_with_mocked_gpg(tmp_path: Path, monkeypatch) -> None:
+def test_checkpoint_write_and_verify_with_mocked_gpg(
+    tmp_path: Path, monkeypatch
+) -> None:
     initialise_project(tmp_path, "P-1", "Test")
     create_case(tmp_path)
     toolkit = tmp_path / "toolkit"
@@ -125,7 +134,9 @@ def test_checkpoint_write_and_verify_with_mocked_gpg(tmp_path: Path, monkeypatch
         verify_checkpoint(tmp_path, public_key)
 
 
-def test_checkpoint_requires_key_and_existing_checkpoint(tmp_path: Path, monkeypatch) -> None:
+def test_checkpoint_requires_key_and_existing_checkpoint(
+    tmp_path: Path, monkeypatch
+) -> None:
     initialise_project(tmp_path, "P-1", "Test")
     toolkit = tmp_path / "toolkit"
     home = toolkit / "pgp" / "keyring"
@@ -163,30 +174,40 @@ def test_chain_detects_live_state_and_counter_tampering(tmp_path: Path) -> None:
     initialise_project(other, "P-2", "Test")
     create_case(other)
     connection = sqlite3.connect(catalogue_path(other))
-    connection.execute("UPDATE counters SET next_sequence = 99 WHERE namespace = 'case'")
+    connection.execute(
+        "UPDATE counters SET next_sequence = 99 WHERE namespace = 'case'"
+    )
     connection.commit()
     connection.close()
     with pytest.raises(ToolkitError, match="counter does not match"):
         verify_chain(other)
 
 
-def test_checkpoint_rejects_failed_public_key_import(tmp_path: Path, monkeypatch) -> None:
+def test_checkpoint_rejects_failed_public_key_import(
+    tmp_path: Path, monkeypatch
+) -> None:
     initialise_project(tmp_path, "P-1", "Test")
     toolkit = tmp_path / "toolkit"
     home = toolkit / "pgp" / "keyring"
     home.mkdir(parents=True)
     monkeypatch.setattr(catalogue_module, "prepare_gnupg", lambda *a, **k: {})
     monkeypatch.setattr(catalogue_module, "fingerprint", lambda *a, **k: "FPR")
-    monkeypatch.setattr(catalogue_module, "sign", lambda h, p, s, f: s.write_text("sig"))
+    monkeypatch.setattr(
+        catalogue_module, "sign", lambda h, p, s, f: s.write_text("sig")
+    )
     write_checkpoint(tmp_path, toolkit)
     public_key = tmp_path / "public.asc"
     public_key.write_text("key")
-    monkeypatch.setattr(catalogue_module, "run", lambda argv, **kwargs: ToolResult(argv, 1, "", "bad"))
+    monkeypatch.setattr(
+        catalogue_module, "run", lambda argv, **kwargs: ToolResult(argv, 1, "", "bad")
+    )
     with pytest.raises(ToolkitError, match="Unable to import"):
         verify_checkpoint(tmp_path, public_key)
 
 
-def test_acquisition_ids_are_sequential_and_failed_ids_are_not_reused(tmp_path: Path) -> None:
+def test_acquisition_ids_are_sequential_and_failed_ids_are_not_reused(
+    tmp_path: Path,
+) -> None:
     initialise_project(tmp_path, "P-1", "Test")
     first = issue_identifier(tmp_path, "acquisition", "ACQ")
     fail_identifier(tmp_path, first, "operator cancelled")
@@ -197,7 +218,9 @@ def test_acquisition_ids_are_sequential_and_failed_ids_are_not_reused(tmp_path: 
     assert verify_chain(tmp_path)["event_count"] == 4
 
 
-def test_older_catalogue_can_initialise_acquisition_namespace_lazily(tmp_path: Path) -> None:
+def test_older_catalogue_can_initialise_acquisition_namespace_lazily(
+    tmp_path: Path,
+) -> None:
     initialise_project(tmp_path, "P-1", "Test")
     connection = sqlite3.connect(catalogue_path(tmp_path))
     connection.execute("DELETE FROM counters WHERE namespace = 'acquisition'")

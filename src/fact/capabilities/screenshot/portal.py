@@ -44,7 +44,9 @@ class XdgDesktopPortalBackend:
 
     name = "xdg-desktop-portal"
 
-    def capture(self, destination_dir: Path, target: CaptureTarget) -> ScreenshotCapture:
+    def capture(
+        self, destination_dir: Path, target: CaptureTarget
+    ) -> ScreenshotCapture:
         """Run one portal interaction and copy its exact returned bytes to FACT."""
 
         try:
@@ -192,7 +194,9 @@ class XdgDesktopPortalBackend:
         finally:
             bus.disconnect()
 
-    async def _property(self, bus: object, Message: object, MessageType: object, name: str) -> object:
+    async def _property(
+        self, bus: object, Message: object, MessageType: object, name: str
+    ) -> object:
         """Read one Screenshot portal property through standard D-Bus Properties."""
 
         reply = await bus.call(

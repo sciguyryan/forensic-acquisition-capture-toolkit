@@ -63,7 +63,9 @@ def test_resolution_precedence_and_sole_case(tmp_path: Path) -> None:
     # A current-directory case takes precedence over a persisted selection.
     set_selected_case(root, second)
     assert (
-        resolve_case_context(root, current=root / "cases" / first, interactive=False).case_id
+        resolve_case_context(
+            root, current=root / "cases" / first, interactive=False
+        ).case_id
         == first
     )
 
@@ -79,7 +81,9 @@ def test_multiple_cases_require_selection_when_noninteractive(tmp_path: Path) ->
         resolve_case_context(root, current=root, interactive=False)
 
 
-def test_interactive_case_choice_uses_numbers_not_transcribed_ids(tmp_path: Path) -> None:
+def test_interactive_case_choice_uses_numbers_not_transcribed_ids(
+    tmp_path: Path,
+) -> None:
     root, first, second = make_project(tmp_path)
     chosen = choose_case_interactively(root, input_fn=lambda _: "2")
     assert chosen.case_id == second

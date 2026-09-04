@@ -15,14 +15,15 @@ from .catalogue import (
     retire_identifier,
 )
 
-
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def initialise_project(root: Path, project_id: str, title: str) -> Path:
     """Create a new FACT project without overwriting an existing project."""
     if not _PROJECT_ID.fullmatch(project_id):
-        raise ToolkitError("Project ID must contain only letters, digits, '.', '_' or '-'")
+        raise ToolkitError(
+            "Project ID must contain only letters, digits, '.', '_' or '-'"
+        )
     root.mkdir(parents=True, exist_ok=True)
     project_file = root / PROJECT_NAME
     if project_file.exists() or (root / ".fact").exists():
@@ -51,11 +52,7 @@ def create_case(project_root: Path, title: str = "", comment: str = "") -> str:
         case_dir.chmod(0o700)
 
         def quote(value: str) -> str:
-            return (
-                value.replace("\\", "\\\\")
-                .replace('"', '\\"')
-                .replace("\n", "\\n")
-            )
+            return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
         (case_dir / "CASE.toml").write_text(
             f'schema_version = 1\ncase_id = "{identifier}"\n'

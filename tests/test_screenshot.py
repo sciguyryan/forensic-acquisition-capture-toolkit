@@ -42,7 +42,9 @@ class FakeScreenshotBackend:
 
     name = "fake-screenshot"
 
-    def capture(self, destination_dir: Path, target: CaptureTarget) -> ScreenshotCapture:
+    def capture(
+        self, destination_dir: Path, target: CaptureTarget
+    ) -> ScreenshotCapture:
         path = destination_dir / "screenshot-original.png"
         path.write_bytes(_png(800, 600))
         return ScreenshotCapture(
@@ -71,7 +73,9 @@ def _context(tmp_path: Path) -> AcquisitionContext:
     )
 
 
-def test_screenshot_collector_preserves_original_and_registers_metadata(tmp_path: Path) -> None:
+def test_screenshot_collector_preserves_original_and_registers_metadata(
+    tmp_path: Path,
+) -> None:
     """Register raw screenshot bytes separately from capture metadata."""
 
     context = _context(tmp_path)
@@ -115,7 +119,9 @@ def test_screenshot_collector_rejects_backend_escape(tmp_path: Path) -> None:
         collector.capture(context, ScreenshotRequest())
 
 
-def test_linux_capability_validates_platform_and_backend(tmp_path: Path, monkeypatch) -> None:
+def test_linux_capability_validates_platform_and_backend(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Keep platform policy outside the screenshot collector."""
 
     backend = FakeScreenshotBackend()
@@ -129,7 +135,9 @@ def test_linux_capability_validates_platform_and_backend(tmp_path: Path, monkeyp
 
     monkeypatch.setattr(sys, "platform", "linux")
     with pytest.raises(ToolkitError, match="Unknown Linux screenshot backend"):
-        LinuxScreenshotCapability(backend="other").capture(tmp_path, CaptureTarget.WINDOW)
+        LinuxScreenshotCapability(backend="other").capture(
+            tmp_path, CaptureTarget.WINDOW
+        )
 
 
 def test_image_inspection_reads_png_and_preserves_unknown(tmp_path: Path) -> None:
@@ -148,7 +156,9 @@ def test_image_inspection_reads_png_and_preserves_unknown(tmp_path: Path) -> Non
     assert inspect_image(unknown)["extension"] == ".img"
 
 
-def _install_fake_dbus(monkeypatch, source: Path, *, response: int = 0, version: int = 3, targets: int = 15):
+def _install_fake_dbus(
+    monkeypatch, source: Path, *, response: int = 0, version: int = 3, targets: int = 15
+):
     """Install a tiny dbus-next substitute exercising FACT's portal protocol."""
 
     class MessageType:
@@ -236,7 +246,9 @@ def _install_fake_dbus(monkeypatch, source: Path, *, response: int = 0, version:
     return bus
 
 
-def test_portal_backend_copies_exact_bytes_and_records_capabilities(tmp_path: Path, monkeypatch) -> None:
+def test_portal_backend_copies_exact_bytes_and_records_capabilities(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Use the portal request signal and preserve the exact returned file bytes."""
 
     source = tmp_path / "portal.png"
@@ -253,7 +265,9 @@ def test_portal_backend_copies_exact_bytes_and_records_capabilities(tmp_path: Pa
     assert bus.disconnected is True
 
 
-def test_portal_backend_reports_cancellation_and_target_support(tmp_path: Path, monkeypatch) -> None:
+def test_portal_backend_reports_cancellation_and_target_support(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Fail conservatively when the operator cancels or window targeting is absent."""
 
     source = tmp_path / "portal.png"
@@ -264,10 +278,14 @@ def test_portal_backend_reports_cancellation_and_target_support(tmp_path: Path, 
 
     _install_fake_dbus(monkeypatch, source, targets=1)
     with pytest.raises(ToolkitError, match="does not advertise"):
-        XdgDesktopPortalBackend().capture(tmp_path / "unsupported", CaptureTarget.WINDOW)
+        XdgDesktopPortalBackend().capture(
+            tmp_path / "unsupported", CaptureTarget.WINDOW
+        )
 
 
-def test_portal_backend_requires_v3_and_local_file_uri(tmp_path: Path, monkeypatch) -> None:
+def test_portal_backend_requires_v3_and_local_file_uri(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Require explicit-target semantics and reject non-local portal results."""
 
     source = tmp_path / "portal.png"

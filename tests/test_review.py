@@ -36,7 +36,9 @@ def test_redaction_reason_is_mandatory() -> None:
         ProposedRedaction("R-0001", Box(0.1, 0.1, 0.2, 0.2), "   ")
 
 
-def test_review_layers_write_and_load_without_modifying_original(tmp_path: Path) -> None:
+def test_review_layers_write_and_load_without_modifying_original(
+    tmp_path: Path,
+) -> None:
     layers = ImageReviewLayers(
         original_sha256=DIGEST,
         original_width=1920,
@@ -79,7 +81,9 @@ def test_review_layers_validate_digest_dimensions_and_schema(tmp_path: Path) -> 
         load_review_layers(path)
 
 
-def test_browser_shell_embeds_layer_copy_and_uses_separate_assets(tmp_path: Path) -> None:
+def test_browser_shell_embeds_layer_copy_and_uses_separate_assets(
+    tmp_path: Path,
+) -> None:
     review = {
         "schema": "fact-image-review/v1",
         "original_sha256": DIGEST,

@@ -24,7 +24,7 @@ class ShellSession:
     project_root: Path | None = None
 
     @classmethod
-    def from_start(cls, start: Path) -> "ShellSession":
+    def from_start(cls, start: Path) -> ShellSession:
         """Create a session and bind the containing FACT project when possible.
 
         Starting outside a project is valid. The operator can bind a project

@@ -15,17 +15,23 @@ from fact.core.project import create_case, initialise_project
 from fact.errors import ToolkitError
 from fact.services.commands import ToolResult
 
-PUBLIC_KEY = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nTEST\n-----END PGP PUBLIC KEY BLOCK-----\n"
+PUBLIC_KEY = (
+    "-----BEGIN PGP PUBLIC KEY BLOCK-----\nTEST\n-----END PGP PUBLIC KEY BLOCK-----\n"
+)
 
 
 def _mock_crypto(monkeypatch) -> None:
     monkeypatch.setattr(packaging, "prepare_gnupg", lambda *args, **kwargs: {})
     monkeypatch.setattr(packaging, "fingerprint", lambda *args, **kwargs: "A" * 40)
-    monkeypatch.setattr(packaging, "_export_public_key", lambda *args, **kwargs: PUBLIC_KEY)
+    monkeypatch.setattr(
+        packaging, "_export_public_key", lambda *args, **kwargs: PUBLIC_KEY
+    )
     monkeypatch.setattr(
         packaging,
         "sign",
-        lambda home, payload, signature, fpr: signature.write_text("signature", encoding="ascii"),
+        lambda home, payload, signature, fpr: signature.write_text(
+            "signature", encoding="ascii"
+        ),
     )
     monkeypatch.setattr(packaging, "_verify_signature", lambda *args, **kwargs: None)
 
@@ -63,7 +69,9 @@ def test_project_package_contains_allowlisted_state_and_catalogue_anchor(
     assert descriptor["catalogue_checkpoint_status"] == "absent"
 
 
-def test_project_package_is_reproducible_for_unchanged_state(tmp_path: Path, monkeypatch) -> None:
+def test_project_package_is_reproducible_for_unchanged_state(
+    tmp_path: Path, monkeypatch
+) -> None:
     project = tmp_path / "project"
     initialise_project(project, "P-1", "Test")
     create_case(project)
@@ -74,7 +82,10 @@ def test_project_package_is_reproducible_for_unchanged_state(tmp_path: Path, mon
     packaging.create_project_package(project, tmp_path, first)
     packaging.create_project_package(project, tmp_path, second)
 
-    assert hashlib.sha256(first.read_bytes()).digest() == hashlib.sha256(second.read_bytes()).digest()
+    assert (
+        hashlib.sha256(first.read_bytes()).digest()
+        == hashlib.sha256(second.read_bytes()).digest()
+    )
 
 
 def test_packaging_refuses_tampered_catalogue(tmp_path: Path, monkeypatch) -> None:
@@ -83,15 +94,21 @@ def test_packaging_refuses_tampered_catalogue(tmp_path: Path, monkeypatch) -> No
     create_case(project)
     _mock_crypto(monkeypatch)
     connection = sqlite3.connect(project / ".fact" / "catalogue.sqlite")
-    connection.execute("UPDATE counters SET next_sequence = 99 WHERE namespace = 'case'")
+    connection.execute(
+        "UPDATE counters SET next_sequence = 99 WHERE namespace = 'case'"
+    )
     connection.commit()
     connection.close()
 
     with pytest.raises(ToolkitError, match="counter does not match"):
-        packaging.create_project_package(project, tmp_path, tmp_path / "bad.fact.tar.gz")
+        packaging.create_project_package(
+            project, tmp_path, tmp_path / "bad.fact.tar.gz"
+        )
 
 
-def test_packaging_rejects_symlinks_in_included_project_state(tmp_path: Path, monkeypatch) -> None:
+def test_packaging_rejects_symlinks_in_included_project_state(
+    tmp_path: Path, monkeypatch
+) -> None:
     project = tmp_path / "project"
     initialise_project(project, "P-1", "Test")
     case_id = create_case(project)
@@ -101,10 +118,14 @@ def test_packaging_rejects_symlinks_in_included_project_state(tmp_path: Path, mo
     _mock_crypto(monkeypatch)
 
     with pytest.raises(ToolkitError, match="symbolic links"):
-        packaging.create_project_package(project, tmp_path, tmp_path / "bad.fact.tar.gz")
+        packaging.create_project_package(
+            project, tmp_path, tmp_path / "bad.fact.tar.gz"
+        )
 
 
-def test_package_encryption_is_optional_outer_envelope(tmp_path: Path, monkeypatch) -> None:
+def test_package_encryption_is_optional_outer_envelope(
+    tmp_path: Path, monkeypatch
+) -> None:
     project = tmp_path / "project"
     initialise_project(project, "P-1", "Test")
     _mock_crypto(monkeypatch)
@@ -134,7 +155,9 @@ def test_package_encryption_is_optional_outer_envelope(tmp_path: Path, monkeypat
     assert "RECIPIENT-B" in encrypt_command
 
 
-def test_packaging_refuses_existing_outputs_without_force(tmp_path: Path, monkeypatch) -> None:
+def test_packaging_refuses_existing_outputs_without_force(
+    tmp_path: Path, monkeypatch
+) -> None:
     project = tmp_path / "project"
     initialise_project(project, "P-1", "Test")
     _mock_crypto(monkeypatch)
@@ -168,7 +191,9 @@ def test_project_package_validates_project_metadata_and_existing_lock(
     lock = project / ".fact" / "package.lock"
     lock.write_text("stale", encoding="ascii")
     with pytest.raises(ToolkitError, match="stale package lock"):
-        packaging.create_project_package(project, tmp_path, tmp_path / "locked.fact.tar.gz")
+        packaging.create_project_package(
+            project, tmp_path, tmp_path / "locked.fact.tar.gz"
+        )
 
 
 def test_encryption_failure_is_reported(tmp_path: Path, monkeypatch) -> None:
@@ -226,4 +251,6 @@ def test_project_package_rejects_incomplete_sealed_acquisition_bundle(
     (archived / "case.7z").write_bytes(b"incomplete")
     _mock_crypto(monkeypatch)
     with pytest.raises(ToolkitError, match="bundle is incomplete"):
-        packaging.create_project_package(project, tmp_path, tmp_path / "bad.fact.tar.gz")
+        packaging.create_project_package(
+            project, tmp_path, tmp_path / "bad.fact.tar.gz"
+        )

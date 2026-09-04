@@ -152,8 +152,12 @@ def seal_acquisition(
 
     sha256 = digest(archive, "sha256")
     sha512 = digest(archive, "sha512")
-    Path(f"{archive}.sha256").write_text(f"{sha256}  {archive.name}\n", encoding="ascii")
-    Path(f"{archive}.sha512").write_text(f"{sha512}  {archive.name}\n", encoding="ascii")
+    Path(f"{archive}.sha256").write_text(
+        f"{sha256}  {archive.name}\n", encoding="ascii"
+    )
+    Path(f"{archive}.sha512").write_text(
+        f"{sha512}  {archive.name}\n", encoding="ascii"
+    )
 
     signature = Path(f"{archive}.asc")
     sign(gnupg_home, archive, signature, key_fingerprint)

@@ -7,7 +7,6 @@ from contextlib import suppress
 
 from .registry import history_path
 
-
 _HISTORY_LIMIT = 500
 _SENSITIVE_MARKERS = (
     "--password",
@@ -49,7 +48,7 @@ class ReadlineFeatures:
         self._readline = None
         self._before_count = 0
 
-    def __enter__(self) -> "ReadlineFeatures":
+    def __enter__(self) -> ReadlineFeatures:
         if not self._enabled:
             return self
         try:

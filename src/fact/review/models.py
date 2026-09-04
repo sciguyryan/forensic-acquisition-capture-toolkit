@@ -99,8 +99,12 @@ class ImageReviewLayers:
     schema: str = "fact-image-review/v1"
 
     def __post_init__(self) -> None:
-        if len(self.original_sha256) != 64 or any(c not in "0123456789abcdef" for c in self.original_sha256.lower()):
-            raise ValueError("Review layers require a SHA-256 digest of the original image")
+        if len(self.original_sha256) != 64 or any(
+            c not in "0123456789abcdef" for c in self.original_sha256.lower()
+        ):
+            raise ValueError(
+                "Review layers require a SHA-256 digest of the original image"
+            )
         if self.original_width <= 0 or self.original_height <= 0:
             raise ValueError("Original image dimensions must be positive")
 
@@ -110,14 +114,19 @@ class ImageReviewLayers:
         payload = asdict(self)
         for annotation in payload["annotations"]:
             kind = annotation["kind"]
-            annotation["kind"] = kind.value if isinstance(kind, AnnotationKind) else str(kind)
+            annotation["kind"] = (
+                kind.value if isinstance(kind, AnnotationKind) else str(kind)
+            )
         return payload
 
     def write(self, path: Path) -> None:
         """Write the review layer atomically enough for ordinary local use."""
 
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
 
 def load_review_layers(path: Path) -> dict[str, Any]:

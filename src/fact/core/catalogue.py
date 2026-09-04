@@ -7,14 +7,14 @@ import json
 import os
 import sqlite3
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
-from ..services.commands import run
 from ..errors import ToolkitError
 from ..keys import fingerprint, prepare_gnupg, sign
+from ..services.commands import run
 
 SCHEMA_VERSION = 1
 GENESIS_HASH = "0" * 64
@@ -30,7 +30,9 @@ def _utc_now() -> str:
 
 
 def _canonical(data: object) -> bytes:
-    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return json.dumps(
+        data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def _event_hash(event: dict[str, object]) -> str:
@@ -98,11 +100,21 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
             );
             """
         )
-        connection.execute("INSERT INTO metadata VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-        connection.execute("INSERT INTO metadata VALUES ('project_id', ?)", (project_id,))
+        connection.execute(
+            "INSERT INTO metadata VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
+        )
+        connection.execute(
+            "INSERT INTO metadata VALUES ('project_id', ?)", (project_id,)
+        )
         connection.execute("INSERT INTO counters VALUES ('case', 1)")
         connection.execute("INSERT INTO counters VALUES ('acquisition', 1)")
-        _append_event(connection, "PROJECT_CREATED", "project", project_id, {"schema_version": SCHEMA_VERSION})
+        _append_event(
+            connection,
+            "PROJECT_CREATED",
+            "project",
+            project_id,
+            {"schema_version": SCHEMA_VERSION},
+        )
     finally:
         connection.close()
     path.chmod(0o600)
@@ -135,7 +147,16 @@ def _append_event(
     digest = _event_hash(material)
     connection.execute(
         "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (sequence, occurred_at, event_type, object_type, object_id, details_json, previous, digest),
+        (
+            sequence,
+            occurred_at,
+            event_type,
+            object_type,
+            object_id,
+            details_json,
+            previous,
+            digest,
+        ),
     )
     return digest
 
@@ -144,7 +165,9 @@ def _append_event(
 def _write_transaction(project_root: Path) -> Iterator[sqlite3.Connection]:
     package_lock = project_root / CATALOGUE_DIR / "package.lock"
     if package_lock.exists():
-        raise ToolkitError("FACT project is currently being packaged; catalogue mutation is blocked")
+        raise ToolkitError(
+            "FACT project is currently being packaged; catalogue mutation is blocked"
+        )
     connection = _connect(project_root)
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -199,15 +222,24 @@ def issue_identifier(project_root: Path, namespace: str, prefix: str) -> str:
             "UPDATE counters SET next_sequence = ? WHERE namespace = ?",
             (sequence + 1, namespace),
         )
-        _append_event(connection, "IDENTIFIER_ISSUED", namespace, identifier, {"sequence": sequence})
+        _append_event(
+            connection,
+            "IDENTIFIER_ISSUED",
+            namespace,
+            identifier,
+            {"sequence": sequence},
+        )
     return identifier
 
 
-def retire_identifier(project_root: Path, identifier: str, reason: str | None = None) -> None:
+def retire_identifier(
+    project_root: Path, identifier: str, reason: str | None = None
+) -> None:
     """Retire an identifier without making it available for reuse."""
     with _write_transaction(project_root) as connection:
         row = connection.execute(
-            "SELECT namespace, state FROM identifiers WHERE identifier = ?", (identifier,)
+            "SELECT namespace, state FROM identifiers WHERE identifier = ?",
+            (identifier,),
         ).fetchone()
         if row is None:
             raise ToolkitError(f"Unknown FACT identifier: {identifier}")
@@ -227,12 +259,14 @@ def retire_identifier(project_root: Path, identifier: str, reason: str | None = 
         )
 
 
-
-def fail_identifier(project_root: Path, identifier: str, reason: str | None = None) -> None:
+def fail_identifier(
+    project_root: Path, identifier: str, reason: str | None = None
+) -> None:
     """Mark a consumed identifier as failed without making it reusable."""
     with _write_transaction(project_root) as connection:
         row = connection.execute(
-            "SELECT namespace, state FROM identifiers WHERE identifier = ?", (identifier,)
+            "SELECT namespace, state FROM identifiers WHERE identifier = ?",
+            (identifier,),
         ).fetchone()
         if row is None:
             raise ToolkitError(f"Unknown FACT identifier: {identifier}")
@@ -251,7 +285,9 @@ def fail_identifier(project_root: Path, identifier: str, reason: str | None = No
         )
 
 
-def list_identifiers(project_root: Path, namespace: str = "case") -> list[dict[str, object]]:
+def list_identifiers(
+    project_root: Path, namespace: str = "case"
+) -> list[dict[str, object]]:
     connection = _connect(project_root)
     try:
         rows = connection.execute(
@@ -268,14 +304,20 @@ def verify_chain(project_root: Path) -> dict[str, object]:
     """Verify the complete audit chain and current-state consistency."""
     connection = _connect(project_root)
     try:
-        rows = connection.execute("SELECT * FROM audit_events ORDER BY event_sequence").fetchall()
+        rows = connection.execute(
+            "SELECT * FROM audit_events ORDER BY event_sequence"
+        ).fetchall()
         previous = GENESIS_HASH
         expected_sequence = 1
         for row in rows:
             if int(row["event_sequence"]) != expected_sequence:
-                raise ToolkitError(f"Catalogue audit sequence is discontinuous at event {expected_sequence}")
+                raise ToolkitError(
+                    f"Catalogue audit sequence is discontinuous at event {expected_sequence}"
+                )
             if row["previous_hash"] != previous:
-                raise ToolkitError(f"Catalogue hash chain is broken at event {expected_sequence}")
+                raise ToolkitError(
+                    f"Catalogue hash chain is broken at event {expected_sequence}"
+                )
             details = json.loads(row["details_json"])
             material = {
                 "event_sequence": expected_sequence,
@@ -288,7 +330,9 @@ def verify_chain(project_root: Path) -> dict[str, object]:
             }
             calculated = _event_hash(material)
             if calculated != row["event_hash"]:
-                raise ToolkitError(f"Catalogue event hash is invalid at event {expected_sequence}")
+                raise ToolkitError(
+                    f"Catalogue event hash is invalid at event {expected_sequence}"
+                )
             previous = calculated
             expected_sequence += 1
 
@@ -304,7 +348,9 @@ def verify_chain(project_root: Path) -> dict[str, object]:
             elif row["event_type"] in {"IDENTIFIER_RETIRED", "IDENTIFIER_FAILED"}:
                 identifier = str(row["object_id"])
                 if identifier not in issued:
-                    raise ToolkitError(f"Catalogue state change precedes issue: {identifier}")
+                    raise ToolkitError(
+                        f"Catalogue state change precedes issue: {identifier}"
+                    )
                 issued[identifier]["state"] = (
                     "retired" if row["event_type"] == "IDENTIFIER_RETIRED" else "failed"
                 )
@@ -321,9 +367,13 @@ def verify_chain(project_root: Path) -> dict[str, object]:
             for row in live_rows
         }
         if live != issued:
-            raise ToolkitError("Catalogue current identifier state does not match its audit history")
+            raise ToolkitError(
+                "Catalogue current identifier state does not match its audit history"
+            )
 
-        for counter in connection.execute("SELECT namespace, next_sequence FROM counters"):
+        for counter in connection.execute(
+            "SELECT namespace, next_sequence FROM counters"
+        ):
             sequences = [
                 int(item["sequence"])
                 for item in issued.values()
@@ -335,7 +385,9 @@ def verify_chain(project_root: Path) -> dict[str, object]:
                     f"Catalogue counter does not match audit history: {counter['namespace']}"
                 )
 
-        project_id = connection.execute("SELECT value FROM metadata WHERE key = 'project_id'").fetchone()[0]
+        project_id = connection.execute(
+            "SELECT value FROM metadata WHERE key = 'project_id'"
+        ).fetchone()[0]
         return {
             "project_id": project_id,
             "event_count": len(rows),
@@ -361,7 +413,9 @@ def write_checkpoint(project_root: Path, toolkit_root: Path) -> Path:
     fact_dir = project_root / CATALOGUE_DIR
     path = fact_dir / CHECKPOINT_NAME
     temp = fact_dir / f".{CHECKPOINT_NAME}.tmp"
-    temp.write_text(json.dumps(checkpoint, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temp.write_text(
+        json.dumps(checkpoint, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     temp.chmod(0o600)
     os.replace(temp, path)
 
@@ -394,7 +448,9 @@ def verify_checkpoint(project_root: Path, public_key: Path) -> dict[str, object]
         home = Path(temporary)
         home.chmod(0o700)
         env = {"GNUPGHOME": str(home)}
-        imported = run(["gpg", "--batch", "--import", str(public_key)], env=env, check=False)
+        imported = run(
+            ["gpg", "--batch", "--import", str(public_key)], env=env, check=False
+        )
         if imported.returncode != 0:
             raise ToolkitError("Unable to import catalogue verification public key")
         result = run(

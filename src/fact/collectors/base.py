@@ -19,6 +19,8 @@ class Collector(Protocol[RequestT]):
 
     name: str
 
-    def capture(self, context: AcquisitionContext, request: RequestT) -> AcquisitionResult:
+    def capture(
+        self, context: AcquisitionContext, request: RequestT
+    ) -> AcquisitionResult:
         """Capture source material into ``context.workspace.stage``."""
         ...

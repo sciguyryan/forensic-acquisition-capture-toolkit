@@ -12,9 +12,9 @@ from __future__ import annotations
 import os
 import sys
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from ..errors import ToolkitError
 from .catalogue import CATALOGUE_DIR, PROJECT_NAME, list_identifiers
@@ -44,7 +44,9 @@ def discover_project_root(start: Path) -> Path:
     if candidate.is_file():
         candidate = candidate.parent
     for path in (candidate, *candidate.parents):
-        if (path / PROJECT_NAME).is_file() and (path / CATALOGUE_DIR / "catalogue.sqlite").is_file():
+        if (path / PROJECT_NAME).is_file() and (
+            path / CATALOGUE_DIR / "catalogue.sqlite"
+        ).is_file():
             return path
     raise ToolkitError(f"No FACT project found at or above: {start}")
 
@@ -90,7 +92,9 @@ def active_case_contexts(project_root: Path) -> list[CaseContext]:
 
 
 def _require_active(project_root: Path, case_id: str) -> CaseContext:
-    rows = {str(row["identifier"]): row for row in list_identifiers(project_root, "case")}
+    rows = {
+        str(row["identifier"]): row for row in list_identifiers(project_root, "case")
+    }
     row = rows.get(case_id)
     if row is None:
         raise ToolkitError(f"Unknown FACT case: {case_id}")
@@ -111,7 +115,9 @@ def infer_case_from_path(project_root: Path, current: Path) -> CaseContext | Non
             context = _read_case_file(case_file)
             expected = project_root / "cases" / context.case_id
             if path.resolve() != expected.resolve():
-                raise ToolkitError(f"CASE.toml is outside its canonical project case path: {path}")
+                raise ToolkitError(
+                    f"CASE.toml is outside its canonical project case path: {path}"
+                )
             return _require_active(project_root, context.case_id)
     return None
 
@@ -132,7 +138,6 @@ def set_selected_case(project_root: Path, case_id: str) -> CaseContext:
     temporary.chmod(0o600)
     os.replace(temporary, path)
     return context
-
 
 
 def clear_selected_case(project_root: Path) -> None:
@@ -176,7 +181,9 @@ def choose_case_interactively(
     try:
         index = int(response)
     except ValueError as exc:
-        raise ToolkitError("Case selection must be a number from the displayed list") from exc
+        raise ToolkitError(
+            "Case selection must be a number from the displayed list"
+        ) from exc
     if not 1 <= index <= len(cases):
         raise ToolkitError("Case selection is outside the displayed range")
     return set_selected_case(project_root, cases[index - 1].case_id)

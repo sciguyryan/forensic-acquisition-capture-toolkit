@@ -58,9 +58,7 @@ class YouTubeCollector:
 
         names = ["yt-dlp", "ffprobe", "mediainfo", "curl", "gpg"]
         return {
-            name: context.commands.version(name)
-            for name in names
-            if shutil.which(name)
+            name: context.commands.version(name) for name in names if shutil.which(name)
         }
 
     def capture(
@@ -169,7 +167,9 @@ class YouTubeCollector:
         self._read_primary_metadata(context, result)
         self._inspect_media(context)
         self._register_evidence_files(context)
-        context.workspace.note("INFO", "Media acquisition and supplemental capture complete")
+        context.workspace.note(
+            "INFO", "Media acquisition and supplemental capture complete"
+        )
         return result
 
     def _capture_live_chat(
@@ -222,7 +222,9 @@ class YouTubeCollector:
             result.observations.append(
                 "Live-chat replay acquisition was partial or unavailable; retained output is best-effort evidence."
             )
-            context.workspace.note("WARN", "Live-chat replay was partial or unavailable")
+            context.workspace.note(
+                "WARN", "Live-chat replay was partial or unavailable"
+            )
 
     def _capture_http(
         self,
@@ -356,7 +358,11 @@ class YouTubeCollector:
         for path in sorted(evidence.iterdir()):
             if not path.is_file() or path.is_symlink():
                 continue
-            role = ArtefactRole.PRIMARY if path.suffix.lower() in primary_suffixes else ArtefactRole.SUPPORTING
+            role = (
+                ArtefactRole.PRIMARY
+                if path.suffix.lower() in primary_suffixes
+                else ArtefactRole.SUPPORTING
+            )
             context.artefacts.register(
                 path,
                 role=role,

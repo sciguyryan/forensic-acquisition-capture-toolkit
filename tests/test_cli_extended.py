@@ -125,7 +125,9 @@ def test_acquire_helper_builds_case_and_forwards_options(
     assert calls[0]["live_chat"] is False
 
 
-def test_package_command_dispatches_project_packaging(tmp_path: Path, monkeypatch) -> None:
+def test_package_command_dispatches_project_packaging(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Create a project package through the public command-line dispatcher."""
     project = tmp_path / "project"
     initialise_project(project, "P-1", "Project")
@@ -134,8 +136,7 @@ def test_package_command_dispatches_project_packaging(tmp_path: Path, monkeypatc
     monkeypatch.setattr(
         cli,
         "create_project_package",
-        lambda *args, **kwargs: calls.append((args, kwargs))
-        or {"archive": archive},
+        lambda *args, **kwargs: calls.append((args, kwargs)) or {"archive": archive},
     )
     monkeypatch.setattr(cli, "log", lambda *args: None)
 

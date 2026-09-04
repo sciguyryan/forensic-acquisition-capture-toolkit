@@ -15,8 +15,8 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .services.commands import require, run
 from .errors import ToolkitError
+from .services.commands import require, run
 
 _PINENTRY_CANDIDATES = (
     "pinentry-curses",

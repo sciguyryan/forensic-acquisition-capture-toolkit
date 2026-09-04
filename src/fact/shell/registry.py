@@ -17,7 +17,6 @@ from pathlib import Path
 from ..core.context import discover_project_root
 from ..errors import ToolkitError
 
-
 _REGISTRY_VERSION = 1
 
 

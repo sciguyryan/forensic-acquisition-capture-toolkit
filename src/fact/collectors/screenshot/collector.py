@@ -56,7 +56,9 @@ class ScreenshotCollector:
         if capture.path.parent.resolve() != evidence_dir.resolve():
             raise ToolkitError("Screenshot backend returned evidence outside staging")
 
-        media_type = str(capture.metadata.get("media_type") or "application/octet-stream")
+        media_type = str(
+            capture.metadata.get("media_type") or "application/octet-stream"
+        )
         context.artefacts.register(
             capture.path,
             role=ArtefactRole.PRIMARY,

@@ -11,16 +11,16 @@ import sqlite3
 import tarfile
 import tempfile
 import tomllib
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
 from .. import __version__
-from .catalogue import CATALOGUE_DIR, CATALOGUE_NAME, PROJECT_NAME, verify_chain
-from ..services.commands import run
 from ..errors import ToolkitError
 from ..keys import fingerprint, prepare_gnupg, sign
+from ..services.commands import run
+from .catalogue import CATALOGUE_DIR, CATALOGUE_NAME, PROJECT_NAME, verify_chain
 
 PACKAGE_SCHEMA = "fact-project-package/v1"
 PACKAGE_METADATA_DIR = "FACT-PACKAGE"
@@ -106,8 +106,6 @@ def _snapshot_catalogue(source: Path, destination: Path) -> None:
     destination.chmod(0o600)
 
 
-
-
 _ACQUISITION_SIDECAR_SUFFIXES = (
     ".sha256",
     ".sha512",
@@ -134,14 +132,18 @@ def _copy_sealed_acquisitions(project_root: Path, destination: Path) -> None:
         raise ToolkitError(f"Invalid FACT archived directory: {source}")
 
     archives = sorted(
-        path for path in source.iterdir() if path.is_file() and path.name.endswith(".7z")
+        path
+        for path in source.iterdir()
+        if path.is_file() and path.name.endswith(".7z")
     )
     if not archives:
         return
     destination.mkdir(parents=True, exist_ok=True)
     for archive in archives:
         if archive.is_symlink():
-            raise ToolkitError(f"Project packages do not permit symbolic links: {archive}")
+            raise ToolkitError(
+                f"Project packages do not permit symbolic links: {archive}"
+            )
         required = [
             archive,
             *(Path(str(archive) + suffix) for suffix in _ACQUISITION_SIDECAR_SUFFIXES),
@@ -191,8 +193,6 @@ def _export_public_key(gnupg_home: Path, fpr: str) -> str:
     return result.stdout
 
 
-
-
 def _verify_signature(payload: Path, signature: Path, public_key: str) -> None:
     """Verify a detached signature in an isolated temporary GnuPG home."""
     with tempfile.TemporaryDirectory(prefix="fact-package-signature-") as temporary:
@@ -201,7 +201,9 @@ def _verify_signature(payload: Path, signature: Path, public_key: str) -> None:
         key_path = Path(temporary) / "public-key.asc"
         key_path.write_text(public_key, encoding="utf-8")
         env = {"GNUPGHOME": str(home)}
-        imported = run(["gpg", "--batch", "--import", str(key_path)], env=env, check=False)
+        imported = run(
+            ["gpg", "--batch", "--import", str(key_path)], env=env, check=False
+        )
         if imported.returncode != 0:
             raise ToolkitError("Unable to import FACT package verification public key")
         verified = run(
@@ -210,10 +212,14 @@ def _verify_signature(payload: Path, signature: Path, public_key: str) -> None:
             check=False,
         )
         if verified.returncode != 0:
-            raise ToolkitError(f"Detached signature verification failed: {signature.name}")
+            raise ToolkitError(
+                f"Detached signature verification failed: {signature.name}"
+            )
 
 
-def _checkpoint_status(staging: Path, verified: dict[str, object], public_key: str) -> str:
+def _checkpoint_status(
+    staging: Path, verified: dict[str, object], public_key: str
+) -> str:
     """Validate a packaged checkpoint when present and report its freshness."""
     fact_dir = staging / CATALOGUE_DIR
     checkpoint = fact_dir / "catalogue-checkpoint.json"
@@ -221,14 +227,20 @@ def _checkpoint_status(staging: Path, verified: dict[str, object], public_key: s
     if not checkpoint.exists() and not signature.exists():
         return "absent"
     if not checkpoint.is_file() or not signature.is_file():
-        raise ToolkitError("Catalogue checkpoint is incomplete; both payload and signature are required")
+        raise ToolkitError(
+            "Catalogue checkpoint is incomplete; both payload and signature are required"
+        )
     _verify_signature(checkpoint, signature, public_key)
     try:
         data = json.loads(checkpoint.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ToolkitError(f"Catalogue checkpoint cannot be read: {exc}") from exc
     fields = ("project_id", "event_count", "chain_head", "state_digest")
-    return "current" if all(data.get(field) == verified[field] for field in fields) else "stale"
+    return (
+        "current"
+        if all(data.get(field) == verified[field] for field in fields)
+        else "stale"
+    )
 
 
 def _manifest_files(root: Path) -> list[Path]:
@@ -258,25 +270,34 @@ def _canonical_tar_gz(source: Path, output: Path) -> None:
     """Write a deterministic gzip-compressed POSIX tar archive."""
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.tmp")
-    with temporary.open("wb") as raw:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
-            with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive:
-                for path in sorted(source.rglob("*"), key=lambda item: item.relative_to(source).as_posix()):
-                    if path.is_symlink():
-                        raise ToolkitError(f"Project packages do not permit symbolic links: {path}")
-                    relative = path.relative_to(source).as_posix()
-                    info = archive.gettarinfo(str(path), arcname=relative)
-                    info.uid = 0
-                    info.gid = 0
-                    info.uname = ""
-                    info.gname = ""
-                    info.mtime = 0
-                    info.mode = 0o755 if path.is_dir() else 0o644
-                    if path.is_file():
-                        with path.open("rb") as handle:
-                            archive.addfile(info, handle)
-                    else:
-                        archive.addfile(info)
+    with (
+        temporary.open("wb") as raw,
+        gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed,
+        tarfile.open(
+            fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT
+        ) as archive,
+    ):
+        for path in sorted(
+            source.rglob("*"),
+            key=lambda item: item.relative_to(source).as_posix(),
+        ):
+            if path.is_symlink():
+                raise ToolkitError(
+                    f"Project packages do not permit symbolic links: {path}"
+                )
+            relative = path.relative_to(source).as_posix()
+            info = archive.gettarinfo(str(path), arcname=relative)
+            info.uid = 0
+            info.gid = 0
+            info.uname = ""
+            info.gname = ""
+            info.mtime = 0
+            info.mode = 0o755 if path.is_dir() else 0o644
+            if path.is_file():
+                with path.open("rb") as handle:
+                    archive.addfile(info, handle)
+            else:
+                archive.addfile(info)
     os.replace(temporary, output)
 
 
@@ -321,16 +342,24 @@ def _verify_internal_manifest(archive: Path) -> None:
         for member in members.values():
             member_path = Path(member.name)
             if member_path.is_absolute() or ".." in member_path.parts:
-                raise ToolkitError(f"Unsafe member in generated FACT package: {member.name}")
+                raise ToolkitError(
+                    f"Unsafe member in generated FACT package: {member.name}"
+                )
             if member.issym() or member.islnk():
-                raise ToolkitError(f"Unexpected link in generated FACT package: {member.name}")
+                raise ToolkitError(
+                    f"Unexpected link in generated FACT package: {member.name}"
+                )
             if not member.isfile() and not member.isdir():
-                raise ToolkitError(f"Unexpected special member in generated FACT package: {member.name}")
+                raise ToolkitError(
+                    f"Unexpected special member in generated FACT package: {member.name}"
+                )
 
         manifest_name = f"{PACKAGE_METADATA_DIR}/{PACKAGE_MANIFEST}"
         manifest_member = members.get(manifest_name)
         if manifest_member is None or not manifest_member.isfile():
-            raise ToolkitError("Generated FACT package is missing its internal manifest")
+            raise ToolkitError(
+                "Generated FACT package is missing its internal manifest"
+            )
         manifest_stream = package.extractfile(manifest_member)
         if manifest_stream is None:
             raise ToolkitError("Generated FACT package manifest cannot be read")
@@ -347,13 +376,19 @@ def _verify_internal_manifest(archive: Path) -> None:
                 ) from exc
             member = members.get(relative)
             if member is None or not member.isfile():
-                raise ToolkitError(f"Generated FACT package failed manifest verification: {relative}")
+                raise ToolkitError(
+                    f"Generated FACT package failed manifest verification: {relative}"
+                )
             stream = package.extractfile(member)
             if stream is None:
-                raise ToolkitError(f"Generated FACT package member cannot be read: {relative}")
+                raise ToolkitError(
+                    f"Generated FACT package member cannot be read: {relative}"
+                )
             actual = hashlib.sha256(stream.read()).hexdigest()
             if actual != expected:
-                raise ToolkitError(f"Generated FACT package failed manifest verification: {relative}")
+                raise ToolkitError(
+                    f"Generated FACT package failed manifest verification: {relative}"
+                )
 
 
 def create_project_package(
@@ -369,7 +404,9 @@ def create_project_package(
     toolkit_root = toolkit_root.resolve()
     project = _load_project(project_root)
     project_id = str(project["project_id"])
-    archive = (output or project_root.parent / f"{project_id}{PACKAGE_SUFFIX}").resolve()
+    archive = (
+        output or project_root.parent / f"{project_id}{PACKAGE_SUFFIX}"
+    ).resolve()
     signature = archive.with_name(archive.name + ".asc")
     checksum = archive.with_name(archive.name + ".sha256")
     public_key_sidecar = archive.with_name(archive.name + ".public-key.asc")
@@ -382,7 +419,9 @@ def create_project_package(
     existing = [path for path in planned if path.exists()]
     if existing and not force:
         names = ", ".join(path.name for path in existing)
-        raise ToolkitError(f"Package output already exists: {names}. Use --force to replace it.")
+        raise ToolkitError(
+            f"Package output already exists: {names}. Use --force to replace it."
+        )
 
     gnupg_home = toolkit_root / "pgp" / "keyring"
     env = prepare_gnupg(gnupg_home, interactive=False)
@@ -394,7 +433,9 @@ def create_project_package(
     with _package_lock(project_root):
         verified = verify_chain(project_root)
         if verified["project_id"] != project_id:
-            raise ToolkitError("PROJECT.toml project_id does not match the catalogue project_id")
+            raise ToolkitError(
+                "PROJECT.toml project_id does not match the catalogue project_id"
+            )
 
         with tempfile.TemporaryDirectory(prefix="fact-package-build-") as temporary:
             staging = Path(temporary) / project_id
@@ -412,7 +453,9 @@ def create_project_package(
             )
             snapshot_verified = verify_chain(snapshot_root)
             if snapshot_verified != verified:
-                raise ToolkitError("Catalogue changed while the project package was being prepared")
+                raise ToolkitError(
+                    "Catalogue changed while the project package was being prepared"
+                )
 
             checkpoint_status = _checkpoint_status(staging, verified, public_key)
 
@@ -459,5 +502,3 @@ def create_project_package(
     if encrypt_to:
         outputs["encrypted"] = _encrypt_archive(archive, gnupg_home, encrypt_to)
     return outputs
-
-

@@ -62,9 +62,7 @@ def run_collector_acquisition(
     root = root.resolve()
     catalogued = catalogue_path(root).is_file()
     run_id = (
-        issue_identifier(root, "acquisition", "ACQ")
-        if catalogued
-        else acquisition_id()
+        issue_identifier(root, "acquisition", "ACQ") if catalogued else acquisition_id()
     )
 
     try:

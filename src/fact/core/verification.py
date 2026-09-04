@@ -10,11 +10,11 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from ..console import log, summary
+from ..models import VerificationSummary
 from ..services.archive import extract, unsafe_members
 from ..services.commands import require, run
-from ..console import log, summary
 from ..services.hashing import digest, verify_manifest
-from ..models import VerificationSummary
 
 
 def _record(result: VerificationSummary, name: str, ok: bool, detail: str = "") -> None:
