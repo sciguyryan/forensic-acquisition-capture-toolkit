@@ -12,7 +12,7 @@ The toolkit is intended to support multiple acquisition sources and evidence typ
 
 FACT is currently in transition from the original YouTube-specific forensic acquisition toolkit into a general-purpose acquisition framework.
 
-At present, the implemented acquisition workflow is focused on YouTube. The existing YouTube functionality remains the behavioural baseline while FACT's source-independent architecture and additional acquisition capabilities are developed.
+At present, FACT supports YouTube acquisition and an initial screenshot collector for Linux desktop environments using XDG Desktop Portal. The existing YouTube functionality remains the behavioural baseline while additional source-independent acquisition capabilities are developed.
 
 Support for a source should not be inferred merely because FACT is designed to accommodate it. Only explicitly documented acquisition sources should be considered supported.
 
@@ -95,6 +95,28 @@ Depending on the source and available material, acquisition can include:
 Original downloaded media is preserved without transcoding.
 
 Some source acquisition is inherently best-effort. For example, material that is unavailable at acquisition time cannot be reconstructed by FACT. Such conditions should be recorded rather than silently treated as successful acquisition.
+
+### Screenshot
+
+**Status: supported on Linux through XDG Desktop Portal**
+
+FACT can acquire an operator-selected window, screen, area, or active window through the desktop screenshot portal. Window capture is the default. The exact returned image bytes are preserved as primary evidence and are not resized, re-encoded, annotated, or redacted during acquisition.
+
+On Wayland, FACT deliberately uses the compositor-mediated selector instead of attempting to enumerate or bypass other applications' windows. This means window selection is presented by the trusted desktop portal rather than by a FACT-owned window list.
+
+Install the optional screenshot dependency with:
+
+```bash
+python -m pip install -e '.[screenshot]'
+```
+
+A typical acquisition is:
+
+```bash
+fact acquire screenshot --case-id CASE-ID --case-comment "Capture selected window"
+```
+
+Detailed platform behaviour, dependencies, failure semantics, metadata, and future backend design are documented in `docs/SCREENSHOT_CAPTURE.md`.
 
 Additional source types will be introduced as FACT's generic acquisition architecture develops.
 
@@ -182,7 +204,7 @@ The objective is that a recipient can verify a FACT evidence package independent
 
 FACT requires Python 3.11 or later.
 
-The Python runtime is intentionally dependency-light. FACT primarily orchestrates established external tools used for acquisition, media inspection and cryptographic operations.
+The Python runtime is intentionally dependency-light. FACT primarily orchestrates established external tools used for acquisition, media inspection and cryptographic operations. Screenshot capture uses the optional `dbus-next` dependency to communicate with XDG Desktop Portal.
 
 The current YouTube acquisition implementation requires appropriate versions of tools including:
 

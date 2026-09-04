@@ -1,34 +1,24 @@
-"""Compatibility orchestration for the first FACT source collector, YouTube.
+"""Compatibility wrapper for FACT's original YouTube Python acquisition API.
 
-The source interaction itself lives in :mod:`fact.collectors.youtube`; generic
-workspace creation, artefact registration, and sealing live in FACT core.  This
-module keeps the v2.2 public Python function intact while the CLI moves towards
-explicit collector dispatch.
+New collectors use :func:`fact.core.orchestration.run_collector_acquisition`.
+This module preserves the original public ``acquire(...)`` function so external
+callers do not break while the command-line interface becomes collector based.
 """
 
 from __future__ import annotations
 
-import json
-import shutil
-import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 
 from .collectors.youtube.collector import YouTubeCollector, YouTubeRequest, video_id
-from .core.acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
-from .core.records import initial_record, write_record
-from .core.sealing import seal_acquisition
-from .identity import OperatorIdentity, export_public_key
-from .keys import ensure_key
+from .core.orchestration import acquisition_id, run_collector_acquisition
 from .models import CaseInfo
 from .services.commands import CommandRunner
 
 
 def _id() -> str:
-    """Return a timestamped identifier suitable for a legacy acquisition run."""
+    """Compatibility alias for the established acquisition-ID helper."""
 
-    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    return f"{timestamp}-{uuid.uuid4().hex[:8]}"
+    return acquisition_id()
 
 
 def _video_id(url: str) -> str | None:
@@ -53,56 +43,14 @@ def acquire(
     collector: YouTubeCollector | None = None,
     commands: CommandRunner | None = None,
 ) -> Path:
-    """Capture a YouTube source then pass the result to generic FACT sealing."""
+    """Capture YouTube material through FACT's generic acquisition lifecycle."""
 
-    root = root.resolve()
-    acquisition_id = _id()
-    workspace = AcquisitionWorkspace.create(root, case.case_id, acquisition_id)
-    context = AcquisitionContext(
-        project_root=root,
-        case_id=case.case_id,
-        acquisition_id=acquisition_id,
-        workspace=workspace,
-        artefacts=ArtefactRegistry(workspace.stage),
-        commands=commands or CommandRunner(),
-    )
-
-    pgp_dir = root / "pgp"
-    pgp_dir.mkdir(parents=True, exist_ok=True)
-    public_key = pgp_dir / "evidence-public-key.asc"
-    fingerprint_file = pgp_dir / "evidence-key-fingerprint.txt"
-    gnupg_home = pgp_dir / "keyring"
-    fingerprint = ensure_key(gnupg_home, public_key, fingerprint_file)
-
-    identity = OperatorIdentity(**case.operator_identity)
-    workspace.note(
-        "INFO",
-        (
-            f"Operator identified as {identity.name!r} "
-            f"({identity.operator_id}) via {case.operator_source}; "
-            f"login username: {case.operator_username}"
-        ),
-    )
-
-    # Preserve an explanatory record before any external source command runs.
-    # A failed collector therefore leaves useful provenance beside INCOMPLETE.
-    record = initial_record(case, acquisition_id, url, {})
-    record.source["collector"] = "youtube"
-    record.source["video_id"] = _video_id(url)
-    record.evidence["key_fingerprint"] = fingerprint
-    record.evidence["live_chat_status"] = "Pending" if live_chat else "Skipped"
-    write_record(workspace.stage, record)
-
-    shutil.copy2(public_key, workspace.stage / "evidence-public-key.asc")
-    (workspace.stage / "operator-identity.json").write_text(
-        json.dumps(identity.public_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    export_public_key(identity, workspace.stage / "operator-public-key.asc")
-
-    result = (collector or YouTubeCollector()).capture(
-        context,
-        YouTubeRequest(
+    selected = collector or YouTubeCollector()
+    return run_collector_acquisition(
+        root=root,
+        case=case,
+        collector=selected,
+        request=YouTubeRequest(
             url=url,
             cookies=cookies,
             subtitle_langs=subtitle_langs,
@@ -113,20 +61,13 @@ def acquire(
             max_sleep=max_sleep,
             rate_limit=rate_limit,
         ),
-    )
-    record.source.update(result.source)
-    record.source["collector"] = result.collector
-    record.evidence.update(result.evidence)
-    record.tools = dict(context.metadata.get("tools", {}))
-    record.observations.extend(result.observations)
-
-    return seal_acquisition(
-        context=context,
-        result=result,
-        case=case,
-        identity=identity,
-        record=record,
-        public_key=public_key,
-        gnupg_home=gnupg_home,
-        key_fingerprint=fingerprint,
+        initial_source={
+            "submitted_url": url,
+            "collector": "youtube",
+            "video_id": _video_id(url),
+        },
+        initial_evidence={
+            "live_chat_status": "Pending" if live_chat else "Skipped",
+        },
+        commands=commands,
     )

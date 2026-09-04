@@ -48,8 +48,10 @@ def default_registry() -> CollectorRegistry:
     merely because those capabilities are unavailable.
     """
 
+    from .screenshot.collector import ScreenshotCollector
     from .youtube.collector import YouTubeCollector
 
     registry = CollectorRegistry()
+    registry.register("screenshot", ScreenshotCollector())
     registry.register("youtube", YouTubeCollector())
     return registry

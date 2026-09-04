@@ -55,3 +55,21 @@ def test_explicit_youtube_collector_syntax() -> None:
     )
     assert args.source == "youtube"
     assert args.target == "https://youtu.be/abc"
+
+
+def test_screenshot_collector_syntax_has_no_positional_target() -> None:
+    """Accept interactive screenshot acquisition with a window target by default."""
+
+    args = parser().parse_args(
+        [
+            "acquire",
+            "screenshot",
+            "--case-id",
+            "CASE-1",
+            "--case-comment",
+            "Capture selected window",
+        ]
+    )
+    assert args.source == "screenshot"
+    assert args.target is None
+    assert args.screenshot_target == "window"

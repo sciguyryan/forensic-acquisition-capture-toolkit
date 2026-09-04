@@ -1,3 +1,0 @@
-[console_scripts]
-fact = youtube_forensics.cli:main
-youtube-forensics = youtube_forensics.cli:main

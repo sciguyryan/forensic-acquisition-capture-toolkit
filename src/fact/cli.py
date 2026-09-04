@@ -13,12 +13,15 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .acquire import acquire
+from .capabilities.screenshot import CaptureTarget
+from .collectors.screenshot.collector import ScreenshotRequest
 from .console import log, security_warning, summary
 from .collectors.registry import default_registry
 from .errors import ToolkitError
 from .identity import interactive_identity, resolve_identity
 from .keys import ensure_key, export_keypair
 from .models import CaseInfo
+from .core.orchestration import run_collector_acquisition
 from .core.packaging import create_project_package
 from .core.catalogue import list_identifiers, verify_chain, verify_checkpoint, write_checkpoint
 from .core.project import create_case, initialise_project, retire_case
@@ -47,14 +50,14 @@ def parser() -> argparse.ArgumentParser:
     acquire_parser.add_argument(
         "source",
         help=(
-            "Collector name (for example 'youtube') or, for v2.2 compatibility, "
-            "a YouTube URL"
+            "Collector name (for example 'youtube' or 'screenshot') or, for "
+            "v2.2 compatibility, a YouTube URL"
         ),
     )
     acquire_parser.add_argument(
         "target",
         nargs="?",
-        help="Collector target; currently required when SOURCE is 'youtube'",
+        help="Collector target; required for YouTube and omitted for interactive screenshots",
     )
     acquire_parser.add_argument("--case-id", required=True)
 
@@ -73,6 +76,18 @@ def parser() -> argparse.ArgumentParser:
     acquire_parser.add_argument("--min-sleep", default="5")
     acquire_parser.add_argument("--max-sleep", default="12")
     acquire_parser.add_argument("--rate-limit", default="5M")
+    acquire_parser.add_argument(
+        "--screenshot-target",
+        choices=[item.value for item in CaptureTarget],
+        default=CaptureTarget.WINDOW.value,
+        help="Screenshot source class; defaults to an operator-selected window",
+    )
+    acquire_parser.add_argument(
+        "--screenshot-backend",
+        choices=["auto", "portal"],
+        default="auto",
+        help="Linux screenshot backend; auto currently selects XDG Desktop Portal",
+    )
 
     verify_parser = subcommands.add_parser("verify")
     verify_parser.add_argument("archive", type=Path)
@@ -164,19 +179,25 @@ def _initialise(args: argparse.Namespace) -> int:
 def _acquire(args: argparse.Namespace) -> int:
     """Resolve the collector syntax and run a forensic acquisition."""
 
-    # v2.2 accepted ``fact acquire URL``.  Preserve that spelling during the
-    # architecture migration while making ``fact acquire youtube URL`` the new,
-    # explicit collector-oriented form.
     target_arg = getattr(args, "target", None)
     source_arg = getattr(args, "source", getattr(args, "url", None))
-    if target_arg is None:
+    registry = default_registry()
+
+    # Explicit collector names take priority.  A single unrecognised positional
+    # value retains the v2.2 ``fact acquire URL`` YouTube compatibility form.
+    # This avoids treating ``fact acquire screenshot`` as a YouTube URL merely
+    # because screenshots intentionally have no textual target argument.
+    if str(source_arg) in registry.names():
+        source_name = str(source_arg)
+        target = target_arg
+    elif target_arg is None:
         source_name = "youtube"
         target = source_arg
     else:
-        source_name = source_arg
-        target = target_arg
+        raise ToolkitError(f"Unknown FACT collector: {source_arg}")
+
     try:
-        collector = default_registry().get(str(source_name))
+        collector = registry.get(source_name)
     except KeyError as exc:
         raise ToolkitError(str(exc)) from exc
 
@@ -197,21 +218,50 @@ def _acquire(args: argparse.Namespace) -> int:
         args.requestor,
         args.matter_title,
     )
-    acquire(
-        root=args.root,
-        url=target,
-        case=case,
-        cookies=args.cookies,
-        subtitle_langs=args.subtitle_langs,
-        live_chat=not args.no_live_chat,
-        sleep_requests=args.sleep_requests,
-        sleep_subtitles=args.sleep_subtitles,
-        min_sleep=args.min_sleep,
-        max_sleep=args.max_sleep,
-        rate_limit=args.rate_limit,
-        collector=collector,
-    )
-    return 0
+
+    if source_name == "youtube":
+        if not target:
+            raise ToolkitError("The YouTube collector requires a URL target")
+        acquire(
+            root=args.root,
+            url=str(target),
+            case=case,
+            cookies=args.cookies,
+            subtitle_langs=args.subtitle_langs,
+            live_chat=not args.no_live_chat,
+            sleep_requests=args.sleep_requests,
+            sleep_subtitles=args.sleep_subtitles,
+            min_sleep=args.min_sleep,
+            max_sleep=args.max_sleep,
+            rate_limit=args.rate_limit,
+            collector=collector,
+        )
+        return 0
+
+    if source_name == "screenshot":
+        if target is not None:
+            raise ToolkitError(
+                "The screenshot collector uses interactive source selection; "
+                "do not supply a positional target"
+            )
+        screenshot_target = CaptureTarget(args.screenshot_target)
+        run_collector_acquisition(
+            root=args.root,
+            case=case,
+            collector=collector,
+            request=ScreenshotRequest(
+                target=screenshot_target,
+                backend=args.screenshot_backend,
+            ),
+            initial_source={
+                "collector": "screenshot",
+                "capture_type": "screenshot",
+                "target": f"operator-selected {screenshot_target.value}",
+            },
+        )
+        return 0
+
+    raise ToolkitError(f"Collector is registered but has no CLI request adapter: {source_name}")
 
 
 def _verify(args: argparse.Namespace) -> int:

@@ -197,7 +197,7 @@ The architecture is designed for the following near-term collectors:
 - logical file capture;
 - web-page capture.
 
-Screenshot capture is the next priority. It should reuse the generic acquisition workspace, artefact registry, command/capability services and sealing path rather than introducing screenshot-specific copies of those mechanisms.
+Screenshot capture is now implemented through a reusable capability/backend boundary. `ScreenshotCollector` owns evidential semantics, `LinuxScreenshotCapability` owns Linux backend policy, and `XdgDesktopPortalBackend` owns the concrete D-Bus portal interaction. Detailed behaviour is documented in `SCREENSHOT_CAPTURE.md`.
 
 ## Compatibility and migration
 

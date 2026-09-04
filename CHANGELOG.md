@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.4.0 - 2026-09-04
+
+- Added the first screenshot collector, initially targeting Linux desktop environments through XDG Desktop Portal.
+- Added a modular screenshot capability/backend boundary so future X11, Windows, and macOS implementations do not change collector evidential semantics.
+- Added explicit screenshot targets for window, screen, area, and active-window capture, with window capture as the default.
+- Added conservative portal version and advertised-target checks before capture.
+- Preserved the exact screenshot bytes returned by the capture backend without resizing, re-encoding, annotation, or redaction.
+- Added screenshot capture metadata covering backend, selection method, portal capabilities, session information, media type, and pixel dimensions where safely readable.
+- Added generic collector orchestration so key preparation, operator binding, initial records, staging, and sealing are no longer owned by the YouTube wrapper.
+- Generalised case-record source rendering so non-URL collectors do not inherit YouTube-specific assumptions.
+- Added optional `dbus-next` screenshot dependency and detailed Arch/Linux screenshot documentation in `docs/SCREENSHOT_CAPTURE.md`.
+- Added automated coverage for screenshot collector behaviour, backend isolation, portal success/cancellation/target checks, and exact-byte image preservation.
+
 ## 2.3.0 - 2026-09-04
 
 - Renamed the canonical internal Python package from `youtube_forensics` to `fact`, retaining thin compatibility aliases rather than duplicate implementations.

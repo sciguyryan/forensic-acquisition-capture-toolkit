@@ -9,6 +9,7 @@ import pytest
 
 from fact import acquire as acquire_module
 from fact.core.acquisition import AcquisitionResult, ArtefactRole
+from fact.core import orchestration as orchestration_module
 from fact.core import sealing as sealing_module
 from fact.errors import ToolkitError
 from fact.models import CaseInfo, VerificationSummary
@@ -41,6 +42,8 @@ def make_case() -> CaseInfo:
 class FakeCollector:
     """Small collector used to prove lifecycle/collector separation."""
 
+    name = "youtube"
+
     def capture(self, context, request):
         evidence = context.workspace.stage / "evidence"
         reports = context.workspace.stage / "reports"
@@ -65,6 +68,8 @@ class FakeCollector:
 class FailingCollector:
     """Collector that simulates a mandatory source failure."""
 
+    name = "youtube"
+
     def capture(self, context, request):
         raise ToolkitError("Primary yt-dlp acquisition failed with exit 1")
 
@@ -72,9 +77,9 @@ class FailingCollector:
 def _patch_sealing(monkeypatch) -> None:
     """Replace crypto/archive operations while retaining lifecycle behaviour."""
 
-    monkeypatch.setattr(acquire_module, "ensure_key", lambda *args: "E" * 40)
+    monkeypatch.setattr(orchestration_module, "ensure_key", lambda *args: "E" * 40)
     monkeypatch.setattr(
-        acquire_module,
+        orchestration_module,
         "export_public_key",
         lambda identity, output: output.write_text("operator key", encoding="utf-8"),
     )
@@ -89,7 +94,11 @@ def _patch_sealing(monkeypatch) -> None:
         lambda *args: Path(args[2]).write_text("operator signature", encoding="utf-8"),
     )
     monkeypatch.setattr(sealing_module, "summary", lambda *args, **kwargs: None)
-    monkeypatch.setattr(acquire_module, "_id", lambda: "20260720-120000-deadbeef")
+    monkeypatch.setattr(
+        orchestration_module,
+        "acquisition_id",
+        lambda: "20260720-120000-deadbeef",
+    )
     monkeypatch.setattr(
         sealing_module,
         "create_archive",
@@ -141,9 +150,9 @@ def test_acquire_happy_path(tmp_path: Path, monkeypatch) -> None:
 def test_acquire_retains_incomplete_state_on_collector_failure(tmp_path: Path, monkeypatch) -> None:
     """Retain a clearly marked workspace when mandatory capture fails."""
 
-    monkeypatch.setattr(acquire_module, "ensure_key", lambda *args: "E" * 40)
+    monkeypatch.setattr(orchestration_module, "ensure_key", lambda *args: "E" * 40)
     monkeypatch.setattr(
-        acquire_module,
+        orchestration_module,
         "export_public_key",
         lambda identity, output: output.write_text("key", encoding="utf-8"),
     )

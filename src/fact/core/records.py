@@ -10,6 +10,7 @@ import json
 import platform
 import socket
 from pathlib import Path
+from typing import Any
 
 from .. import __version__
 from ..models import CaseInfo, CaseRecord, iso_utc
@@ -61,9 +62,10 @@ def render_markdown(record: CaseRecord) -> str:
 
 ## Source
 
-- Submitted URL: {s["submitted_url"]}
+- Target: {s.get("submitted_url") or s.get("submitted_path") or s.get("target") or "Interactive/operator-selected source"}
 - Effective URL: {s.get("effective_url") or "Unavailable"}
-- Collector: {s.get("collector") or "youtube"}
+- Collector: {s.get("collector") or "Unavailable"}
+- Capture type: {s.get("capture_type") or "Not applicable"}
 - Video ID: {s.get("video_id") or "Unavailable"}
 - Title: {s.get("title") or "Unavailable"}
 - Channel: {s.get("channel") or "Unavailable"}
@@ -102,10 +104,13 @@ def render_markdown(record: CaseRecord) -> str:
     )
 
 
-def initial_record(
-    case: CaseInfo, acquisition_id: str, url: str, tools: dict[str, str]
+def initial_record_for_source(
+    case: CaseInfo,
+    acquisition_id: str,
+    source: dict[str, Any],
+    tools: dict[str, str],
 ) -> CaseRecord:
-    """Create the initial case record for a new acquisition."""
+    """Create the initial case record for any FACT collector."""
     return CaseRecord(
         schema_version="2.0",
         toolkit_name="FACT - Forensic Acquisition & Capture Toolkit",
@@ -128,11 +133,21 @@ def initial_record(
             "platform": platform.platform(),
             "python": platform.python_version(),
         },
-        source={"submitted_url": url},
+        source=dict(source),
         evidence={},
         tools=tools,
         observations=[],
         custody_events=[],
+    )
+
+
+def initial_record(
+    case: CaseInfo, acquisition_id: str, url: str, tools: dict[str, str]
+) -> CaseRecord:
+    """Create the legacy URL-oriented record used by older Python callers."""
+
+    return initial_record_for_source(
+        case, acquisition_id, {"submitted_url": url}, tools
     )
 
 
