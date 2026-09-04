@@ -1,16 +1,13 @@
 """Tests for command-line argument parsing."""
 
-import pytest
-
 from fact.cli import parser
 
 
-def test_case_comment_is_required() -> None:
-    """Require a case comment for every acquisition command."""
-    with pytest.raises(SystemExit) as exc_info:
-        parser().parse_args(["acquire", "--case-id", "CASE-1", "https://example.test"])
-
-    assert exc_info.value.code == 2
+def test_case_context_and_comment_are_optional_at_parse_time() -> None:
+    """Allow project/case context to supply identifiers and default comments."""
+    args = parser().parse_args(["acquire", "https://example.test"])
+    assert args.case_id is None
+    assert args.case_comment is None
 
 
 def test_identity_override_available() -> None:

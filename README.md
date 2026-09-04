@@ -113,7 +113,7 @@ python -m pip install -e '.[screenshot]'
 A typical acquisition is:
 
 ```bash
-fact acquire screenshot --case-id CASE-ID --case-comment "Capture selected window"
+fact acquire screenshot --acquisition-comment "Capture selected window"
 ```
 
 Detailed platform behaviour, dependencies, failure semantics, metadata, and future backend design are documented in `docs/SCREENSHOT_CAPTURE.md`.
@@ -129,7 +129,7 @@ The canonical Python package is `fact`. The historical `youtube_forensics` packa
 For YouTube, the preferred collector-oriented command form is:
 
 ```bash
-fact acquire youtube URL --case-id CASE-ID --case-comment "Purpose"
+fact acquire youtube URL --acquisition-comment "Purpose"
 ```
 
 The v2.2 `fact acquire URL` spelling remains accepted during migration. Detailed module boundaries, collector responsibilities and artefact-registry rules are documented in `docs/ARCHITECTURE.md`.
@@ -304,3 +304,11 @@ The original YouTube acquisition implementation forms FACT's first source-specif
 ## Licence
 
 See the repository's licence information for the terms under which FACT is distributed.
+
+## Projects and catalogue
+
+FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case and acquisition identifiers, records lifecycle events in a SHA-256 hash chain, and supports signed checkpoints for independent verification.
+
+Routine acquisitions no longer require operators to retype a case identifier. FACT can infer the current case from the working directory, use the project's selected case, automatically use the sole active case, or present an interactive numbered selector when a choice is required. New cases are allocated sequentially and selected automatically.
+
+Detailed design and operational behaviour are documented in [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md) and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).

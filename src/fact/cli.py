@@ -22,6 +22,15 @@ from .identity import interactive_identity, resolve_identity
 from .keys import ensure_key, export_keypair
 from .models import CaseInfo
 from .core.orchestration import run_collector_acquisition
+from .core.context import (
+    choose_case_interactively,
+    clear_selected_case,
+    discover_project_root,
+    get_selected_case,
+    resolve_case_context,
+    selected_case_path,
+    set_selected_case,
+)
 from .core.packaging import create_project_package
 from .core.catalogue import list_identifiers, verify_chain, verify_checkpoint, write_checkpoint
 from .core.project import create_case, initialise_project, retire_case
@@ -59,11 +68,19 @@ def parser() -> argparse.ArgumentParser:
         nargs="?",
         help="Collector target; required for YouTube and omitted for interactive screenshots",
     )
-    acquire_parser.add_argument("--case-id", required=True)
+    acquire_parser.add_argument(
+        "--case-id",
+        help="Legacy explicit case override; normally FACT resolves case context automatically",
+    )
 
-    comment_group = acquire_parser.add_mutually_exclusive_group(required=True)
-    comment_group.add_argument("--case-comment")
-    comment_group.add_argument("--case-comment-file", type=Path)
+    comment_group = acquire_parser.add_mutually_exclusive_group(required=False)
+    comment_group.add_argument("--acquisition-comment", "--case-comment", dest="case_comment")
+    comment_group.add_argument(
+        "--acquisition-comment-file",
+        "--case-comment-file",
+        dest="case_comment_file",
+        type=Path,
+    )
 
     acquire_parser.add_argument("--matter-title")
     acquire_parser.add_argument("--requestor")
@@ -120,6 +137,9 @@ def parser() -> argparse.ArgumentParser:
     case_retire.add_argument("case_id")
     case_retire.add_argument("--reason")
     case_commands.add_parser("list")
+    case_select = case_commands.add_parser("select")
+    case_select.add_argument("case_id", nargs="?")
+    case_commands.add_parser("current")
 
     catalogue_parser = subcommands.add_parser("catalogue")
     catalogue_commands = catalogue_parser.add_subparsers(dest="catalogue_command", required=True)
@@ -138,18 +158,22 @@ def parser() -> argparse.ArgumentParser:
     return argument_parser
 
 
-def _case_comments(args: argparse.Namespace) -> str:
-    """Return validated case comments from text or a supplied file."""
+def _case_comments(args: argparse.Namespace, default: str = "") -> str:
+    """Return an acquisition comment without forcing repetitive CLI boilerplate.
+
+    The historical ``--case-comment`` options remain aliases. If no acquisition-
+    specific note is supplied, FACT carries forward the human-readable comment
+    from ``CASE.toml`` rather than requiring the operator to retype it.
+    """
 
     if args.case_comment is not None:
-        comments = args.case_comment
-    else:
+        return args.case_comment.strip()
+    if args.case_comment_file is not None:
         comments = args.case_comment_file.read_text(encoding="utf-8").strip()
-
-    if not comments:
-        raise ToolkitError("Case comments must not be empty")
-
-    return comments
+        if not comments:
+            raise ToolkitError("Acquisition comments file must not be empty")
+        return comments
+    return default.strip()
 
 
 def _initialise(args: argparse.Namespace) -> int:
@@ -201,29 +225,38 @@ def _acquire(args: argparse.Namespace) -> int:
     except KeyError as exc:
         raise ToolkitError(str(exc)) from exc
 
-    comments = _case_comments(args)
+    project_root = discover_project_root(args.root)
+    current = Path.cwd().resolve()
+    if current != project_root and project_root not in current.parents:
+        current = args.root
+    case_context = resolve_case_context(
+        project_root,
+        explicit_case_id=args.case_id,
+        current=current,
+    )
+    comments = _case_comments(args, case_context.comment)
     identity, path, source = resolve_identity(
-        args.root,
+        project_root,
         args.identity_file,
     )
     profile_hash = hashlib.sha256(path.read_bytes()).hexdigest()
 
     case = CaseInfo(
-        args.case_id,
+        case_context.case_id,
         comments,
         identity.public_dict(),
         source,
         profile_hash,
         getpass.getuser(),
         args.requestor,
-        args.matter_title,
+        args.matter_title or case_context.title or None,
     )
 
     if source_name == "youtube":
         if not target:
             raise ToolkitError("The YouTube collector requires a URL target")
         acquire(
-            root=args.root,
+            root=project_root,
             url=str(target),
             case=case,
             cookies=args.cookies,
@@ -246,7 +279,7 @@ def _acquire(args: argparse.Namespace) -> int:
             )
         screenshot_target = CaptureTarget(args.screenshot_target)
         run_collector_acquisition(
-            root=args.root,
+            root=project_root,
             case=case,
             collector=collector,
             request=ScreenshotRequest(
@@ -322,35 +355,60 @@ def main(argv: Sequence[str] | None = None) -> int:
                 log("PASS", f"FACT project created: {path.parent}")
                 return 0
         if args.command == "case":
+            project_root = discover_project_root(args.root)
             if args.case_command == "create":
-                identifier = create_case(args.root, args.title, args.comment)
-                log("PASS", f"Case created: {identifier}")
+                identifier = create_case(project_root, args.title, args.comment)
+                selected = set_selected_case(project_root, identifier)
+                log("PASS", f"Case created and selected: {selected.case_id}")
                 return 0
             if args.case_command == "retire":
-                retire_case(args.root, args.case_id, args.reason)
+                selection_path = selected_case_path(project_root)
+                selected_id = (
+                    selection_path.read_text(encoding="utf-8").strip()
+                    if selection_path.is_file()
+                    else None
+                )
+                retire_case(project_root, args.case_id, args.reason)
+                if selected_id == args.case_id:
+                    clear_selected_case(project_root)
                 log("PASS", f"Case retired: {args.case_id}")
                 return 0
             if args.case_command == "list":
-                for item in list_identifiers(args.root):
+                for item in list_identifiers(project_root):
                     print(f"{item['identifier']}\t{item['state']}")
                 return 0
+            if args.case_command == "select":
+                if args.case_id:
+                    selected = set_selected_case(project_root, args.case_id)
+                else:
+                    selected = choose_case_interactively(project_root)
+                log("PASS", f"Selected case: {selected.case_id} - {selected.title or 'Untitled case'}")
+                return 0
+            if args.case_command == "current":
+                selected = get_selected_case(project_root)
+                if selected is None:
+                    raise ToolkitError("No FACT case is currently selected")
+                print(f"{selected.case_id}\t{selected.title}")
+                return 0
         if args.command == "catalogue":
+            project_root = discover_project_root(args.root)
             if args.catalogue_command == "checkpoint":
-                path = write_checkpoint(args.root, args.toolkit_root or args.root)
+                path = write_checkpoint(project_root, args.toolkit_root or project_root)
                 log("PASS", f"Catalogue checkpoint signed: {path}")
                 return 0
             if args.catalogue_command == "verify":
                 if args.checkpoint:
                     if args.public_key is None:
                         raise ToolkitError("--public-key is required with --checkpoint")
-                    result = verify_checkpoint(args.root, args.public_key)
+                    result = verify_checkpoint(project_root, args.public_key)
                 else:
-                    result = verify_chain(args.root)
+                    result = verify_chain(project_root)
                 log("PASS", f"Catalogue valid: {result['event_count']} events")
                 return 0
         if args.command == "package":
+            project_root = discover_project_root(args.root)
             outputs = create_project_package(
-                args.root,
+                project_root,
                 args.toolkit_root or Path.cwd(),
                 args.output,
                 encrypt_to=args.encrypt_to,

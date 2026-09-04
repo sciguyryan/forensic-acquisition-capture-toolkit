@@ -35,6 +35,13 @@ PROJECT.toml
     catalogue-checkpoint.json.asc      # when present
 cases/
     ...
+archived/
+    *.7z
+    *.7z.sha256
+    *.7z.sha512
+    *.7z.asc
+    *.7z.operator.asc
+    *.7z.verification.txt
 FACT-PACKAGE/
     PACKAGE.json
     MANIFEST.sha256
@@ -43,6 +50,8 @@ FACT-PACKAGE/
 ```
 
 The `.fact/catalogue.sqlite` member is produced through SQLite's backup API so that the package receives a transactionally consistent database snapshot.
+
+The `archived/` member is also allow-listed conservatively. FACT includes only complete top-level sealed acquisition bundles and their expected checksum, signature and verification sidecars. Mutable `.staging-*` acquisition trees are not included. If a `.7z` archive is present without the complete sealing sidecar set, project packaging refuses to proceed rather than silently exporting a partial bundle.
 
 The allow-list prevents unrelated working files, prior package outputs, caches, local configuration and private keyrings from being swept into an evidential package merely because they are present below the project directory.
 

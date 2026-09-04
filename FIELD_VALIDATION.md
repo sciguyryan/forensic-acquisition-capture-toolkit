@@ -1,6 +1,6 @@
-# FACT v2.4.0 field validation
+# FACT v2.5.0 field validation
 
-This release introduces FACT's first screenshot collector and the first platform-specific acquisition capability. Field validation should concentrate on the real Arch Linux desktop portal, preservation of the original screenshot bytes, and unchanged YouTube behaviour.
+This release extends FACT's screenshot work with project workflow context and the initial review-layer foundation. Field validation should cover the real Arch Linux desktop portal, preservation of the original screenshot bytes, project and case context resolution, review-layer invariants, and unchanged YouTube behaviour.
 
 ## Fresh environment
 
@@ -54,8 +54,7 @@ Create or select a disposable case, then run:
 fact \
     --root /path/to/project \
     acquire screenshot \
-    --case-id CASE-000001 \
-    --case-comment "FACT v2.4 screenshot field validation"
+    --acquisition-comment "FACT v2.5 screenshot field validation"
 ```
 
 Expected behaviour:
@@ -136,7 +135,7 @@ FACT should request exactly the named target class and should fail rather than s
 Perform one representative YouTube acquisition using:
 
 ```fish
-fact acquire youtube URL --case-id CASE-ID --case-comment "Regression check"
+fact acquire youtube URL --acquisition-comment "Regression check"
 ```
 
 Confirm the existing hashing, toolkit signature, operator signature, and mandatory self-verification behaviour remains intact.
@@ -153,3 +152,27 @@ The release is accepted when:
 - representative YouTube acquisition continues to work.
 
 Please also note which desktop environment/compositor and whether the session is Wayland or X11. That result will guide the next backend work.
+
+## FACT 2.5 workflow-context validation
+
+From a project containing at least two active cases, run:
+
+```fish
+fact --root /path/to/project case select
+```
+
+Confirm that FACT presents a numbered list and that selecting a number persists the intended case. Then verify:
+
+```fish
+fact --root /path/to/project case current
+```
+
+Create a new case and confirm FACT assigns the next `CASE-######` value and makes it current automatically. Start a screenshot acquisition without `--case-id` and confirm its case record uses the selected case and its acquisition identifier is the next `ACQ-######` value.
+
+Run another acquisition from within a different active case directory and confirm directory context takes precedence over the selected-case pointer. In a non-interactive invocation with multiple active cases, no selected case, and no case-directory context, confirm FACT refuses to guess.
+
+If practical, cancel one screenshot acquisition after FACT allocates its acquisition identifier. `fact catalogue verify` should remain valid, the cancelled identifier should be consumed, and the following acquisition should receive the next sequence rather than reusing the failed identifier.
+
+## FACT 2.5 review-layer foundation
+
+The graphical editor is not part of this release. The automated tests validate normalised coordinate bounds, mandatory redaction reasons, layer serialisation, original-image hash binding, and generation of the static browser shell. No original screenshot should be rewritten as part of these review-layer operations.

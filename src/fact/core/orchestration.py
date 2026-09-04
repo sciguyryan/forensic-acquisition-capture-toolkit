@@ -22,17 +22,17 @@ from ..keys import ensure_key
 from ..models import CaseInfo
 from ..services.commands import CommandRunner
 from .acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
+from .catalogue import catalogue_path, fail_identifier, issue_identifier
 from .records import initial_record_for_source, write_record
 from .sealing import seal_acquisition
 
 
 def acquisition_id() -> str:
-    """Return a collision-resistant acquisition identifier for current releases.
+    """Return the historical non-catalogue acquisition ID format.
 
-    Project-catalogue allocation for acquisition identifiers is a separate
-    lifecycle change.  Until that migration is made, retain the established
-    timestamp-plus-random-suffix format rather than silently changing existing
-    archive naming semantics as part of a collector feature.
+    This helper remains only for Python API compatibility. New acquisitions use
+    the project's catalogue-owned ``ACQ-######`` sequence inside
+    :func:`run_collector_acquisition`.
     """
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -51,72 +51,100 @@ def run_collector_acquisition(
 ) -> Path:
     """Prepare, capture, and seal one acquisition using a registered collector.
 
-    The function deliberately writes the initial case record *before* invoking
-    source-specific capture.  If the collector fails or the operator cancels a
-    portal interaction, the retained ``INCOMPLETE`` staging tree still explains
-    what FACT attempted and which operator initiated it.
+    The catalogue owns sequential acquisition identifiers for project-backed
+    work. Once issued, an ``ACQ-######`` value is consumed permanently. Any
+    subsequent preparation, capture, sealing, or verification failure therefore
+    marks that identifier as failed while preserving the ``INCOMPLETE`` staging
+    tree whenever one was created.
     """
 
     root = root.resolve()
-    run_id = acquisition_id()
-    workspace = AcquisitionWorkspace.create(root, case.case_id, run_id)
-    context = AcquisitionContext(
-        project_root=root,
-        case_id=case.case_id,
-        acquisition_id=run_id,
-        workspace=workspace,
-        artefacts=ArtefactRegistry(workspace.stage),
-        commands=commands or CommandRunner(),
+    catalogued = catalogue_path(root).is_file()
+    run_id = (
+        issue_identifier(root, "acquisition", "ACQ")
+        if catalogued
+        else acquisition_id()
     )
 
-    pgp_dir = root / "pgp"
-    pgp_dir.mkdir(parents=True, exist_ok=True)
-    public_key = pgp_dir / "evidence-public-key.asc"
-    fingerprint_file = pgp_dir / "evidence-key-fingerprint.txt"
-    gnupg_home = pgp_dir / "keyring"
-    fingerprint = ensure_key(gnupg_home, public_key, fingerprint_file)
+    try:
+        workspace = AcquisitionWorkspace.create(root, case.case_id, run_id)
+    except Exception:
+        # Workspace creation may fail before there is any filesystem evidence of
+        # the attempt. The catalogue still records the consumed identifier so it
+        # can never later be reused for unrelated material.
+        if catalogued:
+            fail_identifier(root, run_id, "workspace creation failed")
+        raise
 
-    identity = OperatorIdentity(**case.operator_identity)
-    workspace.note(
-        "INFO",
-        (
-            f"Operator identified as {identity.name!r} "
-            f"({identity.operator_id}) via {case.operator_source}; "
-            f"login username: {case.operator_username}"
-        ),
-    )
+    try:
+        context = AcquisitionContext(
+            project_root=root,
+            case_id=case.case_id,
+            acquisition_id=run_id,
+            workspace=workspace,
+            artefacts=ArtefactRegistry(workspace.stage),
+            commands=commands or CommandRunner(),
+        )
+        workspace.note("INFO", f"Acquisition allocated: {run_id} in {case.case_id}")
 
-    source = dict(initial_source)
-    source.setdefault("collector", collector.name)
-    evidence = dict(initial_evidence or {})
-    evidence["key_fingerprint"] = fingerprint
-    record = initial_record_for_source(case, run_id, source, {})
-    record.evidence.update(evidence)
-    write_record(workspace.stage, record)
+        pgp_dir = root / "pgp"
+        pgp_dir.mkdir(parents=True, exist_ok=True)
+        public_key = pgp_dir / "evidence-public-key.asc"
+        fingerprint_file = pgp_dir / "evidence-key-fingerprint.txt"
+        gnupg_home = pgp_dir / "keyring"
+        fingerprint = ensure_key(gnupg_home, public_key, fingerprint_file)
 
-    # Public keys are evidence-package verification material.  The corresponding
-    # private keys remain outside staging and must never be copied into evidence.
-    shutil.copy2(public_key, workspace.stage / "evidence-public-key.asc")
-    (workspace.stage / "operator-identity.json").write_text(
-        json.dumps(identity.public_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    export_public_key(identity, workspace.stage / "operator-public-key.asc")
+        identity = OperatorIdentity(**case.operator_identity)
+        workspace.note(
+            "INFO",
+            (
+                f"Operator identified as {identity.name!r} "
+                f"({identity.operator_id}) via {case.operator_source}; "
+                f"login username: {case.operator_username}"
+            ),
+        )
 
-    result = collector.capture(context, request)
-    record.source.update(result.source)
-    record.source["collector"] = result.collector
-    record.evidence.update(result.evidence)
-    record.tools = dict(context.metadata.get("tools", {}))
-    record.observations.extend(result.observations)
+        source = dict(initial_source)
+        source.setdefault("collector", collector.name)
+        evidence = dict(initial_evidence or {})
+        evidence["key_fingerprint"] = fingerprint
+        record = initial_record_for_source(case, run_id, source, {})
+        record.evidence.update(evidence)
+        write_record(workspace.stage, record)
 
-    return seal_acquisition(
-        context=context,
-        result=result,
-        case=case,
-        identity=identity,
-        record=record,
-        public_key=public_key,
-        gnupg_home=gnupg_home,
-        key_fingerprint=fingerprint,
-    )
+        # Public keys are evidence-package verification material. The
+        # corresponding private keys remain outside staging and must never be
+        # copied into evidence.
+        shutil.copy2(public_key, workspace.stage / "evidence-public-key.asc")
+        (workspace.stage / "operator-identity.json").write_text(
+            json.dumps(identity.public_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        export_public_key(identity, workspace.stage / "operator-public-key.asc")
+
+        result = collector.capture(context, request)
+        record.source.update(result.source)
+        record.source["collector"] = result.collector
+        record.evidence.update(result.evidence)
+        record.tools = dict(context.metadata.get("tools", {}))
+        record.observations.extend(result.observations)
+
+        return seal_acquisition(
+            context=context,
+            result=result,
+            case=case,
+            identity=identity,
+            record=record,
+            public_key=public_key,
+            gnupg_home=gnupg_home,
+            key_fingerprint=fingerprint,
+        )
+    except Exception as exc:
+        # The first exception is the evidentially useful failure. Catalogue
+        # bookkeeping must not conceal it if marking the identifier also fails.
+        if catalogued:
+            try:
+                fail_identifier(root, run_id, str(exc))
+            except Exception:
+                pass
+        raise

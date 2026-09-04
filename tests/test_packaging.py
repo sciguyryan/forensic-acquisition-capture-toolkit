@@ -189,3 +189,41 @@ def test_encryption_failure_is_reported(tmp_path: Path, monkeypatch) -> None:
             tmp_path / "encrypted.fact.tar.gz",
             encrypt_to=["MISSING"],
         )
+
+
+def test_project_package_includes_only_complete_sealed_acquisition_bundles(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project = tmp_path / "project"
+    initialise_project(project, "P-1", "Test")
+    archived = project / "archived"
+    archived.mkdir()
+    archive = archived / "CASE-000001_20260904_deadbeefdeadbeef.7z"
+    archive.write_bytes(b"sealed archive")
+    for suffix in (".sha256", ".sha512", ".asc", ".operator.asc", ".verification.txt"):
+        Path(str(archive) + suffix).write_text("sidecar", encoding="utf-8")
+    staging = archived / ".staging-CASE-000001-ACQ-000001"
+    staging.mkdir()
+    (staging / "raw.png").write_bytes(b"mutable staging")
+    _mock_crypto(monkeypatch)
+
+    output = tmp_path / "package.fact.tar.gz"
+    packaging.create_project_package(project, tmp_path, output)
+    with tarfile.open(output, "r:gz") as package:
+        names = package.getnames()
+    assert f"archived/{archive.name}" in names
+    assert f"archived/{archive.name}.operator.asc" in names
+    assert not any(".staging-" in name for name in names)
+
+
+def test_project_package_rejects_incomplete_sealed_acquisition_bundle(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project = tmp_path / "project"
+    initialise_project(project, "P-1", "Test")
+    archived = project / "archived"
+    archived.mkdir()
+    (archived / "case.7z").write_bytes(b"incomplete")
+    _mock_crypto(monkeypatch)
+    with pytest.raises(ToolkitError, match="bundle is incomplete"):
+        packaging.create_project_package(project, tmp_path, tmp_path / "bad.fact.tar.gz")

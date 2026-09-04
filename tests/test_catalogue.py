@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from fact.core.catalogue import catalogue_path, issue_identifier, retire_identifier, verify_chain
+from fact.core.catalogue import (
+    catalogue_path,
+    fail_identifier,
+    issue_identifier,
+    list_identifiers,
+    retire_identifier,
+    verify_chain,
+)
 from fact.errors import ToolkitError
 from fact.core.project import create_case, initialise_project
 
@@ -41,7 +48,7 @@ def test_project_refuses_overwrite(tmp_path: Path) -> None:
     with pytest.raises(ToolkitError, match="already exists"):
         initialise_project(tmp_path, "P-2", "Other")
 
-from fact.core.catalogue import list_identifiers, verify_checkpoint, write_checkpoint
+from fact.core.catalogue import verify_checkpoint, write_checkpoint
 from fact.core import catalogue as catalogue_module
 from fact.models import ToolResult
 from fact.core.project import retire_case
@@ -178,3 +185,36 @@ def test_checkpoint_rejects_failed_public_key_import(tmp_path: Path, monkeypatch
     monkeypatch.setattr(catalogue_module, "run", lambda argv, **kwargs: ToolResult(argv, 1, "", "bad"))
     with pytest.raises(ToolkitError, match="Unable to import"):
         verify_checkpoint(tmp_path, public_key)
+
+
+def test_acquisition_ids_are_sequential_and_failed_ids_are_not_reused(tmp_path: Path) -> None:
+    initialise_project(tmp_path, "P-1", "Test")
+    first = issue_identifier(tmp_path, "acquisition", "ACQ")
+    fail_identifier(tmp_path, first, "operator cancelled")
+    second = issue_identifier(tmp_path, "acquisition", "ACQ")
+    assert (first, second) == ("ACQ-000001", "ACQ-000002")
+    rows = list_identifiers(tmp_path, "acquisition")
+    assert [row["state"] for row in rows] == ["failed", "active"]
+    assert verify_chain(tmp_path)["event_count"] == 4
+
+
+def test_older_catalogue_can_initialise_acquisition_namespace_lazily(tmp_path: Path) -> None:
+    initialise_project(tmp_path, "P-1", "Test")
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.execute("DELETE FROM counters WHERE namespace = 'acquisition'")
+    connection.commit()
+    connection.close()
+
+    assert issue_identifier(tmp_path, "acquisition", "ACQ") == "ACQ-000001"
+    result = verify_chain(tmp_path)
+    assert result["event_count"] == 3
+
+
+def test_fail_identifier_rejects_unknown_and_non_active_ids(tmp_path: Path) -> None:
+    initialise_project(tmp_path, "P-1", "Test")
+    with pytest.raises(ToolkitError, match="Unknown FACT identifier"):
+        fail_identifier(tmp_path, "ACQ-999999")
+    identifier = issue_identifier(tmp_path, "acquisition", "ACQ")
+    fail_identifier(tmp_path, identifier)
+    with pytest.raises(ToolkitError, match="already failed"):
+        fail_identifier(tmp_path, identifier)

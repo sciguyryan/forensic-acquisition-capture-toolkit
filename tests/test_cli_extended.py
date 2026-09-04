@@ -9,6 +9,7 @@ from fact import cli
 from fact.errors import ToolkitError
 from fact.identity import OperatorIdentity
 from fact.models import VerificationSummary
+from fact.core.project import create_case, initialise_project
 
 IDENTITY = OperatorIdentity(1, "jane", "Jane Doe", None, None, None, "A" * 40, "B" * 40)
 
@@ -86,6 +87,8 @@ def test_acquire_helper_builds_case_and_forwards_options(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Build case metadata from the selected identity and forward CLI options."""
+    initialise_project(tmp_path, "P-1", "Project")
+    case_id = create_case(tmp_path, "Case title", "Case default comment")
     profile = tmp_path / "jane.json"
     profile.write_text("profile", encoding="utf-8")
     monkeypatch.setattr(
@@ -101,7 +104,7 @@ def test_acquire_helper_builds_case_and_forwards_options(
         identity_file=None,
         case_comment="Purpose",
         case_comment_file=None,
-        case_id="CASE-1",
+        case_id=case_id,
         requestor="Requestor",
         matter_title="Matter",
         url="https://youtu.be/abc",
@@ -124,6 +127,8 @@ def test_acquire_helper_builds_case_and_forwards_options(
 
 def test_package_command_dispatches_project_packaging(tmp_path: Path, monkeypatch) -> None:
     """Create a project package through the public command-line dispatcher."""
+    project = tmp_path / "project"
+    initialise_project(project, "P-1", "Project")
     calls = []
     archive = tmp_path / "P-1.fact.tar.gz"
     monkeypatch.setattr(
@@ -138,7 +143,7 @@ def test_package_command_dispatches_project_packaging(tmp_path: Path, monkeypatc
         cli.main(
             [
                 "--root",
-                str(tmp_path / "project"),
+                str(project),
                 "package",
                 "--toolkit-root",
                 str(tmp_path / "toolkit"),

@@ -5,7 +5,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .catalogue import PROJECT_NAME, initialise_catalogue, issue_identifier, retire_identifier
+from .catalogue import (
+    PROJECT_NAME,
+    fail_identifier,
+    initialise_catalogue,
+    issue_identifier,
+    retire_identifier,
+)
 from ..errors import ToolkitError
 
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -38,16 +44,33 @@ def create_case(project_root: Path, title: str = "", comment: str = "") -> str:
     """Allocate a never-reused case ID and create its human-readable record."""
     identifier = issue_identifier(project_root, "case", "CASE")
     case_dir = project_root / "cases" / identifier
-    case_dir.mkdir(parents=True, exist_ok=False)
-    case_dir.chmod(0o700)
-    def quote(value: str) -> str:
-        return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-    (case_dir / "CASE.toml").write_text(
-        f'schema_version = 1\ncase_id = "{identifier}"\ntitle = "{quote(title)}"\ncomment = "{quote(comment)}"\n',
-        encoding="utf-8",
-    )
-    (case_dir / "CASE.toml").chmod(0o600)
-    (case_dir / "acquisitions").mkdir(mode=0o700)
+    try:
+        case_dir.mkdir(parents=True, exist_ok=False)
+        case_dir.chmod(0o700)
+
+        def quote(value: str) -> str:
+            return (
+                value.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("\n", "\\n")
+            )
+
+        (case_dir / "CASE.toml").write_text(
+            f'schema_version = 1\ncase_id = "{identifier}"\n'
+            f'title = "{quote(title)}"\ncomment = "{quote(comment)}"\n',
+            encoding="utf-8",
+        )
+        (case_dir / "CASE.toml").chmod(0o600)
+        (case_dir / "acquisitions").mkdir(mode=0o700)
+    except Exception as exc:
+        # A case identifier is never returned to the sequence even when the
+        # filesystem record could not be completed. This prevents a later case
+        # from inheriting an identifier already observed in the audit history.
+        try:
+            fail_identifier(project_root, identifier, str(exc))
+        except Exception:
+            pass
+        raise
     return identifier
 
 

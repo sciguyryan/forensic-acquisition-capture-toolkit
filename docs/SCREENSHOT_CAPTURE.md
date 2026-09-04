@@ -59,8 +59,7 @@ The basic window-capture command is:
 
 ```bash
 fact acquire screenshot \
-    --case-id CASE-000001 \
-    --case-comment "Capture the selected application window"
+    --acquisition-comment "Capture the selected application window"
 ```
 
 The default screenshot target is `window`.
@@ -70,8 +69,7 @@ Other portal target classes can be requested explicitly:
 ```bash
 fact acquire screenshot \
     --screenshot-target screen \
-    --case-id CASE-000001 \
-    --case-comment "Capture the complete display"
+    --acquisition-comment "Capture the complete display"
 ```
 
 Current target values are:
@@ -176,13 +174,11 @@ MacOSScreenshotCapability
 
 without making the screenshot collector depend on one operating system.
 
-## Planned review layers
+## Review layers
 
-Annotation and requested-redaction support is outside this release.
+FACT now has the foundation for annotation and proposed-redaction layers, while the graphical editor remains future work. The review system loads the immutable original and maintains separate structured overlay layers. Shapes such as arrows, circles, rectangles, highlights, markers, and text will be stored as scalable/normalised geometry rather than burned into the source image. Proposed redactions will form a separate layer and each redaction will require a reason.
 
-The planned review system will load the immutable original and maintain separate structured overlay layers. Shapes such as arrows, circles, rectangles, highlights, markers, and text will be stored as scalable/normalised geometry rather than burned into the source image. Proposed redactions will form a separate layer and each redaction will require a reason.
-
-The same layer data is intended to drive:
+The same layer data is designed to drive:
 
 - the interactive FACT review UI;
 - the closed-project HTML media browser;

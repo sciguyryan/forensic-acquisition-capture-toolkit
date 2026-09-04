@@ -172,20 +172,20 @@ The former monolithic acquisition function has been divided so that:
 The legacy `fact acquire URL` form remains accepted during migration. The preferred collector-oriented spelling is:
 
 ```bash
-fact acquire youtube URL --case-id CASE-ID --case-comment "Purpose"
+fact acquire youtube URL --acquisition-comment "Purpose"
 ```
 
 The `youtube-forensics` console entry point remains a compatibility alias to `fact`.
 
 ## Review and derivation boundary
 
-The `review/` package is intentionally present as an architectural destination but does not yet contain the screenshot review implementation.
+The `review/` package now contains the initial screenshot review-layer model and static browser foundation. The graphical review editor remains future work.
 
 FACT uses the following distinction:
 
 > Acquisition creates evidence. Review describes evidence. Derivation creates representations of evidence.
 
-This rule will govern screenshot annotations and requested redactions. The original screenshot will remain immutable. Annotation and proposed-redaction layers will be stored separately, and rendered derivatives will be explicitly identified as derivatives.
+This rule governs screenshot annotations and proposed redactions. The original screenshot remains immutable. Annotation and proposed-redaction layers are stored separately, and rendered derivatives are explicitly identified as derivatives.
 
 The same review model is intended to support later image evidence, PDF pages, extracted video frames and the closed-project HTML evidence browser.
 
@@ -193,7 +193,6 @@ The same review model is intended to support later image evidence, PDF pages, ex
 
 The architecture is designed for the following near-term collectors:
 
-- screenshot capture;
 - logical file capture;
 - web-page capture.
 

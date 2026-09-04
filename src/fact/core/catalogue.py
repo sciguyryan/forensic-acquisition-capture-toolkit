@@ -101,6 +101,7 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
         connection.execute("INSERT INTO metadata VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
         connection.execute("INSERT INTO metadata VALUES ('project_id', ?)", (project_id,))
         connection.execute("INSERT INTO counters VALUES ('case', 1)")
+        connection.execute("INSERT INTO counters VALUES ('acquisition', 1)")
         _append_event(connection, "PROJECT_CREATED", "project", project_id, {"schema_version": SCHEMA_VERSION})
     finally:
         connection.close()
@@ -158,11 +159,32 @@ def _write_transaction(project_root: Path) -> Iterator[sqlite3.Connection]:
 
 
 def issue_identifier(project_root: Path, namespace: str, prefix: str) -> str:
-    """Atomically issue and permanently consume the next identifier."""
+    """Atomically issue and permanently consume the next identifier.
+
+    The acquisition namespace was introduced after the original catalogue
+    schema shipped. Existing projects therefore initialise that one namespace
+    lazily and record the migration in the audit chain before issuing its first
+    sequential acquisition identifier. Unknown namespaces still fail closed.
+    """
+    known_prefixes = {"case": "CASE", "acquisition": "ACQ"}
+    if namespace not in known_prefixes or known_prefixes[namespace] != prefix:
+        raise ToolkitError(f"Unknown identifier namespace: {namespace}")
     with _write_transaction(project_root) as connection:
         row = connection.execute(
             "SELECT next_sequence FROM counters WHERE namespace = ?", (namespace,)
         ).fetchone()
+        if row is None and namespace == "acquisition":
+            connection.execute("INSERT INTO counters VALUES (?, 1)", (namespace,))
+            _append_event(
+                connection,
+                "IDENTIFIER_NAMESPACE_INITIALISED",
+                "catalogue",
+                namespace,
+                {"next_sequence": 1},
+            )
+            row = connection.execute(
+                "SELECT next_sequence FROM counters WHERE namespace = ?", (namespace,)
+            ).fetchone()
         if row is None:
             raise ToolkitError(f"Unknown identifier namespace: {namespace}")
         sequence = int(row["next_sequence"])
@@ -199,6 +221,30 @@ def retire_identifier(project_root: Path, identifier: str, reason: str | None = 
         _append_event(
             connection,
             "IDENTIFIER_RETIRED",
+            str(row["namespace"]),
+            identifier,
+            {"reason": reason},
+        )
+
+
+
+def fail_identifier(project_root: Path, identifier: str, reason: str | None = None) -> None:
+    """Mark a consumed identifier as failed without making it reusable."""
+    with _write_transaction(project_root) as connection:
+        row = connection.execute(
+            "SELECT namespace, state FROM identifiers WHERE identifier = ?", (identifier,)
+        ).fetchone()
+        if row is None:
+            raise ToolkitError(f"Unknown FACT identifier: {identifier}")
+        if row["state"] != "active":
+            raise ToolkitError(f"Identifier is already {row['state']}: {identifier}")
+        connection.execute(
+            "UPDATE identifiers SET state = 'failed' WHERE identifier = ?",
+            (identifier,),
+        )
+        _append_event(
+            connection,
+            "IDENTIFIER_FAILED",
             str(row["namespace"]),
             identifier,
             {"reason": reason},
@@ -255,11 +301,13 @@ def verify_chain(project_root: Path) -> dict[str, object]:
                     "sequence": int(details["sequence"]),
                     "state": "active",
                 }
-            elif row["event_type"] == "IDENTIFIER_RETIRED":
+            elif row["event_type"] in {"IDENTIFIER_RETIRED", "IDENTIFIER_FAILED"}:
                 identifier = str(row["object_id"])
                 if identifier not in issued:
-                    raise ToolkitError(f"Catalogue retirement precedes issue: {identifier}")
-                issued[identifier]["state"] = "retired"
+                    raise ToolkitError(f"Catalogue state change precedes issue: {identifier}")
+                issued[identifier]["state"] = (
+                    "retired" if row["event_type"] == "IDENTIFIER_RETIRED" else "failed"
+                )
 
         live_rows = connection.execute(
             "SELECT namespace, sequence, identifier, state FROM identifiers ORDER BY namespace, sequence"

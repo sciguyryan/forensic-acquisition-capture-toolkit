@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.5.0 - Context and Review Foundation
+
+- Added automatic project and case context discovery so routine acquisitions no longer require operators to retype case identifiers.
+- Added persistent numbered case selection, automatic selection of newly created cases, and safe sole-case inference.
+- Added catalogue-owned sequential `ACQ-######` identifiers with non-reuse and failed-acquisition state recording.
+- Added an audit-compatible lazy acquisition-namespace migration for projects created before 2.5.0.
+- Added the first structured image annotation and proposed-redaction layer models with normalised coordinates and mandatory redaction reasons.
+- Added a dependency-free static image review shell with independent annotation and proposed-redaction SVG overlays.
+- Added detailed workflow and review-layer documentation under `docs/`.
+- Corrected project packaging so complete sealed acquisition archives and their sidecars are included while mutable `.staging-*` trees remain excluded.
+- Restored the README `Projects and catalogue` section and linked the new detailed documents.
+- Ignored setuptools-generated `*.egg-info/` metadata and removed generated package metadata from the release tree.
+
 ## 2.4.0 - 2026-09-04
 
 - Added the first screenshot collector, initially targeting Linux desktop environments through XDG Desktop Portal.
