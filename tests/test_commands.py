@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from fact.services.commands import run
 from fact.models import ToolResult
+from fact.services.commands import run
 
 
 def test_run_writes_stdout_stderr_and_exit_to_transcript(tmp_path: Path) -> None:
@@ -40,8 +40,8 @@ def test_run_does_not_write_transcript_unless_requested(tmp_path: Path) -> None:
 
 def test_require_and_archive_tool(monkeypatch) -> None:
     """Resolve required executables and prefer the standalone 7-Zip binary."""
-    from fact.services import commands
     from fact.errors import ToolkitError
+    from fact.services import commands
 
     monkeypatch.setattr(
         commands.shutil, "which", lambda name: f"/bin/{name}" if name == "7zz" else None

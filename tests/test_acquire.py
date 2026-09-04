@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 from fact import acquire as acquire_module
-from fact.core.acquisition import AcquisitionResult, ArtefactRole
 from fact.core import orchestration as orchestration_module
 from fact.core import sealing as sealing_module
+from fact.core.acquisition import AcquisitionResult, ArtefactRole
 from fact.errors import ToolkitError
 from fact.models import CaseInfo, VerificationSummary
 

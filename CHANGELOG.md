@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.7.1
+
+- Repair repository-wide Ruff 0.16.6 lint failures exposed by the GitHub runner.
+- Normalise import ordering in canonical and compatibility modules and tests.
+- Apply selected modern typing and simplification rules without weakening the lint configuration.
+- Preserve the completed interactive-shell behaviour from 2.7.0.
+
 ## 2.7.0
 
 - Completed the interactive shell foundation with explicit command help, safe local history, tab completion, and validated project-ID selection.

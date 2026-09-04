@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 from fact.core import verification as verify
-from fact.services.hashing import digest, write_manifest
 from fact.models import ToolResult
+from fact.services.hashing import digest, write_manifest
 
 
 def test_verify_archive_happy_path(tmp_path: Path, monkeypatch) -> None:

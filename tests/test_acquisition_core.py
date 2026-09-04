@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from fact.core.acquisition import AcquisitionWorkspace, ArtefactRegistry, ArtefactRole
 from fact.collectors.registry import CollectorRegistry
+from fact.core.acquisition import AcquisitionWorkspace, ArtefactRegistry, ArtefactRole
 
 
 def test_workspace_creates_incomplete_marker_and_log(tmp_path: Path) -> None:

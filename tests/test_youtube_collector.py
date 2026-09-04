@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from fact.collectors.youtube import collector as youtube
-from fact.core.acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
+from fact.core.acquisition import (
+    AcquisitionContext,
+    AcquisitionWorkspace,
+    ArtefactRegistry,
+)
 from fact.errors import ToolkitError
 from fact.models import ToolResult
 

@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 
 from fact.core import packaging
-from fact.services.commands import ToolResult
-from fact.errors import ToolkitError
 from fact.core.project import create_case, initialise_project
+from fact.errors import ToolkitError
+from fact.services.commands import ToolResult
 
 PUBLIC_KEY = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nTEST\n-----END PGP PUBLIC KEY BLOCK-----\n"
 

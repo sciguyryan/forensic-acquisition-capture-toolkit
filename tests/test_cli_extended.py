@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 from fact import cli
+from fact.core.project import create_case, initialise_project
 from fact.errors import ToolkitError
 from fact.identity import OperatorIdentity
 from fact.models import VerificationSummary
-from fact.core.project import create_case, initialise_project
 
 IDENTITY = OperatorIdentity(1, "jane", "Jane Doe", None, None, None, "A" * 40, "B" * 40)
 

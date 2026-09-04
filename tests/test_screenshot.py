@@ -15,7 +15,11 @@ from fact.capabilities.screenshot.base import ScreenshotCapture
 from fact.capabilities.screenshot.image import inspect_image
 from fact.capabilities.screenshot.portal import XdgDesktopPortalBackend
 from fact.collectors.screenshot.collector import ScreenshotCollector, ScreenshotRequest
-from fact.core.acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
+from fact.core.acquisition import (
+    AcquisitionContext,
+    AcquisitionWorkspace,
+    ArtefactRegistry,
+)
 from fact.errors import ToolkitError
 from fact.services.commands import CommandRunner
 
