@@ -1,329 +1,262 @@
-# YouTube Forensic Toolkit 2.0
+# FACT
 
-A Python 3 toolkit for acquiring, documenting, hashing, archiving, signing, and independently verifying YouTube evidence on GNU/Linux.
+**Forensic Acquisition & Capture Toolkit**
 
-The orchestration layer is Python; specialist work remains delegated to established command-line tools such as `yt-dlp`, `ffprobe`, `mediainfo`, `curl`, `gpg`, and `7z`/`7zz`.
+FACT is a source-agnostic digital evidence acquisition toolkit for collecting, preserving, sealing, and independently verifying online and digital material while maintaining provenance and evidential integrity.
 
-## Acquisition logging
+FACT is designed around a simple principle: acquisition should preserve what was obtained, document how it was obtained, and provide the information necessary for another party to verify the resulting evidence package independently.
 
-The main acquisition log records toolkit status messages and transcripts for the primary yt-dlp acquisition, best-effort live-chat capture, and supplemental HTTP capture. Each transcript contains the command, stdout, stderr, and exit status. Exact unprefixed yt-dlp output is also retained in the evidence package under `reports/`.
+The toolkit is intended to support multiple acquisition sources and evidence types. YouTube is the first supported acquisition source, inherited from the original YouTube Forensics project.
+
+## Status
+
+FACT is currently in transition from the original YouTube-specific forensic acquisition toolkit into a general-purpose acquisition framework.
+
+At present, the implemented acquisition workflow is focused on YouTube. The existing YouTube functionality remains the behavioural baseline while FACT's source-independent architecture and additional acquisition capabilities are developed.
+
+Support for a source should not be inferred merely because FACT is designed to accommodate it. Only explicitly documented acquisition sources should be considered supported.
+
+## Design principles
+
+FACT is built around several core forensic principles:
+
+- **Preserve acquired material.** Original acquired media and other source artefacts should not be unnecessarily transformed or modified.
+- **Record provenance.** An evidence package should describe what was acquired, when it was acquired, how it was acquired, and which tools participated in the process.
+- **Preserve acquisition records.** Relevant command execution, output, errors, metadata and supporting information should be retained where appropriate.
+- **Separate evidence from interpretation.** Acquired material and observable source data should remain distinguishable from subsequently generated documentation, analysis or conclusions.
+- **Fail conservatively.** An incomplete or unsuccessful acquisition must not be presented as successfully sealed evidence.
+- **Make integrity verifiable.** Evidence packages should contain cryptographic manifests and associated integrity information.
+- **Bind evidence to its operator.** Operator identity and signing material should provide an auditable relationship between an acquisition and the person responsible for it.
+- **Verify independently.** Verification should not depend upon trusting the originating machine or its normal cryptographic environment.
+- **Retain useful failure state.** Failed acquisition staging data should remain available where doing so assists investigation, diagnosis or recovery.
+- **Prefer established tools.** FACT should orchestrate mature acquisition and cryptographic utilities rather than unnecessarily reimplementing them.
+
+These principles form part of FACT's intended evidence model and should be preserved as support for additional acquisition sources is introduced.
+
+## Evidence lifecycle
+
+At a high level, FACT follows this lifecycle:
+
+```text
+Source
+  |
+  v
+Acquisition
+  |
+  v
+Staging
+  |
+  +--> Acquired artefacts
+  +--> Source metadata
+  +--> Acquisition records
+  +--> Operator information
+  |
+  v
+Manifest
+  |
+  v
+Evidence package
+  |
+  +--> Cryptographic hashes
+  +--> Toolkit signature
+  +--> Operator signature
+  |
+  v
+Independent verification
+  |
+  v
+Sealed evidence
+```
+
+An acquisition is not considered successfully sealed merely because source material was downloaded. Collection, packaging, integrity protection and verification are separate stages.
+
+## Acquisition sources
+
+FACT is intended to support multiple independently implemented acquisition sources.
+
+### YouTube
+
+**Status: supported**
+
+The current YouTube acquisition capability preserves the functionality developed by the original YouTube Forensics project.
+
+Depending on the source and available material, acquisition can include:
+
+- original media;
+- source metadata;
+- thumbnails and associated material;
+- subtitles or captions;
+- live chat where available;
+- acquisition command transcripts;
+- tool information;
+- evidence manifests; and
+- cryptographic integrity and signature material.
+
+Original downloaded media is preserved without transcoding.
+
+Some source acquisition is inherently best-effort. For example, material that is unavailable at acquisition time cannot be reconstructed by FACT. Such conditions should be recorded rather than silently treated as successful acquisition.
+
+Additional source types will be introduced as FACT's generic acquisition architecture develops.
+
+## Evidence staging
+
+FACT uses a staging area while an acquisition is in progress.
+
+An `INCOMPLETE` marker identifies evidence that has not successfully completed the acquisition and sealing process. This prevents partially acquired material from being confused with completed evidence.
+
+If acquisition fails, staging material is retained rather than automatically destroyed. This can preserve useful forensic and diagnostic information about what occurred before the failure.
+
+Successful acquisition proceeds through finalisation and evidence-package creation.
+
+## Evidence packages
+
+FACT packages completed acquisitions into self-contained evidence archives.
+
+An evidence package is intended to contain sufficient information to establish:
+
+- the acquired material;
+- relevant source information;
+- acquisition provenance;
+- the tools and commands involved;
+- the responsible operator;
+- the relationship between packaged files through cryptographic manifests; and
+- the integrity and authenticity information required for subsequent verification.
+
+The archive itself is cryptographically hashed and signed after creation.
+
+Generated records should not be confused with independently acquired evidence. FACT should make that distinction clear wherever generated documentation, summaries or other derived material are introduced.
+
+## Cryptographic integrity
+
+FACT uses cryptographic hashes and OpenPGP signatures to protect completed evidence packages.
+
+The signing model distinguishes between toolkit signing material and operator identity.
+
+This allows an evidence package to demonstrate both that it was produced through the FACT sealing process and that an identified operator cryptographically authorised the acquisition.
+
+Private signing keys are not evidence artefacts and must not be included in distributable source packages or evidence intended for third parties.
+
+## Operator identity
+
+FACT maintains an operator identity system for associating acquisitions with the person responsible for performing them.
+
+Operator information is cryptographically bound through signing keys and recorded fingerprints rather than relying solely upon textual identity fields.
+
+Signing credentials should be protected appropriately for the environment in which FACT is deployed.
+
+## Independent verification
+
+Verification is a first-class part of FACT rather than an optional afterthought.
+
+The verifier checks the structure and integrity of an evidence package and validates its cryptographic signatures.
+
+Signature verification is performed using an isolated temporary GnuPG environment rather than implicitly trusting the user's ordinary keyring.
+
+Archive extraction and inspection are also treated defensively. Unsafe archive paths, traversal attempts and inappropriate symbolic links must not be trusted simply because an archive carries a recognised FACT structure.
+
+The objective is that a recipient can verify a FACT evidence package independently of the machine on which the acquisition was originally performed.
 
 ## Requirements
 
-- Python 3.11 or newer
-- yt-dlp
-- FFmpeg/ffprobe
-- GnuPG
-- 7-Zip (`7zz` or `7z`)
-- curl and MediaInfo are recommended
+FACT requires Python 3.11 or later.
 
-## Run immediately without pip or virtual-environment activation
+The Python runtime is intentionally dependency-light. FACT primarily orchestrates established external tools used for acquisition, media inspection and cryptographic operations.
 
-The toolkit has no third-party Python runtime dependencies. From the extracted source directory, you can test it directly without installing anything into Python:
+The current YouTube acquisition implementation requires appropriate versions of tools including:
 
-```bash
-PYTHONPATH=src python3 -m youtube_forensics --help
-```
+- `yt-dlp`;
+- `ffmpeg` and associated media utilities where required; and
+- GnuPG.
 
-This is the recommended first test and works from Bash, Zsh, and fish.
+Exact requirements should be checked against the current project configuration and release documentation.
 
-## Optional installation into a virtual environment
+## Installation
 
-A working `venv` and `pip` installation is required only when you want the generated `youtube-forensics` console command.
-
-On Debian or Ubuntu, install the supporting Python packages first when necessary:
+Clone the repository and install FACT into a Python environment:
 
 ```bash
-sudo apt update
-sudo apt install python3-venv python3-pip
+python -m pip install .
 ```
 
-On Fedora:
+For development:
 
 ```bash
-sudo dnf install python3-pip
+python -m pip install -e '.[dev]'
 ```
 
-On Arch Linux:
-
-```bash
-sudo pacman -S python-pip
-```
-
-Create the virtual environment:
-
-```bash
-python3 -m venv .venv
-```
-
-Activate it in **Bash or Zsh**:
-
-```bash
-source .venv/bin/activate
-python3 -m pip install .
-```
-
-Activate it in **fish**:
-
-```fish
-source .venv/bin/activate.fish
-python3 -m pip install .
-```
-
-Do not source `.venv/bin/activate` from fish; that file uses POSIX-shell `case ... esac` syntax.
-
-Confirm the installed command:
-
-```bash
-youtube-forensics --help
-```
-
-For editable development and tests, after activating the correct shell-specific environment:
-
-```bash
-python3 -m pip install -e '.[dev]'
-python3 -m pytest
-```
-
-## Copy/paste acquisition test
-
-The following uses case ID `CASE-0001`, the previously identified YouTube URL, and the toolkit data root used in the earlier examples.
-
-## Operator identification
-
-The toolkit resolves the human operator in this order:
-
-1. `--operator "Full Name"`
-2. `YOUTUBE_FORENSIC_OPERATOR`
-3. `ROOT/config.json`, created by the `init` command
-4. Current GNU/Linux login username, accompanied by a prominent warning
-
-For a persistent toolkit-root default:
-
-```bash
-PYTHONPATH=src python3 -m youtube_forensics \
-  --root /mnt/storage/GitHub/youtube-forensics \
-  init \
-  --operator "Jane Smith"
-```
-
-The configuration is stored as `ROOT/config.json` with mode `0600`. Use `--force` to deliberately replace an existing configuration. A one-off `--operator` always takes precedence. The environment variable is convenient on a managed workstation:
-
-```bash
-export YOUTUBE_FORENSIC_OPERATOR="Jane Smith"
-```
-
-Every case record separately captures the resolved operator, its source, the underlying login username, and the hostname.
-
-```bash
-youtube-forensics \
-  --root /mnt/storage/GitHub/youtube-forensics \
-  acquire \
-  --case-id CASE-0001 \
-  --operator "Jane Smith" \
-  --matter-title "Title of the Video" \
-  --case-comment "Preservation of the identified YouTube publication concerning the subject at hand, including associated metadata, available captions, HTTP response material, and any available live-chat replay." \
-  'https://www.youtube.com/watch?v=np4AAFN8Jab'
-```
-
-Recommended copy/paste test from the source checkout—no activation or pip required:
-
-```bash
-PYTHONPATH=src python3 -m youtube_forensics \
-  --root /mnt/storage/GitHub/youtube-forensics \
-  acquire \
-  --case-id CASE-0001 \
-  --operator "Jane Smith" \
-  --matter-title "Title of the Video" \
-  --case-comment "Preservation of the identified YouTube publication concerning the subject at hand, including associated metadata, available captions, HTTP response material, and any available live-chat replay." \
-  'https://www.youtube.com/watch?v=np4AAFN8Jab'
-```
-
-For longer comments, place the text in a file and substitute:
-
-```bash
---case-comment-file case-comments.md
-```
-
-for the `--case-comment` option. Exactly one of those options is required.
-
-The first acquisition automatically starts interactive creation of a dedicated passphrase-protected RSA-4096 GPG signing key when one is absent.
-
-## Verification
-
-After acquisition, use the exact archive path printed in the completion summary. For example:
-
-```bash
-youtube-forensics \
-  --root /mnt/storage/GitHub/youtube-forensics \
-  verify \
-  /mnt/storage/GitHub/youtube-forensics/archived/CASE-0001_YYYYMMDD_HASH.7z
-```
-
-The verifier enforces the current evidence-package contract and rejects incomplete documentation layouts.
-
-## Evidence package
-
-A 2.x archive contains, among other acquired files:
-
-- `CASE_RECORD.json` — canonical structured case record
-- `CASE_RECORD.md` — human-readable rendering
-- `TOOLKIT.json` — Python and external-tool versions
-- `EVIDENCESET-SHA256.txt` — canonical acquired-payload manifest
-- `FILELIST.txt`
-- `SHA256SUMS.txt`
-- `SHA512SUMS.txt`
-- `acquisition.txt`
-- `acquisition.log`
-- `VERIFICATION.txt`
-- `evidence-public-key.asc`
-- `evidence/`, `reports/`, and `http/`
-
-The transient `INCOMPLETE` state marker is operational metadata and is never included in evidence inventories or checksum manifests.
-
-## Transaction boundary
-
-Finalisation follows this order:
-
-1. Complete all mandatory and best-effort captures.
-2. Finalise acquisition log and generated records.
-3. Remove the transient incomplete marker.
-4. Generate evidence-set identity, file inventory, and internal manifests.
-5. Create the archive.
-6. Generate external SHA-256 and SHA-512 sidecars.
-7. Create the detached GPG signature.
-8. Verify in an isolated temporary directory.
-9. Report the acquisition as sealed only if every mandatory stage passes.
-
-Staging is intentionally retained after success and failure.
-
-## Security notes
-
-- Cookie files are used in place and are not copied into the evidence package.
-- The verifier rejects absolute paths, drive-prefixed paths, traversal members, and extracted symlinks.
-- GPG verification is performed in an isolated temporary keyring.
-- No downloaded media is transcoded by the toolkit.
-
-## License
-
-LGPL-2.1-or-later.
-
-## Dedicated GnuPG keyring management
-
-The toolkit stores its evidence-signing keyring under:
+The installed command-line interface is intended to be exposed as:
 
 ```text
-ROOT/pgp/keyring
+fact
 ```
 
-For the examples below, the root is `/mnt/storage/GitHub/youtube-forensics`.
-The public key is safe to distribute. The secret-key export and ownertrust file
-must be protected as sensitive evidence-system credentials.
+During the transition from the original YouTube Forensics project, command names and package structure may change as the generic FACT architecture is introduced.
 
-### Show the evidence-key fingerprint
+## Development
+
+The test suite uses `pytest`.
+
+After installing the project in development mode:
 
 ```bash
-gpg \
-  --homedir /mnt/storage/GitHub/youtube-forensics/pgp/keyring \
-  --with-colons --fingerprint --list-secret-keys
+python -m pytest
 ```
 
-The toolkit also writes the selected fingerprint to:
-
-```text
-/mnt/storage/GitHub/youtube-forensics/pgp/evidence-key-fingerprint.txt
-```
-
-### Export the public key
+The current source layout can also be tested without installation by exposing `src` explicitly:
 
 ```bash
-FPR="$(tr -d '[:space:]' < /mnt/storage/GitHub/youtube-forensics/pgp/evidence-key-fingerprint.txt)"
-
-gpg \
-  --homedir /mnt/storage/GitHub/youtube-forensics/pgp/keyring \
-  --armor --export "$FPR" \
-  > youtube-forensic-evidence-public-key.asc
+PYTHONPATH=src python -m pytest
 ```
 
-This public key may be supplied to another verifier without exposing the
-private signing key.
-
-### Export an encrypted backup of the private key
+Linting and formatting are checked with Ruff:
 
 ```bash
-FPR="$(tr -d '[:space:]' < /mnt/storage/GitHub/youtube-forensics/pgp/evidence-key-fingerprint.txt)"
-
-umask 077
-gpg \
-  --homedir /mnt/storage/GitHub/youtube-forensics/pgp/keyring \
-  --armor --export-secret-keys "$FPR" \
-  > youtube-forensic-evidence-secret-key.asc
+ruff check .
+ruff format --check .
 ```
 
-GnuPG will invoke pinentry when required. Store this file offline in protected,
-encrypted storage. Do not place it inside an evidence archive or transmit it
-with the public key.
+The project's continuous-integration configuration should be treated as the authoritative definition of supported Python versions and automated quality checks for a particular release.
 
-### Export ownertrust
+## Forensic limitations
 
-```bash
-gpg \
-  --homedir /mnt/storage/GitHub/youtube-forensics/pgp/keyring \
-  --export-ownertrust \
-  > youtube-forensic-ownertrust.txt
-```
+FACT assists with acquisition, preservation, provenance and integrity verification. It does not by itself establish the legal admissibility, authenticity, meaning or evidential weight of acquired material.
 
-Ownertrust is not the secret key, but it reveals trust configuration and should
-still be handled as administrative backup material.
+A valid FACT evidence package can demonstrate properties such as package integrity and cryptographic provenance. It cannot prove that material published by a third-party source was truthful, that an account was controlled by a particular real-world individual, or that an online service supplied historically complete information.
 
-### Restore the keypair into a fresh toolkit root
+Remote digital sources can also change or disappear without notice. FACT can preserve material available to it during acquisition, but it cannot recover information that the source no longer exposes.
 
-Create and secure the destination keyring first:
+Investigators remain responsible for using FACT in accordance with applicable law, organisational policy, evidential procedure and the requirements of the relevant jurisdiction.
 
-```bash
-mkdir -p /new/toolkit/root/pgp/keyring
-chmod 700 /new/toolkit/root/pgp/keyring
-```
+## Security
 
-Import the public and private key material:
+Forensic acquisition software operates on potentially hostile external input.
 
-```bash
-gpg \
-  --homedir /new/toolkit/root/pgp/keyring \
-  --import youtube-forensic-evidence-public-key.asc
+FACT therefore treats source content, metadata, filenames, archives and externally generated output as untrusted data.
 
-gpg \
-  --homedir /new/toolkit/root/pgp/keyring \
-  --import youtube-forensic-evidence-secret-key.asc
-```
+Security-sensitive behaviour should favour explicit validation, conservative failure and preservation of evidence over convenience.
 
-Restore ownertrust when the backup is available:
+Sensitive configuration and private cryptographic material must not be committed to source control or included in ordinary project distributions.
 
-```bash
-gpg \
-  --homedir /new/toolkit/root/pgp/keyring \
-  --import-ownertrust youtube-forensic-ownertrust.txt
-```
+Security issues should be reported privately to the project maintainers rather than disclosed through public issue reports before a fix can be prepared.
 
-Confirm that the secret key and fingerprint are present:
+## Project direction
 
-```bash
-gpg \
-  --homedir /new/toolkit/root/pgp/keyring \
-  --list-secret-keys --fingerprint
-```
+FACT is evolving from a specialised YouTube acquisition utility into a modular forensic acquisition framework.
 
-After restoration, run the toolkit's key preflight. It will reuse the imported
-key and regenerate the public-key and fingerprint sidecars:
+The intended architecture will allow source-specific acquisition capabilities to coexist behind a common evidence lifecycle without weakening the forensic guarantees already provided by the existing implementation.
 
-```bash
-PYTHONPATH=src python3 -m youtube_forensics \
-  --root /new/toolkit/root \
-  keygen
-```
+Future expansion may introduce additional source and evidence types, but new capabilities should continue to satisfy the same fundamental requirements:
 
-## Operator identity setup (rc9)
+**acquire faithfully, preserve provenance, protect integrity, and make the result independently verifiable.**
 
-Run `youtube-forensics --root ROOT init` in an interactive terminal. The wizard creates `ROOT/operators/<operator-id>.json`, stores only public identity metadata and full GnuPG fingerprints, and selects a usable secret signing key from the normal system keyring. Private key material is never copied into the toolkit root.
+## History
 
-Routine acquisitions use the active profile automatically. Use `acquire --identity-file FILE` for a one-case override. A configured operator key is mandatory: acquisition fails if the personal archive signature cannot be created.
+FACT originated as **YouTube Forensics**, a specialised toolkit for forensic acquisition of YouTube material.
+
+The project was renamed and broadened to **FACT - Forensic Acquisition & Capture Toolkit** as its scope expanded beyond a single online service.
+
+The original YouTube acquisition implementation forms FACT's first source-specific acquisition capability and provides the behavioural and forensic baseline for the wider framework.
+
+## Licence
+
+See the repository's licence information for the terms under which FACT is distributed.
