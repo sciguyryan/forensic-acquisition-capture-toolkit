@@ -38,14 +38,6 @@ branch = true
 source = ["fact"]
 omit = [
     "src/fact/__main__.py",
-    "src/fact/archive.py",
-    "src/fact/catalogue.py",
-    "src/fact/commands.py",
-    "src/fact/hashing.py",
-    "src/fact/packaging.py",
-    "src/fact/project.py",
-    "src/fact/records.py",
-    "src/fact/verify.py",
 ]
 
 [tool.coverage.report]
@@ -83,7 +75,6 @@ docstring-code-format = true
 
 [project.scripts]
 fact = "fact.cli:main"
-youtube-forensics = "fact.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

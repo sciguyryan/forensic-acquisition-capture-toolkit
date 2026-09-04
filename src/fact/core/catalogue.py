@@ -227,13 +227,6 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
         )
         connection.execute("INSERT INTO counters VALUES ('case', 1)")
         connection.execute("INSERT INTO counters VALUES ('acquisition', 1)")
-        _append_event(
-            connection,
-            "PROJECT_CREATED",
-            "project",
-            project_id,
-            {"schema_version": SCHEMA_VERSION},
-        )
     finally:
         connection.close()
     path.chmod(0o600)
@@ -246,7 +239,11 @@ def _current_event_context(connection: sqlite3.Connection) -> tuple[int, str]:
         "SELECT event_sequence, event_hash FROM audit_events "
         "ORDER BY event_sequence DESC LIMIT 1"
     ).fetchone()
-    return (1, GENESIS_HASH) if row is None else (int(row["event_sequence"]) + 1, str(row["event_hash"]))
+    return (
+        (1, GENESIS_HASH)
+        if row is None
+        else (int(row["event_sequence"]) + 1, str(row["event_hash"]))
+    )
 
 
 def _append_event(
@@ -264,7 +261,9 @@ def _append_event(
     if expected_sequence is not None and sequence != expected_sequence:
         raise ToolkitError("Catalogue changed while a signed transaction was prepared")
     if expected_previous is not None and previous != expected_previous:
-        raise ToolkitError("Catalogue chain head changed while a signed transaction was prepared")
+        raise ToolkitError(
+            "Catalogue chain head changed while a signed transaction was prepared"
+        )
     occurred_at = occurred_at or _utc_now()
     details_json = _canonical(details).decode("utf-8")
     material = {
@@ -316,10 +315,9 @@ def _write_transaction(project_root: Path) -> Iterator[sqlite3.Connection]:
 def issue_identifier(project_root: Path, namespace: str, prefix: str) -> str:
     """Atomically issue and permanently consume the next identifier.
 
-    The acquisition namespace was introduced after the original catalogue
-    schema shipped. Existing projects therefore initialise that one namespace
-    lazily and record the migration in the audit chain before issuing its first
-    sequential acquisition identifier. Unknown namespaces still fail closed.
+    Current-generation projects create every supported namespace at genesis.
+    Missing counters therefore indicate an incompatible or damaged catalogue,
+    not a migration opportunity. FACT fails closed rather than rewriting it.
     """
     known_prefixes = {"case": "CASE", "acquisition": "ACQ"}
     if namespace not in known_prefixes or known_prefixes[namespace] != prefix:
@@ -328,20 +326,10 @@ def issue_identifier(project_root: Path, namespace: str, prefix: str) -> str:
         row = connection.execute(
             "SELECT next_sequence FROM counters WHERE namespace = ?", (namespace,)
         ).fetchone()
-        if row is None and namespace == "acquisition":
-            connection.execute("INSERT INTO counters VALUES (?, 1)", (namespace,))
-            _append_event(
-                connection,
-                "IDENTIFIER_NAMESPACE_INITIALISED",
-                "catalogue",
-                namespace,
-                {"next_sequence": 1},
-            )
-            row = connection.execute(
-                "SELECT next_sequence FROM counters WHERE namespace = ?", (namespace,)
-            ).fetchone()
         if row is None:
-            raise ToolkitError(f"Unknown identifier namespace: {namespace}")
+            raise ToolkitError(
+                f"FACT catalogue is missing the required {namespace!r} identifier counter"
+            )
         sequence = int(row["next_sequence"])
         identifier = f"{prefix}-{sequence:06d}"
         issued_at = _utc_now()
@@ -459,7 +447,9 @@ def _verify_authority_state(
     authority_state_row = connection.execute(
         "SELECT value FROM metadata WHERE key = 'authority_state'"
     ).fetchone()
-    authority_state = str(authority_state_row[0]) if authority_state_row else "uninitialised"
+    authority_state = (
+        str(authority_state_row[0]) if authority_state_row else "uninitialised"
+    )
     if not required.issubset(table_names):
         if authority_state == "active":
             raise ToolkitError("Catalogue authority schema is incomplete")
@@ -504,18 +494,24 @@ def _verify_authority_state(
         actor_id = transaction.get("actor_id")
         actor_key = transaction.get("actor_key_fingerprint")
         data = transaction.get("data")
-        if not isinstance(actor_id, str) or not isinstance(actor_key, str) or not isinstance(data, dict):
+        if (
+            not isinstance(actor_id, str)
+            or not isinstance(actor_key, str)
+            or not isinstance(data, dict)
+        ):
             raise ToolkitError(
                 f"Authority transaction identity is malformed at event {row['event_sequence']}"
             )
 
         event_type = str(row["event_type"])
         sequence = int(row["event_sequence"])
-        if event_type == "AUTHORITY_BOOTSTRAPPED":
+        if event_type == "PROJECT_GENESIS":
             identity = data.get("identity")
             public_key = data.get("public_key")
             if not isinstance(identity, dict) or not isinstance(public_key, str):
-                raise ToolkitError("Authority bootstrap is missing retained operator identity")
+                raise ToolkitError(
+                    "Project genesis is missing retained operator identity"
+                )
             verification_key = public_key
         else:
             key_state = keys.get((actor_id, actor_key))
@@ -528,14 +524,16 @@ def _verify_authority_state(
             verification_key, _canonical(transaction), signature, actor_key
         )
 
-        if event_type == "AUTHORITY_BOOTSTRAPPED":
+        if event_type == "PROJECT_GENESIS":
             identity = data["identity"]
             assert isinstance(identity, dict)
             operator_id = str(identity["operator_id"])
             if actor_id != operator_id or actor_key != identity.get(
                 "operator_signing_subkey_fingerprint"
             ):
-                raise ToolkitError("Authority bootstrap signer does not match initial owner")
+                raise ToolkitError(
+                    "Project genesis signer does not match initial owner"
+                )
             operators[operator_id] = {
                 "operator_id": operator_id,
                 "name": identity["name"],
@@ -571,7 +569,9 @@ def _verify_authority_state(
         elif event_type == "CONTRIBUTOR_INVITED":
             identity = data.get("identity")
             if not isinstance(identity, dict):
-                raise ToolkitError("Contributor invitation is missing retained identity")
+                raise ToolkitError(
+                    "Contributor invitation is missing retained identity"
+                )
             operator_id = str(identity["operator_id"])
             signing = str(identity["operator_signing_subkey_fingerprint"])
             operators[operator_id] = {
@@ -660,7 +660,9 @@ def _verify_authority_state(
                     memberships[str(transfer["from_operator_id"])][
                         "membership_role"
                     ] = "contributor"
-                    memberships[str(transfer["to_operator_id"])]["membership_role"] = "owner"
+                    memberships[str(transfer["to_operator_id"])]["membership_role"] = (
+                        "owner"
+                    )
                     memberships[str(transfer["to_operator_id"])]["state"] = "active"
         elif event_type == "ACQUISITION_RECORDED":
             status = str(data["status"])
@@ -757,9 +759,13 @@ def _verify_authority_state(
             )
 
     if authority_state == "active" and authority_events == 0:
-        raise ToolkitError("Catalogue claims active authority without a signed authority root")
+        raise ToolkitError(
+            "Catalogue claims active authority without a signed authority root"
+        )
     if authority_state != "active" and authority_events:
-        raise ToolkitError("Catalogue authority metadata does not match its audit history")
+        raise ToolkitError(
+            "Catalogue authority metadata does not match its audit history"
+        )
 
 
 def verify_chain(project_root: Path) -> dict[str, object]:

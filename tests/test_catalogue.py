@@ -16,7 +16,8 @@ from fact.core.catalogue import (
     verify_checkpoint,
     write_checkpoint,
 )
-from fact.core.project import create_case, initialise_project, retire_case
+from fact.core.project import _initialise_project as initialise_project
+from fact.core.project import create_case, retire_case
 from fact.errors import ToolkitError
 from fact.models import ToolResult
 
@@ -35,7 +36,7 @@ def test_chain_detects_manual_event_tampering(tmp_path: Path) -> None:
     create_case(tmp_path)
     connection = sqlite3.connect(catalogue_path(tmp_path))
     connection.execute(
-        "UPDATE audit_events SET object_id = 'CASE-999999' WHERE event_sequence = 2"
+        "UPDATE audit_events SET object_id = 'CASE-999999' WHERE event_sequence = 1"
     )
     connection.commit()
     connection.close()
@@ -81,7 +82,7 @@ def test_chain_detects_discontinuity_and_previous_hash(tmp_path: Path) -> None:
     path = catalogue_path(tmp_path)
     connection = sqlite3.connect(path)
     connection.execute(
-        "UPDATE audit_events SET event_sequence = 7 WHERE event_sequence = 2"
+        "UPDATE audit_events SET event_sequence = 7 WHERE event_sequence = 1"
     )
     connection.commit()
     connection.close()
@@ -93,7 +94,7 @@ def test_chain_detects_discontinuity_and_previous_hash(tmp_path: Path) -> None:
     create_case(other)
     connection = sqlite3.connect(catalogue_path(other))
     connection.execute(
-        "UPDATE audit_events SET previous_hash = ? WHERE event_sequence = 2",
+        "UPDATE audit_events SET previous_hash = ? WHERE event_sequence = 1",
         ("f" * 64,),
     )
     connection.commit()
@@ -127,7 +128,7 @@ def test_checkpoint_write_and_verify_with_mocked_gpg(
         "run",
         lambda argv, **kwargs: ToolResult(argv, 0, "", ""),
     )
-    assert verify_checkpoint(tmp_path, public_key)["event_count"] == 2
+    assert verify_checkpoint(tmp_path, public_key)["event_count"] == 1
 
     create_case(tmp_path)
     with pytest.raises(ToolkitError, match="differs from signed checkpoint"):
@@ -215,21 +216,21 @@ def test_acquisition_ids_are_sequential_and_failed_ids_are_not_reused(
     assert (first, second) == ("ACQ-000001", "ACQ-000002")
     rows = list_identifiers(tmp_path, "acquisition")
     assert [row["state"] for row in rows] == ["failed", "active"]
-    assert verify_chain(tmp_path)["event_count"] == 4
+    assert verify_chain(tmp_path)["event_count"] == 3
 
 
-def test_older_catalogue_can_initialise_acquisition_namespace_lazily(
-    tmp_path: Path,
-) -> None:
+def test_missing_current_namespace_counter_fails_closed(tmp_path: Path) -> None:
+    """Do not rewrite an incompatible or damaged catalogue during allocation."""
     initialise_project(tmp_path, "P-1", "Test")
     connection = sqlite3.connect(catalogue_path(tmp_path))
     connection.execute("DELETE FROM counters WHERE namespace = 'acquisition'")
     connection.commit()
     connection.close()
 
-    assert issue_identifier(tmp_path, "acquisition", "ACQ") == "ACQ-000001"
-    result = verify_chain(tmp_path)
-    assert result["event_count"] == 3
+    with pytest.raises(
+        ToolkitError, match="missing the required 'acquisition' identifier counter"
+    ):
+        issue_identifier(tmp_path, "acquisition", "ACQ")
 
 
 def test_fail_identifier_rejects_unknown_and_non_active_ids(tmp_path: Path) -> None:

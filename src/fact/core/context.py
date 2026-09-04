@@ -21,6 +21,26 @@ from .catalogue import CATALOGUE_DIR, PROJECT_NAME, list_identifiers
 
 _SELECTED_CASE_NAME = "selected-case"
 
+CURRENT_PROJECT_SCHEMA_VERSION = 2
+
+
+def _require_current_project(project_root: Path) -> None:
+    """Reject projects created under a different FACT trust architecture."""
+    project_file = project_root / PROJECT_NAME
+    try:
+        data = tomllib.loads(project_file.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ToolkitError(
+            f"Unable to read FACT project record: {project_file}"
+        ) from exc
+    schema = data.get("schema_version")
+    if schema != CURRENT_PROJECT_SCHEMA_VERSION:
+        raise ToolkitError(
+            "This project belongs to a different FACT project schema and must be "
+            "handled with the FACT version under which it was created; active "
+            "legacy projects are not upgraded in place"
+        )
+
 
 @dataclass(slots=True, frozen=True)
 class CaseContext:
@@ -47,6 +67,7 @@ def discover_project_root(start: Path) -> Path:
         if (path / PROJECT_NAME).is_file() and (
             path / CATALOGUE_DIR / "catalogue.sqlite"
         ).is_file():
+            _require_current_project(path)
             return path
     raise ToolkitError(f"No FACT project found at or above: {start}")
 
@@ -199,7 +220,7 @@ def resolve_case_context(
 ) -> CaseContext:
     """Resolve an acquisition case conservatively and without guessing.
 
-    Resolution precedence is deliberately stable: a legacy explicit ID, path
+    Resolution precedence is deliberately stable: an explicit ID, path
     context, a persisted selection, the sole active case, then an interactive
     numbered selector.  Multiple active cases never cause an arbitrary choice.
     """

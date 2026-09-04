@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from fact.core.records import initial_record, write_record
+from fact.core.records import initial_record_for_source, write_record
 from fact.models import CaseInfo
 
 
@@ -20,17 +20,10 @@ def test_case_comments_written_to_both_formats(tmp_path: Path) -> None:
         "operator_signing_subkey_fingerprint": "B" * 40,
     }
     comments = "What this acquisition is about."
-    record = initial_record(
-        CaseInfo(
-            "CASE-1",
-            comments,
-            identity,
-            "active_profile",
-            "c" * 64,
-            "login",
-        ),
+    record = initial_record_for_source(
+        CaseInfo("CASE-1", comments, identity, "login"),
         "A-1",
-        "https://example.test",
+        {"submitted_url": "https://example.test"},
         {},
     )
 

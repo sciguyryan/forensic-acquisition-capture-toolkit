@@ -18,11 +18,11 @@ ACQ-000002
 
 Once issued, an identifier is permanently consumed. Retirement, failed acquisition, later removal of material, or an interrupted workflow must never make an identifier available for unrelated material.
 
-Projects created by FACT 2.5 and later initialise both namespaces. Earlier catalogue projects initialise the acquisition namespace lazily when the first sequential acquisition identifier is required. That compatibility migration is recorded in the catalogue audit chain before the first identifier is issued.
+Current-generation FACT projects initialise every supported identifier namespace when the catalogue is created. A missing required namespace is treated as an incompatible or damaged catalogue and FACT fails closed rather than rewriting it in place.
 
 A failed project acquisition records the issued acquisition identifier as `failed`. Where a staging tree was created, the `INCOMPLETE` marker remains so the failed attempt is not confused with sealed evidence.
 
-The historical Python acquisition API can still operate outside a FACT project for compatibility. Such non-project calls retain the previous timestamp-and-random-suffix identifier format because there is no project catalogue to own a sequence. The normal FACT command-line workflow is project based and uses catalogue identifiers.
+Acquisition through the current FACT command-line workflow is project based and uses catalogue-owned identifiers. Source collectors do not allocate independent evidence identifiers outside that project authority.
 
 ## Case creation and selection
 
@@ -39,13 +39,13 @@ fact --root /evidence/project case current
 fact --root /evidence/project case select
 ```
 
-`fact case select` displays active cases as a numbered list. The normal interactive workflow therefore asks the operator to choose a meaningful case rather than retype a case identifier. An explicit case identifier remains supported as a compatibility and automation override.
+`fact case select` displays active cases as a numbered list. The normal interactive workflow therefore asks the operator to choose a meaningful case rather than retype a case identifier. An explicit case identifier remains supported for automation and deliberate operator override.
 
 ## Acquisition case resolution
 
 When an acquisition starts without `--case-id`, FACT resolves the case in this order:
 
-1. an explicit legacy `--case-id`, if supplied;
+1. an explicit `--case-id`, if supplied;
 2. an active case inferred from the current directory when the command is run inside that case tree;
 3. the project's persisted selected case;
 4. the sole active case when exactly one exists;
@@ -66,7 +66,7 @@ The preferred acquisition-specific options are:
 --acquisition-comment-file
 ```
 
-The historical `--case-comment` spellings remain aliases for compatibility. An explicitly supplied comment file must not be blank.
+An explicitly supplied comment file must not be blank.
 
 ## Running commands from inside a project
 

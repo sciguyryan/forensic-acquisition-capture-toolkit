@@ -124,7 +124,7 @@ Additional source types will be introduced as FACT's generic acquisition archite
 
 FACT now uses an explicit collector boundary. Source-specific collectors receive a generic acquisition context and register the artefacts they intentionally produce; project management, staging state, evidence-set manifests, signing, sealing and mandatory verification remain source-independent core responsibilities.
 
-The canonical Python package is `fact`. The historical `youtube_forensics` package and `youtube-forensics` console command are compatibility aliases and do not contain a second copy of evidential logic.
+The canonical Python package and command are both `fact`. Legacy package and console aliases are not part of the current codebase.
 
 For YouTube, the preferred collector-oriented command form is:
 
@@ -132,7 +132,7 @@ For YouTube, the preferred collector-oriented command form is:
 fact acquire youtube URL --acquisition-comment "Purpose"
 ```
 
-The v2.2 `fact acquire URL` spelling remains accepted during migration. Detailed module boundaries, collector responsibilities and artefact-registry rules are documented in `docs/ARCHITECTURE.md`.
+Detailed module boundaries, collector responsibilities and artefact-registry rules are documented in `docs/ARCHITECTURE.md`.
 
 ## Evidence staging
 
@@ -182,9 +182,9 @@ Private signing keys are not evidence artefacts and must not be included in dist
 
 ## Operator identity
 
-FACT maintains a project-retained operator identity system for associating project activity with the operator responsible for performing or authorising it. Project-relevant identity, public signing-key material, contributor membership, ownership and approval state are retained inside the tamper-evident project catalogue.
+FACT maintains an operator identity system for associating project activity with the operator responsible for performing or authorising it. Project-relevant identity, public signing-key material, contributor membership, ownership and approval state are retained inside the tamper-evident project catalogue rather than relying on mutable local operator JSON as project authority.
 
-FACT no longer maintains local operator JSON profiles or active-profile selection as a parallel identity layer. Protected operations resolve the operator from the project-retained record and use its exact signing fingerprint to request the matching private key from the local GnuPG environment. Private keys and passphrases remain outside the project catalogue.
+FACT does not maintain local operator profile files. Project-relevant identity and public signing-key material are retained directly in the project catalogue. Private keys, passphrases and GnuPG agent state remain outside the project catalogue and under the operator's control.
 
 Authority-changing catalogue events are individually signed and also enter the existing rolling hash chain. This allows verification to detect unauthorised changes to identity, ownership, contributor membership or approval state while preserving the original historical sequence. Detailed behaviour and limitations are documented in [`docs/AUTHORITY_AND_IDENTITY.md`](docs/AUTHORITY_AND_IDENTITY.md).
 
@@ -321,7 +321,7 @@ See the repository's licence information for the terms under which FACT is distr
 
 FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case and acquisition identifiers, records lifecycle and authority events in a SHA-256 hash chain, retains project operator identities and public verification material, tracks contributor membership and ownership, and supports signed checkpoints for independent verification.
 
-The project owner is the human authority represented by this ledger. The SQLite catalogue is not intended to make a writable project impossible to alter; it is intended to make unauthorised modification detectable. Signed authority transactions and state reconstruction prevent changes to operator identity, ownership, membership or approval status from being silently accepted merely because somebody has edited the database or changed local signing-key state.
+The project owner is the human authority represented by this ledger. The SQLite catalogue is not intended to make a writable project impossible to alter; it is intended to make unauthorised modification detectable. Signed authority transactions and state reconstruction prevent changes to operator identity, ownership, membership or approval status from being silently accepted merely because somebody has edited the database.
 
 Routine acquisitions no longer require operators to retype a case identifier. FACT can infer the current case from the working directory, use the project's selected case, automatically use the sole active case, or present an interactive numbered selector when a choice is required. New cases are allocated sequentially and selected automatically.
 

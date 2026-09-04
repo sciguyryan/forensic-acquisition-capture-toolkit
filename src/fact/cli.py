@@ -8,20 +8,18 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import hashlib
 from collections.abc import Sequence
 from pathlib import Path
 
-from .acquire import acquire
 from .capabilities.screenshot import CaptureTarget
 from .collectors.registry import default_registry
 from .collectors.screenshot.collector import ScreenshotRequest
-from .console import log, security_warning, summary
+from .collectors.youtube.collector import YouTubeRequest, video_id
+from .console import log, security_warning
 from .core.authority import (
     accept_contributor,
     accept_ownership_transfer,
     authority_enabled,
-    bootstrap_project_authority,
     cancel_ownership_transfer,
     current_owner,
     decide_record,
@@ -29,11 +27,11 @@ from .core.authority import (
     list_members,
     list_records,
     propose_ownership_transfer,
+    registered_operator_identity,
     reject_contributor,
     reject_ownership_transfer,
     remove_contributor,
     require_project_authority,
-    require_registered_operator,
 )
 from .core.catalogue import (
     list_identifiers,
@@ -53,20 +51,13 @@ from .core.context import (
 from .core.orchestration import run_collector_acquisition
 from .core.packaging import create_project_package
 from .core.project import (
-    create_case,
     create_owned_case,
     initialise_owned_project,
-    initialise_project,
     retire_case,
 )
 from .core.verification import verify_archive
 from .errors import ToolkitError
-from .identity import (
-    export_public_key_text,
-    interactive_identity,
-    load_identity_file,
-    resolve_identity,
-)
+from .identity import export_public_key_text, interactive_identity, validate_identity
 from .keys import ensure_key, export_keypair
 from .models import CaseInfo
 
@@ -83,6 +74,10 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path.cwd(),
     )
+    argument_parser.add_argument(
+        "--operator-id",
+        help="Project operator identity used for signed operations",
+    )
 
     subcommands = argument_parser.add_subparsers(
         dest="command",
@@ -92,10 +87,7 @@ def parser() -> argparse.ArgumentParser:
     acquire_parser = subcommands.add_parser("acquire")
     acquire_parser.add_argument(
         "source",
-        help=(
-            "Collector name (for example 'youtube' or 'screenshot') or, for "
-            "v2.2 compatibility, a YouTube URL"
-        ),
+        help="Collector name, for example 'youtube' or 'screenshot'",
     )
     acquire_parser.add_argument(
         "target",
@@ -107,28 +99,15 @@ def parser() -> argparse.ArgumentParser:
     )
     acquire_parser.add_argument(
         "--case-id",
-        help=(
-            "Legacy explicit case override; normally FACT resolves case context "
-            "automatically"
-        ),
+        help="Explicit case override; normally FACT resolves case context automatically",
     )
 
     comment_group = acquire_parser.add_mutually_exclusive_group(required=False)
-    comment_group.add_argument(
-        "--acquisition-comment",
-        "--case-comment",
-        dest="case_comment",
-    )
-    comment_group.add_argument(
-        "--acquisition-comment-file",
-        "--case-comment-file",
-        dest="case_comment_file",
-        type=Path,
-    )
+    comment_group.add_argument("--acquisition-comment")
+    comment_group.add_argument("--acquisition-comment-file", type=Path)
 
     acquire_parser.add_argument("--matter-title")
     acquire_parser.add_argument("--requestor")
-    acquire_parser.add_argument("--identity-file", type=Path)
     acquire_parser.add_argument("--cookies", type=Path)
     acquire_parser.add_argument("--subtitle-langs", default="en.*,orig.*")
     acquire_parser.add_argument("--no-live-chat", action="store_true")
@@ -157,10 +136,6 @@ def parser() -> argparse.ArgumentParser:
 
     subcommands.add_parser("keygen")
 
-    init_parser = subcommands.add_parser("init")
-    init_parser.add_argument("--force", action="store_true")
-    init_parser.add_argument("--test-key", action="store_true")
-
     export_parser = subcommands.add_parser("export-keypair")
     export_parser.add_argument("--output", type=Path)
     export_parser.add_argument("--force", action="store_true")
@@ -174,11 +149,7 @@ def parser() -> argparse.ArgumentParser:
     project_init.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     project_init.add_argument("--project-id", required=True)
     project_init.add_argument("--title", required=True)
-    project_init.add_argument(
-        "--owner-identity",
-        type=Path,
-        help="Operator profile for the initial project owner; defaults to the active local profile",
-    )
+    project_init.add_argument("--test-key", action="store_true")
 
     case_parser = subcommands.add_parser("case")
     case_commands = case_parser.add_subparsers(dest="case_command", required=True)
@@ -197,8 +168,6 @@ def parser() -> argparse.ArgumentParser:
     authority_commands = authority_parser.add_subparsers(
         dest="authority_command", required=True
     )
-    authority_bootstrap = authority_commands.add_parser("bootstrap")
-    authority_bootstrap.add_argument("--identity-file", type=Path)
     authority_commands.add_parser("status")
 
     contributor_parser = subcommands.add_parser("contributor")
@@ -206,11 +175,17 @@ def parser() -> argparse.ArgumentParser:
         dest="contributor_command", required=True
     )
     contributor_invite = contributor_commands.add_parser("invite")
-    contributor_invite.add_argument("--identity-file", type=Path, required=True)
+    contributor_invite.add_argument("invitee_id")
+    contributor_invite.add_argument("--name", required=True)
+    contributor_invite.add_argument("--key-fingerprint", required=True)
+    contributor_invite.add_argument("--signing-fingerprint", required=True)
+    contributor_invite.add_argument("--public-contact")
+    contributor_invite.add_argument("--organisation")
+    contributor_invite.add_argument("--role")
     contributor_commands.add_parser("accept")
     contributor_commands.add_parser("reject")
     contributor_remove = contributor_commands.add_parser("remove")
-    contributor_remove.add_argument("operator_id")
+    contributor_remove.add_argument("contributor_id")
     contributor_remove.add_argument("--reason", required=True)
     contributor_commands.add_parser("list")
 
@@ -219,7 +194,7 @@ def parser() -> argparse.ArgumentParser:
     owner_current = owner_commands.add_parser("current")
     owner_current.add_argument("--case-id")
     owner_transfer = owner_commands.add_parser("transfer")
-    owner_transfer.add_argument("operator_id")
+    owner_transfer.add_argument("new_owner_id")
     owner_transfer.add_argument("--reason", required=True)
     owner_transfer.add_argument("--case-id")
     owner_accept = owner_commands.add_parser("accept")
@@ -270,58 +245,35 @@ def parser() -> argparse.ArgumentParser:
     return argument_parser
 
 
-def _case_comments(args: argparse.Namespace, default: str = "") -> str:
+def _acquisition_comments(args: argparse.Namespace, default: str = "") -> str:
     """Return an acquisition comment without forcing repetitive CLI boilerplate.
 
-    The historical ``--case-comment`` options remain aliases. If no acquisition-
-    specific note is supplied, FACT carries forward the human-readable comment
+    If no acquisition-specific note is supplied, FACT carries forward the human-readable comment
     from ``CASE.toml`` rather than requiring the operator to retype it.
     """
 
-    if args.case_comment is not None:
-        return args.case_comment.strip()
-    if args.case_comment_file is not None:
-        comments = args.case_comment_file.read_text(encoding="utf-8").strip()
+    if args.acquisition_comment is not None:
+        return args.acquisition_comment.strip()
+    if args.acquisition_comment_file is not None:
+        comments = args.acquisition_comment_file.read_text(encoding="utf-8").strip()
         if not comments:
             raise ToolkitError("Acquisition comments file must not be empty")
         return comments
     return default.strip()
 
 
-def _active_project_identity(project_root: Path) -> tuple[object, Path, str]:
-    """Resolve the local signer and bind it to project-retained identity."""
-    identity, path, source = resolve_identity(project_root, None)
-    require_registered_operator(project_root, identity, require_active=False)
-    return identity, path, source
+def _active_project_identity(project_root: Path, operator_id: str | None) -> object:
+    """Resolve the explicit project-retained operator used for this command."""
+    if not operator_id:
+        raise ToolkitError(
+            "This operation requires --operator-id, or an authenticated FACT shell session"
+        )
+    return registered_operator_identity(project_root, operator_id)
 
 
 def _scope(args: argparse.Namespace) -> tuple[str, str | None]:
     case_id = getattr(args, "case_id", None)
     return ("case", case_id) if case_id else ("project", None)
-
-
-def _initialise(args: argparse.Namespace) -> int:
-    """Initialise and activate an operator profile."""
-
-    identity, path = interactive_identity(
-        args.root,
-        force=args.force,
-        test_key=args.test_key,
-    )
-    summary(
-        "TOOLKIT INITIALIZED",
-        [
-            ("Operator profile", str(path), "PASS"),
-            ("Operator", identity.name, "PASS"),
-            (
-                "Signing key",
-                identity.operator_signing_subkey_fingerprint,
-                "PASS",
-            ),
-        ],
-        True,
-    )
-    return 0
 
 
 def _acquire(args: argparse.Namespace) -> int:
@@ -331,18 +283,10 @@ def _acquire(args: argparse.Namespace) -> int:
     source_arg = getattr(args, "source", getattr(args, "url", None))
     registry = default_registry()
 
-    # Explicit collector names take priority.  A single unrecognised positional
-    # value retains the v2.2 ``fact acquire URL`` YouTube compatibility form.
-    # This avoids treating ``fact acquire screenshot`` as a YouTube URL merely
-    # because screenshots intentionally have no textual target argument.
-    if str(source_arg) in registry.names():
-        source_name = str(source_arg)
-        target = target_arg
-    elif target_arg is None:
-        source_name = "youtube"
-        target = source_arg
-    else:
+    if str(source_arg) not in registry.names():
         raise ToolkitError(f"Unknown FACT collector: {source_arg}")
+    source_name = str(source_arg)
+    target = target_arg
 
     try:
         collector = registry.get(source_name)
@@ -358,19 +302,13 @@ def _acquire(args: argparse.Namespace) -> int:
         explicit_case_id=args.case_id,
         current=current,
     )
-    comments = _case_comments(args, case_context.comment)
-    identity, path, source = resolve_identity(
-        project_root,
-        args.identity_file,
-    )
-    profile_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    comments = _acquisition_comments(args, case_context.comment)
+    identity = _active_project_identity(project_root, args.operator_id)
 
     case = CaseInfo(
         case_context.case_id,
         comments,
         identity.public_dict(),
-        source,
-        profile_hash,
         getpass.getuser(),
         args.requestor,
         args.matter_title or case_context.title or None,
@@ -379,19 +317,29 @@ def _acquire(args: argparse.Namespace) -> int:
     if source_name == "youtube":
         if not target:
             raise ToolkitError("The YouTube collector requires a URL target")
-        acquire(
+        run_collector_acquisition(
             root=project_root,
-            url=str(target),
             case=case,
-            cookies=args.cookies,
-            subtitle_langs=args.subtitle_langs,
-            live_chat=not args.no_live_chat,
-            sleep_requests=args.sleep_requests,
-            sleep_subtitles=args.sleep_subtitles,
-            min_sleep=args.min_sleep,
-            max_sleep=args.max_sleep,
-            rate_limit=args.rate_limit,
             collector=collector,
+            request=YouTubeRequest(
+                url=str(target),
+                cookies=args.cookies,
+                subtitle_langs=args.subtitle_langs,
+                live_chat=not args.no_live_chat,
+                sleep_requests=args.sleep_requests,
+                sleep_subtitles=args.sleep_subtitles,
+                min_sleep=args.min_sleep,
+                max_sleep=args.max_sleep,
+                rate_limit=args.rate_limit,
+            ),
+            initial_source={
+                "submitted_url": str(target),
+                "collector": "youtube",
+                "video_id": video_id(str(target)),
+            },
+            initial_evidence={
+                "live_chat_status": "Pending" if not args.no_live_chat else "Skipped"
+            },
         )
         return 0
 
@@ -479,8 +427,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
 
     try:
-        if args.command == "init":
-            return _initialise(args)
         if args.command == "acquire":
             project_root = discover_project_root(args.root)
             require_project_authority(project_root)
@@ -492,7 +438,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "export-keypair":
             return _export_keypair(args)
         if args.command == "project" and args.project_command == "init":
-            identity, _, _ = resolve_identity(args.root, args.owner_identity)
+            identity = interactive_identity(test_key=args.test_key)
             public_key = export_public_key_text(identity)
             path = initialise_owned_project(
                 args.path, args.project_id, args.title, identity, public_key
@@ -504,13 +450,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             project_root = discover_project_root(args.root)
             if args.case_command == "create":
                 require_project_authority(project_root)
-                if authority_enabled(project_root):
-                    identity, _, _ = _active_project_identity(project_root)
-                    identifier = create_owned_case(
-                        project_root, identity, args.title, args.comment
-                    )
-                else:
-                    identifier = create_case(project_root, args.title, args.comment)
+                identity = _active_project_identity(project_root, args.operator_id)
+                identifier = create_owned_case(
+                    project_root, identity, args.title, args.comment
+                )
                 selected = set_selected_case(project_root, identifier)
                 log("PASS", f"Case created and selected: {selected.case_id}")
                 return 0
@@ -552,21 +495,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             project_root = discover_project_root(args.root)
             if args.authority_command == "status":
                 if not authority_enabled(project_root):
-                    print("Authority: uninitialised")
-                    return 0
+                    raise ToolkitError(
+                        "Current-generation FACT project is missing its signed authority genesis"
+                    )
                 owner = current_owner(project_root)
                 print(
                     f"Authority: active\nOwner: {owner['owner_id']} - {owner['name']}\n"
                     f"Effective sequence: {owner['effective_from_sequence']}"
                 )
-                return 0
-            if args.authority_command == "bootstrap":
-                if authority_enabled(project_root):
-                    raise ToolkitError("Project authority has already been established")
-                identity, _, _ = resolve_identity(project_root, args.identity_file)
-                public_key = export_public_key_text(identity)
-                bootstrap_project_authority(project_root, identity, public_key)
-                log("PASS", f"Project authority established: {identity.operator_id}")
                 return 0
         if args.command == "contributor":
             project_root = discover_project_root(args.root)
@@ -578,12 +514,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                         f"{item['state']}\t{item['name']}"
                     )
                 return 0
-            actor, _, _ = _active_project_identity(project_root)
+            actor = _active_project_identity(project_root, args.operator_id)
             if args.contributor_command == "invite":
-                contributor = load_identity_file(args.identity_file)
+                contributor = validate_identity(
+                    {
+                        "operator_id": args.invitee_id,
+                        "name": args.name,
+                        "public_contact": args.public_contact,
+                        "organisation": args.organisation,
+                        "role": args.role,
+                        "operator_key_fingerprint": args.key_fingerprint,
+                        "operator_signing_subkey_fingerprint": args.signing_fingerprint,
+                    }
+                )
                 public_key = export_public_key_text(contributor)
                 invite_contributor(project_root, actor, contributor, public_key)
-                log("PASS", f"Contributor invitation recorded: {contributor.operator_id}")
+                log(
+                    "PASS",
+                    f"Contributor invitation recorded: {contributor.operator_id}",
+                )
                 return 0
             if args.contributor_command == "accept":
                 accept_contributor(project_root, actor)
@@ -595,9 +544,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 0
             if args.contributor_command == "remove":
                 remove_contributor(
-                    project_root, actor, args.operator_id, args.reason
+                    project_root, actor, args.contributor_id, args.reason
                 )
-                log("PASS", f"Contributor removed: {args.operator_id}")
+                log("PASS", f"Contributor removed: {args.contributor_id}")
                 return 0
         if args.command == "owner":
             project_root = discover_project_root(args.root)
@@ -612,12 +561,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"sequence={owner['effective_from_sequence']}"
                 )
                 return 0
-            actor, _, _ = _active_project_identity(project_root)
+            actor = _active_project_identity(project_root, args.operator_id)
             if args.owner_command == "transfer":
                 transfer_id = propose_ownership_transfer(
                     project_root,
                     actor,
-                    args.operator_id,
+                    args.new_owner_id,
                     args.reason,
                     scope_type=scope_type,
                     scope_id=scope_id,
@@ -660,7 +609,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         f"submitted-by={item['submitted_by']}\tcase={item['scope_id']}"
                     )
                 return 0
-            actor, _, _ = _active_project_identity(project_root)
+            actor = _active_project_identity(project_root, args.operator_id)
             if args.record_command == "approve":
                 decide_record(project_root, actor, args.acquisition_id, "approved")
                 log("PASS", f"Record approved: {args.acquisition_id}")

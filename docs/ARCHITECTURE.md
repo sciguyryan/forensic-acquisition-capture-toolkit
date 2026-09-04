@@ -62,14 +62,12 @@ src/fact/
 │   └── youtube/
 │       └── collector.py
 ├── review/
-├── acquire.py
 ├── cli.py
 ├── identity.py
 ├── keys.py
 └── models.py
 ```
 
-The historical `youtube_forensics` Python package remains only as a compatibility namespace. It contains no independent evidential implementation. This is important because maintaining two implementations of hashing, verification or sealing logic would create unacceptable drift risk.
 
 ## Acquisition context
 
@@ -158,7 +156,7 @@ The existing functional command API remains available internally, but the runner
 
 Future security work, including argument redaction for sensitive command-line values, can therefore be implemented centrally.
 
-## YouTube migration
+## YouTube collector
 
 YouTube remains the first collector and behavioural baseline.
 
@@ -169,13 +167,11 @@ The former monolithic acquisition function has been divided so that:
 - archive sealing, source-payload manifests, hashing, signatures and mandatory self-verification live under `core/sealing.py`;
 - external commands live under `services/commands.py`.
 
-The legacy `fact acquire URL` form remains accepted during migration. The preferred collector-oriented spelling is:
+The collector-oriented command spelling is:
 
 ```bash
 fact acquire youtube URL --acquisition-comment "Purpose"
 ```
-
-The `youtube-forensics` console entry point remains a compatibility alias to `fact`.
 
 ## Review and derivation boundary
 
@@ -197,11 +193,3 @@ The architecture is designed for the following near-term collectors:
 - web-page capture.
 
 Screenshot capture is now implemented through a reusable capability/backend boundary. `ScreenshotCollector` owns evidential semantics, `LinuxScreenshotCapability` owns Linux backend policy, and `XdgDesktopPortalBackend` owns the concrete D-Bus portal interaction. Detailed behaviour is documented in `SCREENSHOT_CAPTURE.md`.
-
-## Compatibility and migration
-
-Internal imports should use `fact`, not `youtube_forensics`.
-
-Compatibility wrappers exist only to reduce unnecessary breakage while the project transitions from its original name. New modules, tests and documentation should use the canonical `fact` package.
-
-Compatibility aliases must not grow new functionality. New evidential logic belongs only in the canonical FACT implementation.

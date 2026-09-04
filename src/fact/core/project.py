@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..errors import ToolkitError
 from ..identity import OperatorIdentity
-from .authority import assign_case_owner, bootstrap_project_authority
+from .authority import assign_case_owner, establish_project_genesis
 from .catalogue import (
     PROJECT_NAME,
     fail_identifier,
@@ -21,7 +21,7 @@ from .catalogue import (
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
-def initialise_project(root: Path, project_id: str, title: str) -> Path:
+def _initialise_project(root: Path, project_id: str, title: str) -> Path:
     """Create a new FACT project without overwriting an existing project."""
     if not _PROJECT_ID.fullmatch(project_id):
         raise ToolkitError(
@@ -33,7 +33,7 @@ def initialise_project(root: Path, project_id: str, title: str) -> Path:
         raise ToolkitError(f"FACT project already exists at {root}")
     escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
     project_file.write_text(
-        f'schema_version = 1\nproject_id = "{project_id}"\ntitle = "{escaped_title}"\n',
+        f'schema_version = 2\nfact_version = "2.8.0"\nproject_id = "{project_id}"\ntitle = "{escaped_title}"\n',
         encoding="utf-8",
     )
     project_file.chmod(0o600)
@@ -55,16 +55,16 @@ def initialise_owned_project(
 ) -> Path:
     """Create a project whose first usable state includes a signed owner.
 
-    Project creation and authority bootstrap are treated as one operator-facing
+    Project creation and authority genesis are treated as one operator-facing
     operation. If the owner cannot sign the initial authority transaction, the
     incomplete project is removed rather than leaving an apparently usable
     ownerless project behind.
     """
-    project_file = initialise_project(root, project_id, title)
+    project_file = _initialise_project(root, project_id, title)
     try:
-        bootstrap_project_authority(root, owner, owner_public_key)
+        establish_project_genesis(root, owner, owner_public_key)
     except Exception:
-        # No evidential work is permitted before authority bootstrap, so a failed
+        # No evidential work is permitted before authority genesis, so a failed
         # initial signature may safely unwind the newly-created empty project.
         shutil.rmtree(root / ".fact", ignore_errors=True)
         shutil.rmtree(root / "cases", ignore_errors=True)

@@ -7,7 +7,7 @@ This document records accepted future work that has not yet been implemented. It
 - Add auditable operator signing-key rotation without invalidating historical signatures or rewriting the key that represented an operator at an earlier catalogue sequence.
 - Add explicit signing-key revocation and compromised or lost-key recovery with conservative, highly visible exceptional transactions rather than making recovery appear to be an ordinary key rotation.
 - Design exceptional ownership recovery for situations in which the current owner cannot participate. Recovery must never masquerade as a consensual ownership transfer and must retain the reason, authority and recovery path in project history.
-- Review contributor public-key import and explicit project-identity selection ergonomics while preserving the rule that local keyring state cannot redefine project-retained identity.
+- Improve contributor public-key import and selection ergonomics while preserving the rule that project-retained identity cannot be silently redefined by local keyring state.
 - Continue extending individually signed authority semantics to later structural lifecycle operations where attribution is evidentially meaningful.
 
 ## Notes

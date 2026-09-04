@@ -14,7 +14,8 @@ from fact.core.context import (
     resolve_case_context,
     set_selected_case,
 )
-from fact.core.project import create_case, initialise_project, retire_case
+from fact.core.project import _initialise_project as initialise_project
+from fact.core.project import create_case, retire_case
 from fact.errors import ToolkitError
 
 
@@ -102,3 +103,18 @@ def test_case_context_rejects_unknown_or_retired_explicit_case(tmp_path: Path) -
     retire_case(root, first, "done")
     with pytest.raises(ToolkitError, match="not active"):
         resolve_case_context(root, explicit_case_id=first)
+
+
+def test_discovery_rejects_project_from_different_schema(tmp_path: Path) -> None:
+    """Do not reinterpret an active project created under another trust model."""
+    initialise_project(tmp_path, "P-OLD", "Older project")
+    project_file = tmp_path / "PROJECT.toml"
+    project_file.write_text(
+        project_file.read_text(encoding="utf-8").replace(
+            "schema_version = 2", "schema_version = 1"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ToolkitError, match="different FACT project schema"):
+        discover_project_root(tmp_path)

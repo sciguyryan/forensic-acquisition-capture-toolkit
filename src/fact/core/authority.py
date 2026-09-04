@@ -1,8 +1,8 @@
 """Manage project identity, responsibility, membership and signed authority state.
 
-FACT keeps project-relevant operator identity inside the project catalogue. Local
-operator profiles remain a convenience for finding signing keys, but they are not
-project authority and cannot redefine a historical operator after the fact.
+FACT keeps project-relevant operator identity inside the project catalogue.
+There is no external mutable operator identity authority: project identity is
+reconstructed from catalogue state and retained public verification material.
 
 Every authority mutation is represented by a canonical transaction signed by the
 operator performing it and then appended to the catalogue's rolling hash chain.
@@ -47,101 +47,6 @@ class AuthenticatedOperator:
     challenge_sha256: str
 
 
-def _authority_tables(connection: sqlite3.Connection) -> None:
-    """Create authority tables without altering historical project state.
-
-    ``sqlite3.Connection.executescript`` implicitly commits an active
-    transaction, so each statement is executed individually. Authority setup
-    must remain inside FACT's ``BEGIN IMMEDIATE`` boundary when called from a
-    project mutation.
-    """
-    statements = (
-        """
-        CREATE TABLE IF NOT EXISTS operators (
-            operator_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            public_contact TEXT,
-            organisation TEXT,
-            role_label TEXT,
-            state TEXT NOT NULL CHECK(state IN ('active', 'retired')),
-            created_sequence INTEGER NOT NULL
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS operator_keys (
-            operator_id TEXT NOT NULL,
-            primary_fingerprint TEXT NOT NULL,
-            signing_fingerprint TEXT NOT NULL,
-            public_key TEXT NOT NULL,
-            state TEXT NOT NULL CHECK(state IN ('active', 'retired', 'revoked')),
-            valid_from_sequence INTEGER NOT NULL,
-            valid_until_sequence INTEGER,
-            PRIMARY KEY(operator_id, signing_fingerprint),
-            FOREIGN KEY(operator_id) REFERENCES operators(operator_id)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS project_memberships (
-            operator_id TEXT PRIMARY KEY,
-            membership_role TEXT NOT NULL CHECK(membership_role IN ('owner', 'contributor')),
-            state TEXT NOT NULL CHECK(state IN ('pending', 'active', 'rejected', 'removed')),
-            added_sequence INTEGER NOT NULL,
-            resolved_sequence INTEGER,
-            FOREIGN KEY(operator_id) REFERENCES operators(operator_id)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS ownership (
-            scope_type TEXT NOT NULL CHECK(scope_type IN ('project', 'case')),
-            scope_id TEXT NOT NULL,
-            owner_id TEXT NOT NULL,
-            effective_from_sequence INTEGER NOT NULL,
-            PRIMARY KEY(scope_type, scope_id),
-            FOREIGN KEY(owner_id) REFERENCES operators(operator_id)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS ownership_transfers (
-            transfer_id TEXT PRIMARY KEY,
-            scope_type TEXT NOT NULL CHECK(scope_type IN ('project', 'case')),
-            scope_id TEXT NOT NULL,
-            from_operator_id TEXT NOT NULL,
-            to_operator_id TEXT NOT NULL,
-            state TEXT NOT NULL CHECK(state IN ('pending', 'accepted', 'rejected', 'cancelled')),
-            reason TEXT NOT NULL,
-            proposed_sequence INTEGER NOT NULL,
-            resolved_sequence INTEGER,
-            FOREIGN KEY(from_operator_id) REFERENCES operators(operator_id),
-            FOREIGN KEY(to_operator_id) REFERENCES operators(operator_id)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS record_authority (
-            object_type TEXT NOT NULL,
-            object_id TEXT NOT NULL,
-            scope_type TEXT NOT NULL CHECK(scope_type IN ('project', 'case')),
-            scope_id TEXT NOT NULL,
-            submitted_by TEXT NOT NULL,
-            status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected')),
-            submitted_sequence INTEGER NOT NULL,
-            decided_by TEXT,
-            decision_sequence INTEGER,
-            decision_reason TEXT,
-            archive_sha256 TEXT,
-            PRIMARY KEY(object_type, object_id),
-            FOREIGN KEY(submitted_by) REFERENCES operators(operator_id),
-            FOREIGN KEY(decided_by) REFERENCES operators(operator_id)
-        )
-        """,
-    )
-    for statement in statements:
-        connection.execute(statement)
-    connection.execute(
-        "INSERT OR IGNORE INTO metadata(key, value) VALUES ('authority_schema_version', ?)",
-        (str(AUTHORITY_SCHEMA_VERSION),),
-    )
-
-
 def _require_authority_tables(connection: sqlite3.Connection) -> None:
     """Require the authority schema without mutating a project during a read."""
     required = {
@@ -182,7 +87,7 @@ def require_project_authority(project_root: Path) -> None:
 
     if not authority_enabled(project_root):
         raise ToolkitError(
-            "Project authority has not been established; run 'fact authority bootstrap' first"
+            "Project authority is missing; this project is not compatible with the current FACT trust model"
         )
 
 
@@ -288,10 +193,51 @@ def _key_row(connection: sqlite3.Connection, operator_id: str) -> sqlite3.Row:
     return row
 
 
+def registered_operator_identity(
+    project_root: Path, operator_id: str, *, require_active: bool = True
+) -> OperatorIdentity:
+    """Reconstruct one operator identity from the project catalogue."""
+    connection = _connect(project_root)
+    try:
+        _require_authority_tables(connection)
+        row = _operator_row(connection, operator_id)
+        key = _key_row(connection, operator_id)
+        membership = connection.execute(
+            "SELECT state FROM project_memberships WHERE operator_id = ?",
+            (operator_id,),
+        ).fetchone()
+        if require_active and (membership is None or membership["state"] != "active"):
+            raise ToolkitError(
+                f"Operator is not an active project member: {operator_id}"
+            )
+        return OperatorIdentity(
+            schema_version=AUTHORITY_SCHEMA_VERSION,
+            operator_id=operator_id,
+            name=str(row["name"]),
+            public_contact=row["public_contact"],
+            organisation=row["organisation"],
+            role=row["role_label"],
+            operator_key_fingerprint=str(key["primary_fingerprint"]),
+            operator_signing_subkey_fingerprint=str(key["signing_fingerprint"]),
+        )
+    finally:
+        connection.close()
+
+
+def registered_operator_public_key(project_root: Path, operator_id: str) -> str:
+    """Return retained public verification material for one project operator."""
+    connection = _connect(project_root)
+    try:
+        _require_authority_tables(connection)
+        return str(_key_row(connection, operator_id)["public_key"])
+    finally:
+        connection.close()
+
+
 def require_registered_operator(
     project_root: Path, identity: OperatorIdentity, *, require_active: bool = True
 ) -> dict[str, object]:
-    """Bind a local profile to the immutable project identity it claims to represent."""
+    """Verify an operator identity against immutable project-retained identity."""
     connection = _connect(project_root)
     try:
         _require_authority_tables(connection)
@@ -315,7 +261,7 @@ def require_registered_operator(
         }
         if actual != expected:
             raise ToolkitError(
-                "Local operator profile does not match the project-retained identity"
+                "Operator identity does not match the project-retained identity"
             )
         membership = connection.execute(
             "SELECT membership_role, state FROM project_memberships WHERE operator_id = ?",
@@ -381,14 +327,14 @@ def authenticate_operator_session(
     )
 
 
-def bootstrap_project_authority(
+def establish_project_genesis(
     project_root: Path,
     owner: OperatorIdentity,
     public_key: str,
 ) -> None:
     """Establish the first signed owner before a project may accept work."""
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         existing = connection.execute("SELECT COUNT(*) FROM operators").fetchone()[0]
         if existing:
             raise ToolkitError("Project authority has already been established")
@@ -397,7 +343,7 @@ def bootstrap_project_authority(
         sequence = _append_signed(
             connection,
             actor=owner,
-            event_type="AUTHORITY_BOOTSTRAPPED",
+            event_type="PROJECT_GENESIS",
             object_type="project",
             object_id=str(
                 connection.execute(
@@ -468,7 +414,9 @@ def current_owner(
             (scope_type, resolved_scope),
         ).fetchone()
         if row is None:
-            raise ToolkitError(f"No owner is recorded for {scope_type} {resolved_scope}")
+            raise ToolkitError(
+                f"No owner is recorded for {scope_type} {resolved_scope}"
+            )
         return dict(row)
     finally:
         connection.close()
@@ -479,7 +427,7 @@ def assign_case_owner(
 ) -> None:
     """Assign a newly created case to the current project owner."""
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         project_id = str(
             connection.execute(
                 "SELECT value FROM metadata WHERE key = 'project_id'"
@@ -490,7 +438,9 @@ def assign_case_owner(
             (project_id,),
         ).fetchone()
         if owner is None or owner["owner_id"] != actor.operator_id:
-            raise ToolkitError("Only the current project owner may establish case ownership")
+            raise ToolkitError(
+                "Only the current project owner may establish case ownership"
+            )
         key = _key_row(connection, actor.operator_id)
         sequence = _append_signed(
             connection,
@@ -515,7 +465,7 @@ def invite_contributor(
 ) -> None:
     """Invite a contributor; the invitation is inert until the contributor accepts."""
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         project_id = str(
             connection.execute(
                 "SELECT value FROM metadata WHERE key = 'project_id'"
@@ -576,7 +526,7 @@ def invite_contributor(
 def accept_contributor(project_root: Path, actor: OperatorIdentity) -> None:
     """Accept a pending invitation using the invited contributor's own key."""
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         membership = connection.execute(
             "SELECT state FROM project_memberships WHERE operator_id = ?",
             (actor.operator_id,),
@@ -603,7 +553,7 @@ def accept_contributor(project_root: Path, actor: OperatorIdentity) -> None:
 def reject_contributor(project_root: Path, actor: OperatorIdentity) -> None:
     """Reject a pending invitation while retaining the invited identity historically."""
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         membership = connection.execute(
             "SELECT state FROM project_memberships WHERE operator_id = ?",
             (actor.operator_id,),
@@ -634,7 +584,7 @@ def remove_contributor(
     if not reason.strip():
         raise ToolkitError("Removing a contributor requires a reason")
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         project_id = str(
             connection.execute(
                 "SELECT value FROM metadata WHERE key = 'project_id'"
@@ -715,20 +665,24 @@ def propose_ownership_transfer(
     if not reason.strip():
         raise ToolkitError("Ownership transfer requires a reason")
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         resolved_scope = _scope_id(connection, scope_type, scope_id)
         owner = connection.execute(
             "SELECT owner_id FROM ownership WHERE scope_type = ? AND scope_id = ?",
             (scope_type, resolved_scope),
         ).fetchone()
         if owner is None or owner["owner_id"] != actor.operator_id:
-            raise ToolkitError("Only the current owner may propose an ownership transfer")
+            raise ToolkitError(
+                "Only the current owner may propose an ownership transfer"
+            )
         target = connection.execute(
             "SELECT state FROM project_memberships WHERE operator_id = ?",
             (to_operator_id,),
         ).fetchone()
         if target is None or target["state"] != "active":
-            raise ToolkitError("Ownership may only be transferred to an active project member")
+            raise ToolkitError(
+                "Ownership may only be transferred to an active project member"
+            )
         if to_operator_id == actor.operator_id:
             raise ToolkitError("Ownership is already held by that operator")
         pending = connection.execute(
@@ -800,7 +754,7 @@ def accept_ownership_transfer(
 ) -> str:
     """Accept responsibility using the incoming owner's registered signing key."""
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         transfer = _pending_transfer(
             connection,
             actor.operator_id,
@@ -863,7 +817,7 @@ def reject_ownership_transfer(
     if not reason.strip():
         raise ToolkitError("Rejecting an ownership transfer requires a reason")
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         transfer = _pending_transfer(
             connection,
             actor.operator_id,
@@ -878,7 +832,10 @@ def reject_ownership_transfer(
             event_type="OWNERSHIP_TRANSFER_REJECTED",
             object_type=str(transfer["scope_type"]),
             object_id=str(transfer["scope_id"]),
-            data={"transfer_id": str(transfer["transfer_id"]), "reason": reason.strip()},
+            data={
+                "transfer_id": str(transfer["transfer_id"]),
+                "reason": reason.strip(),
+            },
             verification_key=str(key["public_key"]),
         )
         connection.execute(
@@ -901,7 +858,7 @@ def cancel_ownership_transfer(
     if not reason.strip():
         raise ToolkitError("Cancelling an ownership transfer requires a reason")
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         transfer = _pending_transfer(
             connection,
             actor.operator_id,
@@ -916,7 +873,10 @@ def cancel_ownership_transfer(
             event_type="OWNERSHIP_TRANSFER_CANCELLED",
             object_type=str(transfer["scope_type"]),
             object_id=str(transfer["scope_id"]),
-            data={"transfer_id": str(transfer["transfer_id"]), "reason": reason.strip()},
+            data={
+                "transfer_id": str(transfer["transfer_id"]),
+                "reason": reason.strip(),
+            },
             verification_key=str(key["public_key"]),
         )
         connection.execute(
@@ -945,7 +905,7 @@ def record_acquisition(
     ``pending`` state until the responsible case owner approves or rejects it.
     """
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         identifier = connection.execute(
             "SELECT namespace, state FROM identifiers WHERE identifier = ?",
             (acquisition_id,),
@@ -963,7 +923,9 @@ def record_acquisition(
             (actor.operator_id,),
         ).fetchone()
         if membership is None or membership["state"] != "active":
-            raise ToolkitError("Only an active project member may submit an acquisition")
+            raise ToolkitError(
+                "Only an active project member may submit an acquisition"
+            )
         owner = connection.execute(
             "SELECT owner_id FROM ownership WHERE scope_type = 'case' AND scope_id = ?",
             (case_id,),
@@ -1023,7 +985,7 @@ def decide_record(
     if decision == "rejected" and not (reason or "").strip():
         raise ToolkitError("Rejecting a record requires a reason")
     with _write_transaction(project_root) as connection:
-        _authority_tables(connection)
+        _require_authority_tables(connection)
         record = connection.execute(
             "SELECT * FROM record_authority WHERE object_type = 'acquisition' AND object_id = ?",
             (object_id,),
@@ -1052,7 +1014,13 @@ def decide_record(
         connection.execute(
             "UPDATE record_authority SET status = ?, decided_by = ?, decision_sequence = ?, decision_reason = ? "
             "WHERE object_type = 'acquisition' AND object_id = ?",
-            (decision, actor.operator_id, sequence, (reason or "").strip() or None, object_id),
+            (
+                decision,
+                actor.operator_id,
+                sequence,
+                (reason or "").strip() or None,
+                object_id,
+            ),
         )
 
 

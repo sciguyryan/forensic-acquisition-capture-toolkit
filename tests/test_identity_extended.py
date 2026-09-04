@@ -1,7 +1,5 @@
 """Extended tests for operator identity management and signing."""
 
-import hashlib
-import json
 from pathlib import Path
 
 import pytest
@@ -54,43 +52,6 @@ def test_validate_identity_rejects_invalid_fields(
 
     with pytest.raises(ToolkitError, match=message):
         identity.validate_identity(data)
-
-
-def test_save_and_load_active_identity(tmp_path: Path) -> None:
-    """Persist an identity, pin its digest, and load it as active."""
-    expected = identity.validate_identity(valid_data())
-    path = identity.save_identity(tmp_path, expected)
-
-    loaded, active_path = identity.active_identity(tmp_path)
-    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-
-    assert loaded == expected
-    assert active_path == path
-    assert (
-        config["active_operator_sha256"]
-        == hashlib.sha256(path.read_bytes()).hexdigest()
-    )
-    assert path.stat().st_mode & 0o777 == 0o600
-
-
-def test_active_identity_detects_profile_tampering(tmp_path: Path) -> None:
-    """Reject an active profile whose pinned digest no longer matches."""
-    path = identity.save_identity(tmp_path, identity.validate_identity(valid_data()))
-    data = valid_data()
-    data["name"] = "Changed Name"
-    path.write_text(json.dumps(data) + "\n", encoding="utf-8")
-
-    with pytest.raises(ToolkitError, match="digest does not match"):
-        identity.active_identity(tmp_path)
-
-
-def test_load_identity_file_rejects_non_object(tmp_path: Path) -> None:
-    """Reject syntactically valid JSON that is not an identity object."""
-    path = tmp_path / "identity.json"
-    path.write_text("[]\n", encoding="utf-8")
-
-    with pytest.raises(ToolkitError, match="JSON object"):
-        identity.load_identity_file(path)
 
 
 def test_discover_signing_keys_parses_primary_and_subkey(monkeypatch) -> None:
@@ -175,9 +136,7 @@ def test_project_public_key_text_and_transaction_helpers(
         signature.write_text("signature", encoding="utf-8")
 
     monkeypatch.setattr(identity, "sign_with_operator", fake_sign)
-    assert (
-        identity.sign_operator_payload(operator, b'{"transaction":1}') == "signature"
-    )
+    assert identity.sign_operator_payload(operator, b'{"transaction":1}') == "signature"
 
     calls = []
 
@@ -232,7 +191,11 @@ def test_operator_payload_verification_requires_recorded_signing_fingerprint(
         return ToolResult(
             argv,
             0,
-            "[GNUPG:] VALIDSIG " + ("C" * 40) + " 2026-09-04 0 4 0 1 10 00 " + ("A" * 40) + "\n",
+            "[GNUPG:] VALIDSIG "
+            + ("C" * 40)
+            + " 2026-09-04 0 4 0 1 10 00 "
+            + ("A" * 40)
+            + "\n",
             "",
         )
 

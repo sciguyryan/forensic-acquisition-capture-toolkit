@@ -13,10 +13,10 @@ from fact.core.authority import (
     accept_contributor,
     accept_ownership_transfer,
     assign_case_owner,
-    bootstrap_project_authority,
     cancel_ownership_transfer,
     current_owner,
     decide_record,
+    establish_project_genesis,
     invite_contributor,
     list_members,
     list_records,
@@ -28,7 +28,8 @@ from fact.core.authority import (
     require_registered_operator,
 )
 from fact.core.catalogue import catalogue_path, issue_identifier, verify_chain
-from fact.core.project import create_case, initialise_project
+from fact.core.project import _initialise_project as initialise_project
+from fact.core.project import create_case
 from fact.errors import ToolkitError
 from fact.identity import OperatorIdentity
 
@@ -60,12 +61,14 @@ def fake_signatures(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(catalogue, "verify_operator_payload", lambda *args: None)
 
 
-def make_project(tmp_path: Path) -> tuple[OperatorIdentity, OperatorIdentity, OperatorIdentity]:
+def make_project(
+    tmp_path: Path,
+) -> tuple[OperatorIdentity, OperatorIdentity, OperatorIdentity]:
     owner = operator("owner", "Owner Example", "A")
     alice = operator("alice", "Alice Contributor", "B")
     bob = operator("bob", "Bob Contributor", "C")
     initialise_project(tmp_path, "P-1", "Authority project")
-    bootstrap_project_authority(tmp_path, owner, "PUBLIC OWNER KEY")
+    establish_project_genesis(tmp_path, owner, "PUBLIC OWNER KEY")
     return owner, alice, bob
 
 
@@ -84,10 +87,12 @@ def test_bootstrap_binds_owner_and_verifies_reconstructed_state(tmp_path: Path) 
     resolved = require_registered_operator(tmp_path, owner)
     assert resolved["membership_state"] == "active"
     verified = verify_chain(tmp_path)
-    assert verified["event_count"] == 2
+    assert verified["event_count"] == 1
 
 
-def test_project_identity_cannot_be_redefined_by_local_profile(tmp_path: Path) -> None:
+def test_project_identity_cannot_be_redefined_by_unrecorded_local_state(
+    tmp_path: Path,
+) -> None:
     owner, _, _ = make_project(tmp_path)
     forged = OperatorIdentity(
         owner.schema_version,
@@ -106,7 +111,9 @@ def test_project_identity_cannot_be_redefined_by_local_profile(tmp_path: Path) -
 def test_direct_operator_and_key_tampering_is_detected(tmp_path: Path) -> None:
     make_project(tmp_path)
     connection = sqlite3.connect(catalogue_path(tmp_path))
-    connection.execute("UPDATE operators SET name = 'Mallory' WHERE operator_id = 'owner'")
+    connection.execute(
+        "UPDATE operators SET name = 'Mallory' WHERE operator_id = 'owner'"
+    )
     connection.commit()
     connection.close()
     with pytest.raises(ToolkitError, match="current operators state"):
@@ -135,10 +142,12 @@ def test_contributor_must_accept_own_invitation(tmp_path: Path) -> None:
     accept_contributor(tmp_path, alice)
     active = {item["operator_id"]: item for item in list_members(tmp_path)}
     assert active[alice.operator_id]["state"] == "active"
-    assert verify_chain(tmp_path)["event_count"] == 4
+    assert verify_chain(tmp_path)["event_count"] == 3
 
 
-def test_contributor_can_reject_and_owner_can_remove_active_member(tmp_path: Path) -> None:
+def test_contributor_can_reject_and_owner_can_remove_active_member(
+    tmp_path: Path,
+) -> None:
     owner, alice, bob = make_project(tmp_path)
     invite_contributor(tmp_path, owner, alice, "PUBLIC ALICE")
     reject_contributor(tmp_path, alice)
@@ -181,11 +190,15 @@ def test_ownership_transfer_can_be_rejected_or_cancelled_without_rewrite(
     invite_and_accept(tmp_path, owner, alice)
     invite_and_accept(tmp_path, owner, bob)
 
-    first = propose_ownership_transfer(tmp_path, owner, alice.operator_id, "First offer")
+    first = propose_ownership_transfer(
+        tmp_path, owner, alice.operator_id, "First offer"
+    )
     assert reject_ownership_transfer(tmp_path, alice, "Declined") == first
     assert current_owner(tmp_path)["owner_id"] == owner.operator_id
 
-    second = propose_ownership_transfer(tmp_path, owner, bob.operator_id, "Second offer")
+    second = propose_ownership_transfer(
+        tmp_path, owner, bob.operator_id, "Second offer"
+    )
     assert cancel_ownership_transfer(tmp_path, owner, "Plans changed") == second
     assert current_owner(tmp_path)["owner_id"] == owner.operator_id
     verify_chain(tmp_path)
@@ -198,9 +211,10 @@ def test_case_owner_is_hash_chained_and_contributor_record_starts_pending(
     invite_and_accept(tmp_path, owner, alice)
     case_id = create_case(tmp_path, "Case")
     assign_case_owner(tmp_path, case_id, owner)
-    assert current_owner(tmp_path, scope_type="case", scope_id=case_id)[
-        "owner_id"
-    ] == owner.operator_id
+    assert (
+        current_owner(tmp_path, scope_type="case", scope_id=case_id)["owner_id"]
+        == owner.operator_id
+    )
 
     archive = tmp_path / "archived" / "evidence.7z"
     archive.parent.mkdir()
@@ -269,9 +283,7 @@ def test_owner_submission_is_immediately_approved_and_rejection_is_retained(
     )
     with pytest.raises(ToolkitError, match="requires a reason"):
         decide_record(tmp_path, owner, pending_acquisition_id, "rejected", "")
-    decide_record(
-        tmp_path, owner, pending_acquisition_id, "rejected", "Out of scope"
-    )
+    decide_record(tmp_path, owner, pending_acquisition_id, "rejected", "Out of scope")
     rejected = {item["object_id"]: item for item in list_records(tmp_path)}[
         pending_acquisition_id
     ]
@@ -287,7 +299,7 @@ def test_authority_event_and_signature_envelope_tampering_is_detected(
     connection = sqlite3.connect(catalogue_path(tmp_path))
     connection.execute(
         "UPDATE audit_events SET details_json = replace(details_json, 'TEST-SIGNATURE', 'BAD-SIGNATURE') "
-        "WHERE event_type = 'AUTHORITY_BOOTSTRAPPED'"
+        "WHERE event_type = 'PROJECT_GENESIS'"
     )
     connection.commit()
     connection.close()
@@ -317,7 +329,7 @@ def test_owned_project_wrapper_unwinds_failed_authority_bootstrap(
     owner = operator("owner", "Owner", "A")
     monkeypatch.setattr(
         project_module,
-        "bootstrap_project_authority",
+        "establish_project_genesis",
         lambda *args, **kwargs: (_ for _ in ()).throw(ToolkitError("signing failed")),
     )
     with pytest.raises(ToolkitError, match="signing failed"):
@@ -353,16 +365,22 @@ def test_session_authentication_proves_retained_key_possession(tmp_path: Path) -
     owner, _, _ = make_project(tmp_path)
     authenticated = authenticate_operator_session(tmp_path, owner)
     assert authenticated.operator_id == owner.operator_id
-    assert authenticated.signing_fingerprint == owner.operator_signing_subkey_fingerprint
+    assert (
+        authenticated.signing_fingerprint == owner.operator_signing_subkey_fingerprint
+    )
     assert len(authenticated.challenge_sha256) == 64
 
 
-def test_uninitialised_project_fails_closed_for_protected_operations(tmp_path: Path) -> None:
-    """Require an explicit signed authority bootstrap for legacy projects."""
+def test_uninitialised_project_fails_closed_for_protected_operations(
+    tmp_path: Path,
+) -> None:
+    """Reject ownerless projects rather than retrofitting current authority."""
     from fact.core.authority import require_project_authority
 
     initialise_project(tmp_path, "P-LEGACY", "Legacy")
-    with pytest.raises(ToolkitError, match="authority has not been established"):
+    with pytest.raises(
+        ToolkitError, match="not compatible with the current FACT trust model"
+    ):
         require_project_authority(tmp_path)
 
 
@@ -437,3 +455,28 @@ def test_record_acquisition_requires_live_catalogue_identifier(tmp_path: Path) -
             collector="screenshot",
             completed_utc="2026-09-04T16:00:00Z",
         )
+
+
+def test_genesis_does_not_recreate_missing_authority_schema(tmp_path: Path) -> None:
+    """Fail closed instead of retrofitting authority tables into another schema."""
+    owner = operator("owner", "Owner Example", "A")
+    initialise_project(tmp_path, "P-1", "Authority project")
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.execute("DROP TABLE record_authority")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(ToolkitError, match="authority schema is incomplete"):
+        establish_project_genesis(tmp_path, owner, "PUBLIC OWNER KEY")
+
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    finally:
+        connection.close()
+    assert "record_authority" not in tables

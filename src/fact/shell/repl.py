@@ -29,7 +29,7 @@ _HELP = """FACT interactive shell
 
 Context:
   context                         Show the selected project, case and operator
-  auth                            Authenticate the active operator for this shell
+  auth OPERATOR-ID                Authenticate a project operator for this shell
   whoami                          Show the authenticated operator
   logout                          Clear shell operator authentication
   project select PATH|PROJECT-ID  Select an existing FACT project
@@ -147,9 +147,9 @@ def _dispatch_line(
         _show_context(session, output_fn)
         return True
     if command == "auth":
-        if len(tokens) != 1:
-            raise ToolkitError("Usage: auth")
-        authenticated = session.authenticate()
+        if len(tokens) != 2:
+            raise ToolkitError("Usage: auth OPERATOR-ID")
+        authenticated = session.authenticate(tokens[1])
         output_fn(
             f"Authenticated operator: {authenticated.operator_id} "
             f"({authenticated.signing_fingerprint})"
@@ -221,9 +221,17 @@ def _dispatch_line(
         return True
 
     project_root = session.require_project()
+    dispatch_tokens = _with_root(project_root, tokens)
     if authority_enabled(project_root) and _requires_authenticated_operator(tokens):
-        session.require_authenticated_operator()
-    dispatch(_with_root(project_root, tokens))
+        authenticated = session.require_authenticated_operator()
+        dispatch_tokens = [
+            "--root",
+            str(project_root),
+            "--operator-id",
+            authenticated.operator_id,
+            *tokens,
+        ]
+    dispatch(dispatch_tokens)
     return True
 
 

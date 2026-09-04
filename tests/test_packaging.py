@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 from fact.core import packaging
-from fact.core.project import create_case, initialise_project
+from fact.core.project import _initialise_project as initialise_project
+from fact.core.project import create_case
 from fact.errors import ToolkitError
 from fact.services.commands import ToolResult
 
@@ -64,7 +65,7 @@ def test_project_package_contains_allowlisted_state_and_catalogue_anchor(
         assert descriptor_file is not None
         descriptor = json.load(descriptor_file)
     assert descriptor["project_id"] == "P-1"
-    assert descriptor["catalogue_event_count"] == 2
+    assert descriptor["catalogue_event_count"] == 1
     assert len(descriptor["catalogue_chain_head"]) == 64
     assert descriptor["catalogue_checkpoint_status"] == "absent"
 

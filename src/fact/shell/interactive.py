@@ -15,10 +15,8 @@ _SENSITIVE_MARKERS = (
     "--token",
     "--private-key",
     "--cookies",
-    "--identity-file",
     "--requestor",
     "--acquisition-comment",
-    "--case-comment",
     "export-keypair",
 )
 

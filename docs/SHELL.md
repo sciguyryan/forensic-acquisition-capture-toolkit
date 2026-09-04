@@ -121,7 +121,7 @@ The shell uses POSIX-style quoting rules through Python's `shlex` parser. Paths 
 
 When the platform provides Python's optional `readline` module and the shell is attached through the normal interactive input path, FACT enables tab completion and a bounded local command history. These features are convenience state only and never enter the evidential catalogue or packages.
 
-History is stored under the user's XDG state directory, or `~/.local/state/fact/` when `XDG_STATE_HOME` is not set. FACT writes the state directory owner-only and the history file mode `0600` where the platform permits it. Obvious sensitive command forms such as password, passphrase, token, private-key, cookie-file, public-key, requestor, acquisition-comment, case-comment, and key-export commands are not retained. Automated or injected input functions do not activate readline history. Operators can disable persistent history entirely with `fact shell --no-history`.
+History is stored under the user's XDG state directory, or `~/.local/state/fact/` when `XDG_STATE_HOME` is not set. FACT writes the state directory owner-only and the history file mode `0600` where the platform permits it. Obvious sensitive command forms such as password, passphrase, token, private-key, cookie, requestor, acquisition-comment, and key-export commands are not retained. Automated or injected input functions do not activate readline history. Operators can disable persistent history entirely with `fact shell --no-history`.
 
 Completion includes the shell command surface, common subcommands and collector names, validated registered project IDs, and active case IDs in the selected project. It does not execute acquisitions or other evidential operations.
 
@@ -137,7 +137,7 @@ FACT 2.8 adds a cryptographically authenticated operator context to the interact
 PROJECT-ID> auth OPERATOR-ID
 ```
 
-FACT resolves the selected project-retained operator identity, asks the local GnuPG environment to sign a fresh project-scoped challenge with that identity's exact retained fingerprint, and verifies the result against the retained public key. The shell then records that operator as authenticated for the selected project.
+FACT signs a fresh project-scoped challenge with the selected project operator key and verifies the result against the project-retained identity and public key. The shell then records that operator as authenticated for the selected project.
 
 Use:
 
@@ -154,13 +154,13 @@ Authority and responsibility commands available through the same canonical comma
 
 ```text
 contributor list
-contributor invite --operator-id OPERATOR-ID --public-key /path/to/operator-public-key.asc
-contributor accept --operator-id OPERATOR-ID
-contributor reject --operator-id OPERATOR-ID
+contributor invite OPERATOR-ID --name "Name" --key-fingerprint PRIMARY-FINGERPRINT --signing-fingerprint SIGNING-FINGERPRINT
+contributor accept
+contributor reject
 owner current
 owner transfer OPERATOR-ID --reason "Handover"
-owner accept --operator-id OPERATOR-ID
-owner reject --operator-id OPERATOR-ID --reason "Declined"
+owner accept
+owner reject --reason "Declined"
 owner cancel --reason "Plans changed"
 record list
 record approve ACQ-000123

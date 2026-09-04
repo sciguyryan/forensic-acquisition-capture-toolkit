@@ -41,8 +41,6 @@ def render_markdown(record: CaseRecord) -> str:
 - Organisation: {c["operator_identity"].get("organisation") or "Not supplied"}
 - Role: {c["operator_identity"].get("role") or "Not supplied"}
 - Public contact: {c["operator_identity"].get("public_contact") or "Not supplied"}
-- Operator source: {c.get("operator_source") or "Unspecified"}
-- Operator profile SHA-256: {c.get("operator_profile_sha256") or "Unavailable"}
 - Operator signing key: {c["operator_identity"]["operator_signing_subkey_fingerprint"]}
 - Login username: {c.get("operator_username") or "Unavailable"}
 - Requestor: {c.get("requestor") or "Not supplied"}
@@ -119,8 +117,6 @@ def initial_record_for_source(
             "case_id": case.case_id,
             "comments": case.comments,
             "operator_identity": case.operator_identity,
-            "operator_source": case.operator_source,
-            "operator_profile_sha256": case.operator_profile_sha256,
             "operator_username": case.operator_username,
             "requestor": case.requestor,
             "matter_title": case.matter_title,
@@ -138,16 +134,6 @@ def initial_record_for_source(
         tools=tools,
         observations=[],
         custody_events=[],
-    )
-
-
-def initial_record(
-    case: CaseInfo, acquisition_id: str, url: str, tools: dict[str, str]
-) -> CaseRecord:
-    """Create the legacy URL-oriented record used by older Python callers."""
-
-    return initial_record_for_source(
-        case, acquisition_id, {"submitted_url": url}, tools
     )
 
 

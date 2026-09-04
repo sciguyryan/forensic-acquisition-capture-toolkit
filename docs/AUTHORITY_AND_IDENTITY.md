@@ -1,6 +1,6 @@
 # Authority, identity and project integrity
 
-FACT treats operator identity, project membership, ownership and approval state as part of the evidential meaning of a project. These records are therefore retained inside the same tamper-evident SQLite catalogue that records project identifiers and lifecycle events. FACT does not maintain a separate local operator-profile authority layer. Project identity is resolved from the project-retained record, while private signing capability remains in the operator's local GnuPG environment.
+FACT treats operator identity, project membership, ownership and approval state as part of the evidential meaning of a project. These records are therefore retained inside the same tamper-evident SQLite catalogue that records project identifiers and lifecycle events. FACT does not maintain a separate mutable operator-profile database. Private signing capability remains outside the project, while the public identity and verification material needed to interpret project history remain inside the catalogue.
 
 The design has two related goals. FACT should be able to establish which project identity performed or authorised an action at the point it occurred, and it should make later unauthorised alteration of that attribution detectable. FACT does not attempt to make a writable filesystem physically immune to tampering.
 
@@ -10,17 +10,11 @@ A useful summary of the security model is:
 
 ## Project authority
 
-Every newly created FACT project must establish an initial owner before the project is considered usable. Project creation through the normal CLI therefore combines ordinary project initialisation with a signed authority bootstrap. If the initial owner cannot sign the bootstrap transaction, FACT removes the incomplete empty project rather than leaving an apparently usable ownerless project behind.
+Every newly created FACT project must establish an initial owner before the project is considered usable. Project creation through the normal CLI therefore creates the project and its signed authority genesis as one operation. If the initial owner cannot sign the genesis transaction, FACT removes the incomplete empty project rather than leaving an apparently usable ownerless project behind.
 
-The initial owner becomes part of the rolling catalogue history. The owner assignment is not an editable field in `PROJECT.toml` and cannot be substituted later by changing local configuration or selecting a different signing key.
+The signed project genesis is the first hash-chained authority event. The initial owner is not an editable field in `PROJECT.toml` and cannot be replaced by changing unrelated local state.
 
-Older projects created before the authority model can be migrated explicitly with:
-
-```bash
-fact --root /path/to/project authority bootstrap
-```
-
-This operation establishes authority from that point forward. FACT does not retroactively claim that the bootstrap operator owned or authorised project activity that predates the signed authority root. Earlier history remains honestly pre-authority.
+Projects created under an older FACT trust model are not upgraded in place. An active legacy project should remain on the FACT version and project schema under which it was created until it is closed. Current FACT may recognise an incompatible project and refuse to mutate it, but it does not import old profile state, manufacture ownership history, reinterpret old signatures, or otherwise imply interoperability between incompatible authority models.
 
 Check the current authority state with:
 
@@ -32,9 +26,7 @@ fact --root /path/to/project authority status
 
 A project-retained operator identity includes the operator ID, public descriptive fields, full signing-key fingerprints and the public OpenPGP key material required to verify signed authority transactions. Private keys, passphrases, GnuPG agent state and session authentication secrets are never stored in the catalogue.
 
-FACT no longer uses local operator JSON profiles or an active-profile selection mechanism. For an authority-enabled project, the retained operator record supplies the operator ID and exact signing fingerprint. FACT asks the local GnuPG environment to use that exact fingerprint when a private-key operation is required, and refuses the operation if the matching private key is unavailable.
-
-During initial authority bootstrap, the operator ID and signing fingerprint are supplied explicitly. FACT exports and retains the corresponding public key only after confirming that the fingerprint matches the selected local signing key. Contributor invitations likewise import explicit public verification material rather than consuming another installation's private operator profile.
+FACT has no persistent local operator-profile file. When a new project is created, the proposed owner supplies their public identity details and selects a usable secret signing key from the local GnuPG keyring. FACT retains the resulting public identity, full signing fingerprints and exported public key inside the new project catalogue. Subsequent project operations identify the operator by the project-retained operator ID and verify signatures against the retained public key material.
 
 Historical public verification material is retained with the project so that a later verifier does not have to rely on the originating workstation or an external keyserver merely to understand which key signed a historical project transaction.
 
@@ -56,7 +48,7 @@ The interactive FACT shell supports an authenticated operator context. Run:
 PROJECT-ID> auth OPERATOR-ID
 ```
 
-FACT generates a fresh project-scoped challenge containing the project identity, operator identity, signing fingerprint, timestamp, purpose and a random nonce. The operator selects a retained project identity, FACT asks the local GnuPG environment for the matching private key by exact fingerprint, and the resulting signature is verified against the project-retained public key before the shell marks that operator as authenticated.
+FACT generates a fresh project-scoped challenge containing the project identity, operator identity, signing fingerprint, timestamp, purpose and a random nonce. The local operator signs that challenge and FACT verifies it against the project-retained public key before the shell marks the operator as authenticated.
 
 Use:
 
@@ -76,13 +68,13 @@ The project owner controls contributor admission, but contributor membership is 
 The owner first records a signed invitation:
 
 ```bash
-fact --root /path/to/project contributor invite --operator-id OPERATOR-ID --public-key /path/to/operator-public-key.asc
+fact --root /path/to/project --operator-id OWNER-ID contributor invite CONTRIBUTOR-ID --name "Contributor Name" --key-fingerprint PRIMARY-FINGERPRINT --signing-fingerprint SIGNING-FINGERPRINT
 ```
 
 The invited operator must then use their own registered signing key to accept:
 
 ```bash
-fact --root /path/to/project contributor accept --operator-id OPERATOR-ID
+fact --root /path/to/project --operator-id CONTRIBUTOR-ID contributor accept
 ```
 
 Until acceptance, the membership remains `pending` and the operator cannot submit project work as an active contributor. The invited operator can instead reject the invitation. An active contributor can later be removed by the owner with a mandatory reason. Invitations, acceptance, rejection and removal remain in project history rather than being erased.
@@ -144,4 +136,4 @@ Signed catalogue checkpoints and sealed packages provide stronger external ancho
 
 FACT 2.8 establishes the signed identity and authority foundation but does not yet implement the complete operator-key lifecycle. Auditable signing-key rotation, explicit revocation, compromised or lost-key recovery, and exceptional administrative ownership recovery require their own conservative transaction designs. Historical verification must remain possible when those capabilities are added.
 
-Until that work is implemented, operators should treat the signing key registered with a project as durable project identity material and protect its private counterpart appropriately. FACT must never silently replace a project-retained key merely because the local GnuPG keyring has changed or another signing key is available.
+Until that work is implemented, operators should treat the signing key registered with a project as durable project identity material and protect its private counterpart appropriately. FACT must never silently replace a project-retained key merely because the local system keyring has changed.

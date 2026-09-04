@@ -31,8 +31,6 @@ class CaseInfo:
     case_id: str
     comments: str
     operator_identity: dict[str, Any]
-    operator_source: str
-    operator_profile_sha256: str
     operator_username: str | None = None
     requestor: str | None = None
     matter_title: str | None = None

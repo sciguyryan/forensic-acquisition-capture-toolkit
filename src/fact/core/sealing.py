@@ -82,8 +82,6 @@ def seal_acquisition(
             f"Case ID: {case.case_id}\n"
             f"Operator: {identity.name}\n"
             f"Operator ID: {identity.operator_id}\n"
-            f"Operator source: {case.operator_source}\n"
-            f"Operator profile SHA-256: {case.operator_profile_sha256}\n"
             "Operator signing key: "
             f"{identity.operator_signing_subkey_fingerprint}\n"
             f"Login username: {case.operator_username}\n"
@@ -102,8 +100,6 @@ def seal_acquisition(
         "tools": record.tools,
         "runtime": {
             "operator_identity": case.operator_identity,
-            "operator_source": case.operator_source,
-            "operator_profile_sha256": case.operator_profile_sha256,
             "operator_username": case.operator_username,
             "hostname": socket.gethostname(),
         },

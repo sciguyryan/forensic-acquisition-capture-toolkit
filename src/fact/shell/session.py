@@ -15,10 +15,10 @@ from pathlib import Path
 from ..core.authority import (
     AuthenticatedOperator,
     authenticate_operator_session,
+    registered_operator_identity,
 )
 from ..core.context import discover_project_root, get_selected_case
 from ..errors import ToolkitError
-from ..identity import resolve_identity
 from .registry import register_project, resolve_registered_project
 
 
@@ -72,11 +72,11 @@ class ShellSession:
         self.project_root = None
         self.authenticated_operator = None
 
-    def authenticate(self) -> AuthenticatedOperator:
-        """Authenticate the active local operator against project-retained identity."""
+    def authenticate(self, operator_id: str) -> AuthenticatedOperator:
+        """Authenticate a project-retained operator for this shell session."""
 
         project_root = self.require_project()
-        identity, _, _ = resolve_identity(project_root, None)
+        identity = registered_operator_identity(project_root, operator_id)
         authenticated = authenticate_operator_session(project_root, identity)
         self.authenticated_operator = authenticated
         return authenticated

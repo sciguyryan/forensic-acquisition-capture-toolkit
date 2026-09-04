@@ -24,10 +24,10 @@ All three must pass before the release candidate is promoted.
 
 ## Initial owner and project creation
 
-Create a disposable signing key in the local GnuPG environment and note its full fingerprint. Then create a disposable project while supplying the initial owner identity explicitly:
+Create a disposable project. FACT will collect the initial owner identity and signing key directly during project genesis:
 
 ```fish
-fact project init /tmp/fact-authority-test --project-id FACT-AUTHORITY-TEST --title "FACT authority test" --owner-id OWNER-ID --owner-key OWNER-FINGERPRINT
+fact project init /tmp/fact-authority-test --project-id FACT-AUTHORITY-TEST --title "FACT authority test"
 ```
 
 Expected behaviour:
@@ -39,17 +39,9 @@ Expected behaviour:
 
 If signing the initial authority transaction is cancelled or fails, FACT should remove the incomplete newly created project state rather than leave an apparently usable ownerless project.
 
-## Legacy authority bootstrap
+## Legacy project boundary
 
-For a disposable project created by an older FACT build, run:
-
-```fish
-fact --root /path/to/legacy-project authority status
-fact --root /path/to/legacy-project authority bootstrap --operator-id OWNER-ID --signing-key OWNER-FINGERPRINT
-fact --root /path/to/legacy-project catalogue verify
-```
-
-The first command should report uninitialised authority. Bootstrap should require a valid operator signature. Earlier catalogue events must remain historically earlier than the authority root and must not be retroactively attributed to the bootstrap operator.
+Use a disposable project created by an older FACT build to confirm that current FACT recognises the project as belonging to a different schema and refuses to mutate it in place. Do not import profile data, create a current authority root, or rewrite the older project. Active legacy projects remain on the FACT version under which they were created until they are closed.
 
 ## Shell authentication
 
@@ -67,26 +59,25 @@ auth OWNER-ID
 whoami
 ```
 
-The authentication step should resolve the owner's project-retained fingerprint, invoke the matching private key from the local GnuPG environment, and then display the authenticated operator. `logout` must clear that identity. Selecting or clearing another project must also clear it.
+The authentication step should invoke the active operator signing key and the shell should then display the authenticated operator. `logout` must clear that identity. Selecting or clearing another project must also clear it.
 
 Before `auth`, attempt a protected mutation such as `case create`. The shell should refuse it and direct the operator to authenticate. Read-only inspection such as `catalogue verify`, `authority status`, `contributor list`, and `record list` should remain available as appropriate.
 
 ## Contributor admission
 
-Create a second disposable signing key and export only its public key for admission to the project. Have the owner record an invitation using the contributor's explicit operator ID and public verification key:
+Using a second disposable operator identity whose public key is available to the local GnuPG environment, have the owner record an invitation:
 
 ```fish
-gpg --armor --export CONTRIBUTOR-FINGERPRINT > /tmp/contributor-public-key.asc
-fact --root /tmp/fact-authority-test contributor invite --operator-id CONTRIBUTOR-ID --public-key /tmp/contributor-public-key.asc
+fact --root /tmp/fact-authority-test --operator-id OWNER-ID contributor invite CONTRIBUTOR-ID --name "Contributor Name" --key-fingerprint PRIMARY-FINGERPRINT --signing-fingerprint SIGNING-FINGERPRINT
 fact --root /tmp/fact-authority-test contributor list
 ```
 
 The contributor should initially appear as `pending` and must not be allowed to submit project work merely because the owner invited them.
 
-Accept the invitation as that operator by selecting the project-retained contributor identity explicitly:
+Accept the invitation using the contributor's project-retained operator ID and corresponding signing key:
 
 ```fish
-fact --root /tmp/fact-authority-test contributor accept --operator-id CONTRIBUTOR-ID
+fact --root /tmp/fact-authority-test --operator-id CONTRIBUTOR-ID contributor accept
 ```
 
 The acceptance must be signed by the invited contributor's registered key. `contributor list` should then show the contributor as active.
@@ -101,10 +92,10 @@ As the current owner, propose a transfer to an active contributor:
 fact --root /tmp/fact-authority-test owner transfer CONTRIBUTOR-ID --reason "Field validation handover"
 ```
 
-`owner current` must still report the original owner until the transferee accepts. Use the incoming operator's project-retained identity and run:
+`owner current` must still report the original owner until the transferee accepts. Switch to the incoming operator and run:
 
 ```fish
-fact --root /tmp/fact-authority-test owner accept --operator-id CONTRIBUTOR-ID
+fact --root /tmp/fact-authority-test owner accept
 fact --root /tmp/fact-authority-test owner current
 fact --root /tmp/fact-authority-test catalogue verify
 ```
@@ -166,6 +157,6 @@ Also modify a copied evidence archive or other digest-bound evidence file and co
 
 Run representative owner and contributor screenshot acquisitions and one representative YouTube acquisition. Confirm successful evidence still follows the accepted sealing, detached-signature and self-verification process.
 
-Create a project package and confirm catalogue verification occurs before export. Confirm the package retains the catalogue, project-retained public verification material and sealed acquisition bundles while excluding private signing keys, passphrases, local GnuPG agent state, mutable staging directories and other ignored operational material. Confirm no `operators/` profile directory or active-profile configuration is created by the 2.8 workflow.
+Create a project package and confirm catalogue verification occurs before export. Confirm the package retains the catalogue and sealed acquisition bundles while excluding private signing keys, passphrases, local GnuPG agent state, mutable staging directories and other operational material that does not belong in an evidential package.
 
 The release tree should not contain generated `*.egg-info/`, `coverage.xml`, `.coverage`, `__pycache__/`, `.pytest_cache/` or other development output.

@@ -125,7 +125,7 @@ fact --root /path/to/project catalogue verify --checkpoint --public-key /path/to
 
 FACT 2.8 extends the project catalogue so project-relevant operator identity and authority are protected by the same integrity model as the rest of the project state. Operator records, retained public signing keys, contributor membership, project and case ownership, ownership-transfer state, and evidential approval state are stored in dedicated tables in `catalogue.sqlite`.
 
-These tables do not contain private keys, passphrases or GnuPG session state. They retain the public information necessary to understand and verify project history. FACT does not maintain local `operators/*.json` profiles for project authority. When a protected operation requires signing, FACT resolves the exact retained fingerprint and uses the matching private key from the local GnuPG environment without introducing a second mutable identity record.
+These tables do not contain private keys, passphrases or GnuPG session state. They retain the public information necessary to understand and verify project history. FACT has no separate mutable operator-profile authority outside the project catalogue.
 
 Authority changes are represented by signed canonical transactions in the audit event chain. The transaction binds the actor, signing fingerprint, event sequence and previous chain head before it is appended. Verification reconstructs the authority tables from those events and compares the reconstructed state with the live relational state.
 

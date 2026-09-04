@@ -41,6 +41,4 @@ Thumbs.db
 *.temp
 
 # Sensitive materials.
-config.json
 pgp/
-operators/

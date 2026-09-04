@@ -1,14 +1,12 @@
 """Manage operator identities and operator signing keys.
 
-This module validates public operator profiles, stores the active profile,
-discovers usable GnuPG signing keys, and signs evidence with the selected
-operator identity.
+This module validates public operator identities, discovers usable GnuPG
+signing keys, and signs evidence or project transactions with the selected
+operator identity. Project identity itself is retained by the project catalogue.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import re
 import tempfile
@@ -49,16 +47,6 @@ class OperatorIdentity:
     def public_dict(self) -> dict[str, object]:
         """Return the identity as a serialisable public dictionary."""
         return asdict(self)
-
-
-def operators_dir(root: Path) -> Path:
-    """Return the managed operator-profile directory."""
-    return root.resolve() / "operators"
-
-
-def config_path(root: Path) -> Path:
-    """Return the toolkit configuration file path."""
-    return root.resolve() / "config.json"
 
 
 def _clean_optional(value: str | None) -> str | None:
@@ -115,94 +103,6 @@ def validate_identity(data: dict[str, object]) -> OperatorIdentity:
         operator_key_fingerprint=primary,
         operator_signing_subkey_fingerprint=signing,
     )
-
-
-def load_identity_file(path: Path) -> OperatorIdentity:
-    """Load and validate an operator identity JSON file."""
-    path = path.resolve()
-    if path.is_symlink() or not path.is_file():
-        raise ToolkitError(f"Operator identity is not a regular file: {path}")
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ToolkitError(f"Unable to read operator identity {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ToolkitError("Operator identity must contain a JSON object")
-    return validate_identity(data)
-
-
-def save_identity(
-    root: Path, identity: OperatorIdentity, *, force: bool = False
-) -> Path:
-    """Persist an operator profile and make it the active identity."""
-    root = root.resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    directory = operators_dir(root)
-    directory.mkdir(parents=True, exist_ok=True)
-    directory.chmod(0o700)
-    path = directory / f"{identity.operator_id}.json"
-    if path.exists() and not force:
-        raise ToolkitError(f"Operator profile already exists: {path}")
-    if path.is_symlink():
-        raise ToolkitError(f"Refusing to replace symbolic-link profile: {path}")
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(
-        json.dumps(identity.public_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    tmp.chmod(0o600)
-    tmp.replace(path)
-    path.chmod(0o600)
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    config = {
-        "schema_version": 2,
-        "active_operator": identity.operator_id,
-        "active_operator_sha256": digest,
-    }
-    cp = config_path(root)
-    ctmp = cp.with_suffix(".json.tmp")
-    ctmp.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    ctmp.chmod(0o600)
-    ctmp.replace(cp)
-    cp.chmod(0o600)
-    readme = directory / "README.md"
-    if not readme.exists():
-        readme.write_text(
-            "# Operator profiles\n\nManaged public identity profiles. Never place private-key material here. Fields are embedded in evidence packages.\n",
-            encoding="utf-8",
-        )
-    return path
-
-
-def active_identity(root: Path) -> tuple[OperatorIdentity, Path]:
-    """Load the active identity and verify its pinned digest."""
-    cp = config_path(root)
-    if not cp.is_file():
-        raise ToolkitError(
-            "No active operator identity. Run youtube-forensic --root ROOT init."
-        )
-    data = json.loads(cp.read_text(encoding="utf-8"))
-    operator_id = data.get("active_operator")
-    if not isinstance(operator_id, str) or not _ID_RE.fullmatch(operator_id):
-        raise ToolkitError("Toolkit configuration has no valid active_operator")
-    path = operators_dir(root) / f"{operator_id}.json"
-    identity = load_identity_file(path)
-    expected = data.get("active_operator_sha256")
-    actual = hashlib.sha256(path.read_bytes()).hexdigest()
-    if expected != actual:
-        raise ToolkitError("Active operator profile digest does not match config.json")
-    return identity, path
-
-
-def resolve_identity(
-    root: Path, override: Path | None
-) -> tuple[OperatorIdentity, Path, str]:
-    """Resolve a per-acquisition override or the active identity."""
-    if override is not None:
-        path = override.resolve()
-        return load_identity_file(path), path, "identity_file"
-    identity, path = active_identity(root)
-    return identity, path, "active_profile"
 
 
 def discover_signing_keys() -> list[SigningKey]:
@@ -305,7 +205,7 @@ def export_public_key(identity: OperatorIdentity, output: Path) -> None:
 
 def test_signing_key(identity: OperatorIdentity) -> None:
     """Create and verify a temporary signature with the operator key."""
-    with tempfile.TemporaryDirectory(prefix="youtube-forensic-operator-test-") as td:
+    with tempfile.TemporaryDirectory(prefix="fact-operator-test-") as td:
         payload = Path(td) / "nonce"
         signature = Path(td) / "nonce.asc"
         payload.write_text(os.urandom(32).hex() + "\n", encoding="ascii")
@@ -345,8 +245,7 @@ def export_public_key_text(identity: OperatorIdentity) -> str:
     """Return the operator public key as an ASCII-armoured string.
 
     Project catalogues retain public verification material so historical
-    signatures remain independently verifiable without relying on the local
-    operator-profile directory or an external keyserver. Private key material
+    signatures remain independently verifiable without relying on an external keyserver. Private key material
     never enters the project catalogue.
     """
     result = run(
@@ -428,10 +327,8 @@ def verify_operator_payload(
                 )
 
 
-def interactive_identity(
-    root: Path, *, force: bool = False, test_key: bool = False
-) -> tuple[OperatorIdentity, Path]:
-    """Collect, validate, and save an operator identity interactively."""
+def interactive_identity(*, test_key: bool = False) -> OperatorIdentity:
+    """Collect and validate an operator identity from a local GnuPG key."""
     if not os.isatty(0):
         raise ToolkitError("Interactive init requires a terminal")
     name = input("Operator full name: ").strip()
@@ -474,5 +371,4 @@ def interactive_identity(
         "Test the selected signing key now? [y/N]: "
     ).strip().lower() in {"y", "yes"}:
         test_signing_key(identity)
-    path = save_identity(root, identity, force=force)
-    return identity, path
+    return identity

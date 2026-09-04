@@ -336,7 +336,7 @@ def export_keypair(
     manifest_path.write_text(
         json.dumps(
             {
-                "schema": "youtube-forensic-key-export/v1",
+                "schema": "fact-key-export/v1",
                 "created_utc": created,
                 "fingerprint": fpr,
                 "contains_secret_key": True,
@@ -354,7 +354,7 @@ def export_keypair(
     public_path.chmod(0o644)
 
     # Verify imports and the secret-key fingerprint in a fresh isolated keyring.
-    with tempfile.TemporaryDirectory(prefix="youtube-forensic-keycheck-") as temp_name:
+    with tempfile.TemporaryDirectory(prefix="fact-keycheck-") as temp_name:
         verify_home = Path(temp_name) / "keyring"
         verify_env = prepare_gnupg(verify_home, interactive=False)
         imported_public = run(

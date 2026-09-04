@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from fact.core.context import set_selected_case
-from fact.core.project import create_case, initialise_project
+from fact.core.project import _initialise_project as initialise_project
+from fact.core.project import create_case
 from fact.errors import ToolkitError
 from fact.shell.repl import _dispatch_line, run_shell
 from fact.shell.session import ShellSession
@@ -304,7 +305,9 @@ def test_shell_operator_authentication_context_and_logout(
 
     root, _ = make_project(tmp_path)
     session = ShellSession(project_root=root)
-    authenticated = AuthenticatedOperator("jane", "F" * 40, "2026-09-04T12:00:00Z", "a" * 64)
+    authenticated = AuthenticatedOperator(
+        "jane", "F" * 40, "2026-09-04T12:00:00Z", "a" * 64
+    )
     output: list[str] = []
 
     assert _dispatch_line(session, ["whoami"], lambda argv: 0, output.append)
@@ -313,12 +316,13 @@ def test_shell_operator_authentication_context_and_logout(
     # Dataclass slot instances cannot have methods rebound in-place, so exercise
     # the command path with a small session subclass that preserves real state.
     class AuthenticatingSession(ShellSession):
-        def authenticate(self):
+        def authenticate(self, operator_id: str):
+            assert operator_id == "jane"
             self.authenticated_operator = authenticated
             return authenticated
 
     session = AuthenticatingSession(project_root=root)
-    assert _dispatch_line(session, ["auth"], lambda argv: 0, output.append)
+    assert _dispatch_line(session, ["auth", "jane"], lambda argv: 0, output.append)
     assert session.authenticated_operator == authenticated
     assert "Authenticated operator: jane" in output[-1]
     assert _dispatch_line(session, ["whoami"], lambda argv: 0, output.append)
@@ -349,8 +353,8 @@ def test_session_authenticate_uses_project_local_identity(
     expected = AuthenticatedOperator("jane", "B" * 40, "2026-09-04T12:00:00Z", "c" * 64)
     monkeypatch.setattr(
         session_module,
-        "resolve_identity",
-        lambda project_root, override: (identity, root / "operators/jane.json", "active"),
+        "registered_operator_identity",
+        lambda project_root, operator_id: identity,
     )
     monkeypatch.setattr(
         session_module,
@@ -358,7 +362,7 @@ def test_session_authenticate_uses_project_local_identity(
         lambda project_root, operator: expected,
     )
     session = ShellSession(project_root=root)
-    assert session.authenticate() == expected
+    assert session.authenticate("jane") == expected
     assert session.require_authenticated_operator() == expected
     session.logout_operator()
     with pytest.raises(ToolkitError, match="run 'auth' first"):

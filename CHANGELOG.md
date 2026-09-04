@@ -8,9 +8,10 @@
 - Added two-sided contributor admission and signed project/case ownership transfer workflows.
 - Added pending, approved and rejected acquisition authority states without rewriting original acquisition metadata or deleting rejected records.
 - Extended catalogue verification and checkpoint state digests to detect direct tampering with identity, key, membership, ownership, transfer and approval state.
-- Added explicit signed authority bootstrap for older projects while preserving pre-authority history as such.
+- Established signed project authority at genesis and deliberately refused in-place migration of active projects created under older trust models.
 - Prevented authority records from being attached to invented or inactive acquisition identifiers.
 - Preserved already sealed evidence as an active acquisition if later authority recording fails instead of falsely marking the sealed acquisition as failed.
+- Removed obsolete local operator-profile/configuration paths, legacy FACT compatibility import wrappers, and in-place catalogue migration behaviour that no longer matches the current trust model.
 
 ## 2.7.1
 
