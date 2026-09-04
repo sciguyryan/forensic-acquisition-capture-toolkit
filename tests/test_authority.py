@@ -1,0 +1,439 @@
+"""Tests for signed project authority, ownership and approval state."""
+
+from __future__ import annotations
+
+import hashlib
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from fact.core import authority, catalogue
+from fact.core.authority import (
+    accept_contributor,
+    accept_ownership_transfer,
+    assign_case_owner,
+    bootstrap_project_authority,
+    cancel_ownership_transfer,
+    current_owner,
+    decide_record,
+    invite_contributor,
+    list_members,
+    list_records,
+    propose_ownership_transfer,
+    record_acquisition,
+    reject_contributor,
+    reject_ownership_transfer,
+    remove_contributor,
+    require_registered_operator,
+)
+from fact.core.catalogue import catalogue_path, issue_identifier, verify_chain
+from fact.core.project import create_case, initialise_project
+from fact.errors import ToolkitError
+from fact.identity import OperatorIdentity
+
+
+def operator(operator_id: str, name: str, fingerprint_char: str) -> OperatorIdentity:
+    """Return a deterministic test operator with distinct full fingerprints."""
+    return OperatorIdentity(
+        1,
+        operator_id,
+        name,
+        f"{operator_id}@example.test",
+        "Example Unit",
+        "Investigator",
+        fingerprint_char * 40,
+        fingerprint_char.lower() * 40,
+    )
+
+
+@pytest.fixture(autouse=True)
+def fake_signatures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise signed-transaction plumbing without requiring test secret keys."""
+
+    def sign(identity: OperatorIdentity, payload: bytes) -> str:
+        digest = hashlib.sha256(payload).hexdigest()
+        return f"TEST-SIGNATURE:{identity.operator_id}:{digest}"
+
+    monkeypatch.setattr(authority, "sign_operator_payload", sign)
+    monkeypatch.setattr(authority, "verify_operator_payload", lambda *args: None)
+    monkeypatch.setattr(catalogue, "verify_operator_payload", lambda *args: None)
+
+
+def make_project(tmp_path: Path) -> tuple[OperatorIdentity, OperatorIdentity, OperatorIdentity]:
+    owner = operator("owner", "Owner Example", "A")
+    alice = operator("alice", "Alice Contributor", "B")
+    bob = operator("bob", "Bob Contributor", "C")
+    initialise_project(tmp_path, "P-1", "Authority project")
+    bootstrap_project_authority(tmp_path, owner, "PUBLIC OWNER KEY")
+    return owner, alice, bob
+
+
+def invite_and_accept(
+    root: Path, owner: OperatorIdentity, contributor: OperatorIdentity
+) -> None:
+    invite_contributor(root, owner, contributor, f"PUBLIC {contributor.operator_id}")
+    accept_contributor(root, contributor)
+
+
+def test_bootstrap_binds_owner_and_verifies_reconstructed_state(tmp_path: Path) -> None:
+    owner, _, _ = make_project(tmp_path)
+
+    assert current_owner(tmp_path)["owner_id"] == owner.operator_id
+    assert list_members(tmp_path)[0]["membership_role"] == "owner"
+    resolved = require_registered_operator(tmp_path, owner)
+    assert resolved["membership_state"] == "active"
+    verified = verify_chain(tmp_path)
+    assert verified["event_count"] == 2
+
+
+def test_project_identity_cannot_be_redefined_by_local_profile(tmp_path: Path) -> None:
+    owner, _, _ = make_project(tmp_path)
+    forged = OperatorIdentity(
+        owner.schema_version,
+        owner.operator_id,
+        "Different Name",
+        owner.public_contact,
+        owner.organisation,
+        owner.role,
+        owner.operator_key_fingerprint,
+        owner.operator_signing_subkey_fingerprint,
+    )
+    with pytest.raises(ToolkitError, match="does not match the project-retained"):
+        require_registered_operator(tmp_path, forged)
+
+
+def test_direct_operator_and_key_tampering_is_detected(tmp_path: Path) -> None:
+    make_project(tmp_path)
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.execute("UPDATE operators SET name = 'Mallory' WHERE operator_id = 'owner'")
+    connection.commit()
+    connection.close()
+    with pytest.raises(ToolkitError, match="current operators state"):
+        verify_chain(tmp_path)
+
+    other = tmp_path / "key"
+    make_project(other)
+    connection = sqlite3.connect(catalogue_path(other))
+    connection.execute(
+        "UPDATE operator_keys SET public_key = 'REPLACED' WHERE operator_id = 'owner'"
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(ToolkitError, match="current operator keys state"):
+        verify_chain(other)
+
+
+def test_contributor_must_accept_own_invitation(tmp_path: Path) -> None:
+    owner, alice, _ = make_project(tmp_path)
+    invite_contributor(tmp_path, owner, alice, "PUBLIC ALICE")
+    pending = {item["operator_id"]: item for item in list_members(tmp_path)}
+    assert pending[alice.operator_id]["state"] == "pending"
+    with pytest.raises(ToolkitError, match="not an active project member"):
+        require_registered_operator(tmp_path, alice)
+
+    accept_contributor(tmp_path, alice)
+    active = {item["operator_id"]: item for item in list_members(tmp_path)}
+    assert active[alice.operator_id]["state"] == "active"
+    assert verify_chain(tmp_path)["event_count"] == 4
+
+
+def test_contributor_can_reject_and_owner_can_remove_active_member(tmp_path: Path) -> None:
+    owner, alice, bob = make_project(tmp_path)
+    invite_contributor(tmp_path, owner, alice, "PUBLIC ALICE")
+    reject_contributor(tmp_path, alice)
+    assert {item["operator_id"]: item for item in list_members(tmp_path)}["alice"][
+        "state"
+    ] == "rejected"
+
+    invite_and_accept(tmp_path, owner, bob)
+    with pytest.raises(ToolkitError, match="requires a reason"):
+        remove_contributor(tmp_path, owner, bob.operator_id, "")
+    remove_contributor(tmp_path, owner, bob.operator_id, "Engagement ended")
+    assert {item["operator_id"]: item for item in list_members(tmp_path)}["bob"][
+        "state"
+    ] == "removed"
+    verify_chain(tmp_path)
+
+
+def test_project_ownership_transfer_requires_signed_acceptance(tmp_path: Path) -> None:
+    owner, alice, _ = make_project(tmp_path)
+    invite_and_accept(tmp_path, owner, alice)
+    transfer_id = propose_ownership_transfer(
+        tmp_path, owner, alice.operator_id, "Handover of responsibility"
+    )
+    assert transfer_id.startswith("XFER-")
+    assert current_owner(tmp_path)["owner_id"] == owner.operator_id
+
+    accepted = accept_ownership_transfer(tmp_path, alice)
+    assert accepted == transfer_id
+    assert current_owner(tmp_path)["owner_id"] == alice.operator_id
+    members = {item["operator_id"]: item for item in list_members(tmp_path)}
+    assert members["owner"]["membership_role"] == "contributor"
+    assert members["alice"]["membership_role"] == "owner"
+    verify_chain(tmp_path)
+
+
+def test_ownership_transfer_can_be_rejected_or_cancelled_without_rewrite(
+    tmp_path: Path,
+) -> None:
+    owner, alice, bob = make_project(tmp_path)
+    invite_and_accept(tmp_path, owner, alice)
+    invite_and_accept(tmp_path, owner, bob)
+
+    first = propose_ownership_transfer(tmp_path, owner, alice.operator_id, "First offer")
+    assert reject_ownership_transfer(tmp_path, alice, "Declined") == first
+    assert current_owner(tmp_path)["owner_id"] == owner.operator_id
+
+    second = propose_ownership_transfer(tmp_path, owner, bob.operator_id, "Second offer")
+    assert cancel_ownership_transfer(tmp_path, owner, "Plans changed") == second
+    assert current_owner(tmp_path)["owner_id"] == owner.operator_id
+    verify_chain(tmp_path)
+
+
+def test_case_owner_is_hash_chained_and_contributor_record_starts_pending(
+    tmp_path: Path,
+) -> None:
+    owner, alice, _ = make_project(tmp_path)
+    invite_and_accept(tmp_path, owner, alice)
+    case_id = create_case(tmp_path, "Case")
+    assign_case_owner(tmp_path, case_id, owner)
+    assert current_owner(tmp_path, scope_type="case", scope_id=case_id)[
+        "owner_id"
+    ] == owner.operator_id
+
+    archive = tmp_path / "archived" / "evidence.7z"
+    archive.parent.mkdir()
+    archive.write_bytes(b"evidence")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
+    status = record_acquisition(
+        tmp_path,
+        alice,
+        acquisition_id=acquisition_id,
+        case_id=case_id,
+        archive=archive,
+        archive_sha256=digest,
+        collector="screenshot",
+        completed_utc="2026-09-04T12:00:00Z",
+    )
+    assert status == "pending"
+    assert list_records(tmp_path)[0]["status"] == "pending"
+
+    decide_record(tmp_path, owner, acquisition_id, "approved")
+    record = list_records(tmp_path)[0]
+    assert record["status"] == "approved"
+    assert record["decided_by"] == owner.operator_id
+    verify_chain(tmp_path)
+
+
+def test_owner_submission_is_immediately_approved_and_rejection_is_retained(
+    tmp_path: Path,
+) -> None:
+    owner, alice, _ = make_project(tmp_path)
+    invite_and_accept(tmp_path, owner, alice)
+    case_id = create_case(tmp_path)
+    assign_case_owner(tmp_path, case_id, owner)
+    owner_acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
+    archive = tmp_path / "owner.7z"
+    archive.write_bytes(b"owner evidence")
+    sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+    assert (
+        record_acquisition(
+            tmp_path,
+            owner,
+            acquisition_id=owner_acquisition_id,
+            case_id=case_id,
+            archive=archive,
+            archive_sha256=sha,
+            collector="screenshot",
+            completed_utc="2026-09-04T13:00:00Z",
+        )
+        == "approved"
+    )
+    with pytest.raises(ToolkitError, match="already approved"):
+        decide_record(tmp_path, owner, owner_acquisition_id, "rejected", "No")
+
+    pending_acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
+    pending = tmp_path / "pending.7z"
+    pending.write_bytes(b"pending evidence")
+    record_acquisition(
+        tmp_path,
+        alice,
+        acquisition_id=pending_acquisition_id,
+        case_id=case_id,
+        archive=pending,
+        archive_sha256=hashlib.sha256(pending.read_bytes()).hexdigest(),
+        collector="screenshot",
+        completed_utc="2026-09-04T14:00:00Z",
+    )
+    with pytest.raises(ToolkitError, match="requires a reason"):
+        decide_record(tmp_path, owner, pending_acquisition_id, "rejected", "")
+    decide_record(
+        tmp_path, owner, pending_acquisition_id, "rejected", "Out of scope"
+    )
+    rejected = {item["object_id"]: item for item in list_records(tmp_path)}[
+        pending_acquisition_id
+    ]
+    assert rejected["status"] == "rejected"
+    assert rejected["decision_reason"] == "Out of scope"
+    verify_chain(tmp_path)
+
+
+def test_authority_event_and_signature_envelope_tampering_is_detected(
+    tmp_path: Path,
+) -> None:
+    make_project(tmp_path)
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.execute(
+        "UPDATE audit_events SET details_json = replace(details_json, 'TEST-SIGNATURE', 'BAD-SIGNATURE') "
+        "WHERE event_type = 'AUTHORITY_BOOTSTRAPPED'"
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(ToolkitError, match="event hash is invalid"):
+        verify_chain(tmp_path)
+
+
+def test_authority_signature_verification_failure_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make_project(tmp_path)
+
+    def fail(*args: object) -> None:
+        raise ToolkitError("Operator transaction signature is invalid")
+
+    monkeypatch.setattr(catalogue, "verify_operator_payload", fail)
+    with pytest.raises(ToolkitError, match="signature is invalid"):
+        verify_chain(tmp_path)
+
+
+def test_owned_project_wrapper_unwinds_failed_authority_bootstrap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not leave an apparently usable ownerless project after bootstrap failure."""
+    from fact.core import project as project_module
+
+    owner = operator("owner", "Owner", "A")
+    monkeypatch.setattr(
+        project_module,
+        "bootstrap_project_authority",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ToolkitError("signing failed")),
+    )
+    with pytest.raises(ToolkitError, match="signing failed"):
+        project_module.initialise_owned_project(
+            tmp_path, "P-1", "Project", owner, "PUBLIC KEY"
+        )
+    assert not (tmp_path / "PROJECT.toml").exists()
+    assert not (tmp_path / ".fact").exists()
+
+
+def test_owned_case_marks_identifier_failed_when_owner_binding_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never leave a failed owner-binding attempt reusable as another case."""
+    from fact.core import project as project_module
+
+    owner, _, _ = make_project(tmp_path)
+    monkeypatch.setattr(
+        project_module,
+        "assign_case_owner",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ToolkitError("cannot sign")),
+    )
+    with pytest.raises(ToolkitError, match="cannot sign"):
+        project_module.create_owned_case(tmp_path, owner, "Case", "Comment")
+    rows = catalogue.list_identifiers(tmp_path, "case")
+    assert rows[0]["state"] == "failed"
+
+
+def test_session_authentication_proves_retained_key_possession(tmp_path: Path) -> None:
+    """Authenticate a shell session without treating that as transaction approval."""
+    from fact.core.authority import authenticate_operator_session
+
+    owner, _, _ = make_project(tmp_path)
+    authenticated = authenticate_operator_session(tmp_path, owner)
+    assert authenticated.operator_id == owner.operator_id
+    assert authenticated.signing_fingerprint == owner.operator_signing_subkey_fingerprint
+    assert len(authenticated.challenge_sha256) == 64
+
+
+def test_uninitialised_project_fails_closed_for_protected_operations(tmp_path: Path) -> None:
+    """Require an explicit signed authority bootstrap for legacy projects."""
+    from fact.core.authority import require_project_authority
+
+    initialise_project(tmp_path, "P-LEGACY", "Legacy")
+    with pytest.raises(ToolkitError, match="authority has not been established"):
+        require_project_authority(tmp_path)
+
+
+def test_membership_ownership_and_record_status_tampering_is_detected(
+    tmp_path: Path,
+) -> None:
+    """Detect direct edits to authority state even when history is untouched."""
+    owner, alice, _ = make_project(tmp_path)
+    invite_and_accept(tmp_path, owner, alice)
+    case_id = create_case(tmp_path, "Tamper detection")
+    assign_case_owner(tmp_path, case_id, owner)
+    acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
+    archive = tmp_path / "tamper.7z"
+    archive.write_bytes(b"tamper test evidence")
+    record_acquisition(
+        tmp_path,
+        alice,
+        acquisition_id=acquisition_id,
+        case_id=case_id,
+        archive=archive,
+        archive_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+        collector="screenshot",
+        completed_utc="2026-09-04T15:00:00Z",
+    )
+
+    scenarios = (
+        (
+            "membership",
+            "UPDATE project_memberships SET state = 'removed' WHERE operator_id = 'alice'",
+            "current project memberships state",
+        ),
+        (
+            "ownership",
+            "UPDATE ownership SET owner_id = 'alice' WHERE scope_type = 'case'",
+            "current ownership state",
+        ),
+        (
+            "record",
+            "UPDATE record_authority SET status = 'approved' WHERE object_id = ?",
+            "current record authority state",
+        ),
+    )
+    original = catalogue_path(tmp_path).read_bytes()
+    for name, statement, match in scenarios:
+        catalogue_path(tmp_path).write_bytes(original)
+        connection = sqlite3.connect(catalogue_path(tmp_path))
+        if name == "record":
+            connection.execute(statement, (acquisition_id,))
+        else:
+            connection.execute(statement)
+        connection.commit()
+        connection.close()
+        with pytest.raises(ToolkitError, match=match):
+            verify_chain(tmp_path)
+
+
+def test_record_acquisition_requires_live_catalogue_identifier(tmp_path: Path) -> None:
+    """Refuse to attach authority state to an invented acquisition identifier."""
+    owner, _, _ = make_project(tmp_path)
+    case_id = create_case(tmp_path, "Identifier binding")
+    assign_case_owner(tmp_path, case_id, owner)
+    archive = tmp_path / "invented.7z"
+    archive.write_bytes(b"evidence")
+    with pytest.raises(ToolkitError, match="not active in the catalogue"):
+        record_acquisition(
+            tmp_path,
+            owner,
+            acquisition_id="ACQ-999999",
+            case_id=case_id,
+            archive=archive,
+            archive_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+            collector="screenshot",
+            completed_utc="2026-09-04T16:00:00Z",
+        )

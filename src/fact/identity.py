@@ -341,6 +341,93 @@ def sign_with_operator(
         )
 
 
+def export_public_key_text(identity: OperatorIdentity) -> str:
+    """Return the operator public key as an ASCII-armoured string.
+
+    Project catalogues retain public verification material so historical
+    signatures remain independently verifiable without relying on the local
+    operator-profile directory or an external keyserver. Private key material
+    never enters the project catalogue.
+    """
+    result = run(
+        ["gpg", "--batch", "--armor", "--export", identity.operator_key_fingerprint],
+        check=False,
+    )
+    if result.returncode != 0 or "BEGIN PGP PUBLIC KEY BLOCK" not in result.stdout:
+        raise ToolkitError(
+            "Configured operator public key is unavailable in the system keyring"
+        )
+    return result.stdout
+
+
+def sign_operator_payload(identity: OperatorIdentity, payload: bytes) -> str:
+    """Sign canonical project-transaction bytes with an operator key.
+
+    FACT signs the exact transaction representation that will be bound into the
+    catalogue chain. The temporary files exist only to interface with GnuPG and
+    contain no private key material.
+    """
+    with tempfile.TemporaryDirectory(prefix="fact-operator-transaction-") as td:
+        directory = Path(td)
+        payload_path = directory / "transaction.json"
+        signature_path = directory / "transaction.json.asc"
+        payload_path.write_bytes(payload)
+        sign_with_operator(identity, payload_path, signature_path)
+        return signature_path.read_text(encoding="utf-8")
+
+
+def verify_operator_payload(
+    public_key: str,
+    payload: bytes,
+    signature: str,
+    expected_fingerprint: str | None = None,
+) -> None:
+    """Verify a transaction and, when supplied, its exact historical signer."""
+    with tempfile.TemporaryDirectory(prefix="fact-operator-verify-") as td:
+        directory = Path(td)
+        directory.chmod(0o700)
+        payload_path = directory / "transaction.json"
+        signature_path = directory / "transaction.json.asc"
+        public_key_path = directory / "operator-public-key.asc"
+        payload_path.write_bytes(payload)
+        signature_path.write_text(signature, encoding="utf-8")
+        public_key_path.write_text(public_key, encoding="utf-8")
+        env = {"GNUPGHOME": str(directory / "gnupg")}
+        Path(env["GNUPGHOME"]).mkdir(mode=0o700)
+        imported = run(
+            ["gpg", "--batch", "--import", str(public_key_path)],
+            env=env,
+            check=False,
+        )
+        if imported.returncode != 0:
+            raise ToolkitError("Unable to import retained operator public key")
+        verified = run(
+            [
+                "gpg",
+                "--batch",
+                "--status-fd",
+                "1",
+                "--verify",
+                str(signature_path),
+                str(payload_path),
+            ],
+            env=env,
+            check=False,
+        )
+        if verified.returncode != 0:
+            raise ToolkitError("Operator transaction signature is invalid")
+        if expected_fingerprint is not None:
+            valid_signers = {
+                line.split()[2].upper()
+                for line in verified.stdout.splitlines()
+                if line.startswith("[GNUPG:] VALIDSIG ") and len(line.split()) >= 3
+            }
+            if expected_fingerprint.upper() not in valid_signers:
+                raise ToolkitError(
+                    "Operator transaction signature does not match the recorded signing key"
+                )
+
+
 def interactive_identity(
     root: Path, *, force: bool = False, test_key: bool = False
 ) -> tuple[OperatorIdentity, Path]:

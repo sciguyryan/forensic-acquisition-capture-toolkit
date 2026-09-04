@@ -121,10 +121,50 @@ The shell uses POSIX-style quoting rules through Python's `shlex` parser. Paths 
 
 When the platform provides Python's optional `readline` module and the shell is attached through the normal interactive input path, FACT enables tab completion and a bounded local command history. These features are convenience state only and never enter the evidential catalogue or packages.
 
-History is stored under the user's XDG state directory, or `~/.local/state/fact/` when `XDG_STATE_HOME` is not set. FACT writes the state directory owner-only and the history file mode `0600` where the platform permits it. Obvious sensitive command forms such as password, passphrase, token, private-key, cookie-file, identity-file, requestor, acquisition-comment, case-comment, and key-export commands are not retained. Automated or injected input functions do not activate readline history. Operators can disable persistent history entirely with `fact shell --no-history`.
+History is stored under the user's XDG state directory, or `~/.local/state/fact/` when `XDG_STATE_HOME` is not set. FACT writes the state directory owner-only and the history file mode `0600` where the platform permits it. Obvious sensitive command forms such as password, passphrase, token, private-key, cookie-file, public-key, requestor, acquisition-comment, case-comment, and key-export commands are not retained. Automated or injected input functions do not activate readline history. Operators can disable persistent history entirely with `fact shell --no-history`.
 
 Completion includes the shell command surface, common subcommands and collector names, validated registered project IDs, and active case IDs in the selected project. It does not execute acquisitions or other evidential operations.
 
 ## Future command families
 
 The shell is intended to host later project and case operations, including ownership, notes, audit, verification, sealing, packaging, screenshot review, and project closure. Those capabilities should be implemented in reusable core/application services first and then exposed through both the ordinary CLI and this shell.
+
+## Authenticated operator context
+
+FACT 2.8 adds a cryptographically authenticated operator context to the interactive shell. After selecting an authority-enabled project, run:
+
+```text
+PROJECT-ID> auth OPERATOR-ID
+```
+
+FACT resolves the selected project-retained operator identity, asks the local GnuPG environment to sign a fresh project-scoped challenge with that identity's exact retained fingerprint, and verifies the result against the retained public key. The shell then records that operator as authenticated for the selected project.
+
+Use:
+
+```text
+PROJECT-ID> whoami
+PROJECT-ID> logout
+```
+
+Changing or clearing the selected project clears the authenticated operator automatically. The shell requires an authenticated context before dispatching protected project mutations such as acquisition, contributor changes, ownership changes, record decisions, case creation or retirement, catalogue checkpointing, and project packaging.
+
+Authentication does not replace transaction signatures. Authority-changing operations still sign the exact catalogue transaction separately before it enters the rolling chain. The session challenge proves possession of the project-retained key for the current interactive context; the transaction signature binds the operator to the specific project mutation.
+
+Authority and responsibility commands available through the same canonical command dispatcher include:
+
+```text
+contributor list
+contributor invite --operator-id OPERATOR-ID --public-key /path/to/operator-public-key.asc
+contributor accept --operator-id OPERATOR-ID
+contributor reject --operator-id OPERATOR-ID
+owner current
+owner transfer OPERATOR-ID --reason "Handover"
+owner accept --operator-id OPERATOR-ID
+owner reject --operator-id OPERATOR-ID --reason "Declined"
+owner cancel --reason "Plans changed"
+record list
+record approve ACQ-000123
+record reject ACQ-000123 --reason "Outside scope"
+```
+
+The project owner remains responsible for approving or rejecting pending contributor acquisitions. Rejected records remain in project history. Ownership changes are proposed by the current owner and require signed acceptance by the intended incoming owner before responsibility changes.

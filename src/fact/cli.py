@@ -17,6 +17,24 @@ from .capabilities.screenshot import CaptureTarget
 from .collectors.registry import default_registry
 from .collectors.screenshot.collector import ScreenshotRequest
 from .console import log, security_warning, summary
+from .core.authority import (
+    accept_contributor,
+    accept_ownership_transfer,
+    authority_enabled,
+    bootstrap_project_authority,
+    cancel_ownership_transfer,
+    current_owner,
+    decide_record,
+    invite_contributor,
+    list_members,
+    list_records,
+    propose_ownership_transfer,
+    reject_contributor,
+    reject_ownership_transfer,
+    remove_contributor,
+    require_project_authority,
+    require_registered_operator,
+)
 from .core.catalogue import (
     list_identifiers,
     verify_chain,
@@ -34,10 +52,21 @@ from .core.context import (
 )
 from .core.orchestration import run_collector_acquisition
 from .core.packaging import create_project_package
-from .core.project import create_case, initialise_project, retire_case
+from .core.project import (
+    create_case,
+    create_owned_case,
+    initialise_owned_project,
+    initialise_project,
+    retire_case,
+)
 from .core.verification import verify_archive
 from .errors import ToolkitError
-from .identity import interactive_identity, resolve_identity
+from .identity import (
+    export_public_key_text,
+    interactive_identity,
+    load_identity_file,
+    resolve_identity,
+)
 from .keys import ensure_key, export_keypair
 from .models import CaseInfo
 
@@ -145,6 +174,11 @@ def parser() -> argparse.ArgumentParser:
     project_init.add_argument("path", type=Path, nargs="?", default=Path.cwd())
     project_init.add_argument("--project-id", required=True)
     project_init.add_argument("--title", required=True)
+    project_init.add_argument(
+        "--owner-identity",
+        type=Path,
+        help="Operator profile for the initial project owner; defaults to the active local profile",
+    )
 
     case_parser = subcommands.add_parser("case")
     case_commands = case_parser.add_subparsers(dest="case_command", required=True)
@@ -158,6 +192,53 @@ def parser() -> argparse.ArgumentParser:
     case_select = case_commands.add_parser("select")
     case_select.add_argument("case_id", nargs="?")
     case_commands.add_parser("current")
+
+    authority_parser = subcommands.add_parser("authority")
+    authority_commands = authority_parser.add_subparsers(
+        dest="authority_command", required=True
+    )
+    authority_bootstrap = authority_commands.add_parser("bootstrap")
+    authority_bootstrap.add_argument("--identity-file", type=Path)
+    authority_commands.add_parser("status")
+
+    contributor_parser = subcommands.add_parser("contributor")
+    contributor_commands = contributor_parser.add_subparsers(
+        dest="contributor_command", required=True
+    )
+    contributor_invite = contributor_commands.add_parser("invite")
+    contributor_invite.add_argument("--identity-file", type=Path, required=True)
+    contributor_commands.add_parser("accept")
+    contributor_commands.add_parser("reject")
+    contributor_remove = contributor_commands.add_parser("remove")
+    contributor_remove.add_argument("operator_id")
+    contributor_remove.add_argument("--reason", required=True)
+    contributor_commands.add_parser("list")
+
+    owner_parser = subcommands.add_parser("owner")
+    owner_commands = owner_parser.add_subparsers(dest="owner_command", required=True)
+    owner_current = owner_commands.add_parser("current")
+    owner_current.add_argument("--case-id")
+    owner_transfer = owner_commands.add_parser("transfer")
+    owner_transfer.add_argument("operator_id")
+    owner_transfer.add_argument("--reason", required=True)
+    owner_transfer.add_argument("--case-id")
+    owner_accept = owner_commands.add_parser("accept")
+    owner_accept.add_argument("--case-id")
+    owner_reject = owner_commands.add_parser("reject")
+    owner_reject.add_argument("--reason", required=True)
+    owner_reject.add_argument("--case-id")
+    owner_cancel = owner_commands.add_parser("cancel")
+    owner_cancel.add_argument("--reason", required=True)
+    owner_cancel.add_argument("--case-id")
+
+    record_parser = subcommands.add_parser("record")
+    record_commands = record_parser.add_subparsers(dest="record_command", required=True)
+    record_commands.add_parser("list")
+    record_approve = record_commands.add_parser("approve")
+    record_approve.add_argument("acquisition_id")
+    record_reject = record_commands.add_parser("reject")
+    record_reject.add_argument("acquisition_id")
+    record_reject.add_argument("--reason", required=True)
 
     catalogue_parser = subcommands.add_parser("catalogue")
     catalogue_commands = catalogue_parser.add_subparsers(
@@ -205,6 +286,18 @@ def _case_comments(args: argparse.Namespace, default: str = "") -> str:
             raise ToolkitError("Acquisition comments file must not be empty")
         return comments
     return default.strip()
+
+
+def _active_project_identity(project_root: Path) -> tuple[object, Path, str]:
+    """Resolve the local signer and bind it to project-retained identity."""
+    identity, path, source = resolve_identity(project_root, None)
+    require_registered_operator(project_root, identity, require_active=False)
+    return identity, path, source
+
+
+def _scope(args: argparse.Namespace) -> tuple[str, str | None]:
+    case_id = getattr(args, "case_id", None)
+    return ("case", case_id) if case_id else ("project", None)
 
 
 def _initialise(args: argparse.Namespace) -> int:
@@ -389,6 +482,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "init":
             return _initialise(args)
         if args.command == "acquire":
+            project_root = discover_project_root(args.root)
+            require_project_authority(project_root)
             return _acquire(args)
         if args.command == "verify":
             return _verify(args)
@@ -397,17 +492,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "export-keypair":
             return _export_keypair(args)
         if args.command == "project" and args.project_command == "init":
-            path = initialise_project(args.path, args.project_id, args.title)
+            identity, _, _ = resolve_identity(args.root, args.owner_identity)
+            public_key = export_public_key_text(identity)
+            path = initialise_owned_project(
+                args.path, args.project_id, args.title, identity, public_key
+            )
             log("PASS", f"FACT project created: {path.parent}")
+            log("PASS", f"Initial owner recorded and signed: {identity.operator_id}")
             return 0
         if args.command == "case":
             project_root = discover_project_root(args.root)
             if args.case_command == "create":
-                identifier = create_case(project_root, args.title, args.comment)
+                require_project_authority(project_root)
+                if authority_enabled(project_root):
+                    identity, _, _ = _active_project_identity(project_root)
+                    identifier = create_owned_case(
+                        project_root, identity, args.title, args.comment
+                    )
+                else:
+                    identifier = create_case(project_root, args.title, args.comment)
                 selected = set_selected_case(project_root, identifier)
                 log("PASS", f"Case created and selected: {selected.case_id}")
                 return 0
             if args.case_command == "retire":
+                require_project_authority(project_root)
                 selection_path = selected_case_path(project_root)
                 selected_id = (
                     selection_path.read_text(encoding="utf-8").strip()
@@ -440,9 +548,137 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise ToolkitError("No FACT case is currently selected")
                 print(f"{selected.case_id}\t{selected.title}")
                 return 0
+        if args.command == "authority":
+            project_root = discover_project_root(args.root)
+            if args.authority_command == "status":
+                if not authority_enabled(project_root):
+                    print("Authority: uninitialised")
+                    return 0
+                owner = current_owner(project_root)
+                print(
+                    f"Authority: active\nOwner: {owner['owner_id']} - {owner['name']}\n"
+                    f"Effective sequence: {owner['effective_from_sequence']}"
+                )
+                return 0
+            if args.authority_command == "bootstrap":
+                if authority_enabled(project_root):
+                    raise ToolkitError("Project authority has already been established")
+                identity, _, _ = resolve_identity(project_root, args.identity_file)
+                public_key = export_public_key_text(identity)
+                bootstrap_project_authority(project_root, identity, public_key)
+                log("PASS", f"Project authority established: {identity.operator_id}")
+                return 0
+        if args.command == "contributor":
+            project_root = discover_project_root(args.root)
+            require_project_authority(project_root)
+            if args.contributor_command == "list":
+                for item in list_members(project_root):
+                    print(
+                        f"{item['operator_id']}\t{item['membership_role']}\t"
+                        f"{item['state']}\t{item['name']}"
+                    )
+                return 0
+            actor, _, _ = _active_project_identity(project_root)
+            if args.contributor_command == "invite":
+                contributor = load_identity_file(args.identity_file)
+                public_key = export_public_key_text(contributor)
+                invite_contributor(project_root, actor, contributor, public_key)
+                log("PASS", f"Contributor invitation recorded: {contributor.operator_id}")
+                return 0
+            if args.contributor_command == "accept":
+                accept_contributor(project_root, actor)
+                log("PASS", f"Contributor invitation accepted: {actor.operator_id}")
+                return 0
+            if args.contributor_command == "reject":
+                reject_contributor(project_root, actor)
+                log("PASS", f"Contributor invitation rejected: {actor.operator_id}")
+                return 0
+            if args.contributor_command == "remove":
+                remove_contributor(
+                    project_root, actor, args.operator_id, args.reason
+                )
+                log("PASS", f"Contributor removed: {args.operator_id}")
+                return 0
+        if args.command == "owner":
+            project_root = discover_project_root(args.root)
+            require_project_authority(project_root)
+            scope_type, scope_id = _scope(args)
+            if args.owner_command == "current":
+                owner = current_owner(
+                    project_root, scope_type=scope_type, scope_id=scope_id
+                )
+                print(
+                    f"{owner['owner_id']}\t{owner['name']}\t"
+                    f"sequence={owner['effective_from_sequence']}"
+                )
+                return 0
+            actor, _, _ = _active_project_identity(project_root)
+            if args.owner_command == "transfer":
+                transfer_id = propose_ownership_transfer(
+                    project_root,
+                    actor,
+                    args.operator_id,
+                    args.reason,
+                    scope_type=scope_type,
+                    scope_id=scope_id,
+                )
+                log("PASS", f"Ownership transfer proposed: {transfer_id}")
+                return 0
+            if args.owner_command == "accept":
+                transfer_id = accept_ownership_transfer(
+                    project_root, actor, scope_type=scope_type, scope_id=scope_id
+                )
+                log("PASS", f"Ownership transfer accepted: {transfer_id}")
+                return 0
+            if args.owner_command == "reject":
+                transfer_id = reject_ownership_transfer(
+                    project_root,
+                    actor,
+                    args.reason,
+                    scope_type=scope_type,
+                    scope_id=scope_id,
+                )
+                log("PASS", f"Ownership transfer rejected: {transfer_id}")
+                return 0
+            if args.owner_command == "cancel":
+                transfer_id = cancel_ownership_transfer(
+                    project_root,
+                    actor,
+                    args.reason,
+                    scope_type=scope_type,
+                    scope_id=scope_id,
+                )
+                log("PASS", f"Ownership transfer cancelled: {transfer_id}")
+                return 0
+        if args.command == "record":
+            project_root = discover_project_root(args.root)
+            require_project_authority(project_root)
+            if args.record_command == "list":
+                for item in list_records(project_root):
+                    print(
+                        f"{item['object_id']}\t{item['status']}\t"
+                        f"submitted-by={item['submitted_by']}\tcase={item['scope_id']}"
+                    )
+                return 0
+            actor, _, _ = _active_project_identity(project_root)
+            if args.record_command == "approve":
+                decide_record(project_root, actor, args.acquisition_id, "approved")
+                log("PASS", f"Record approved: {args.acquisition_id}")
+                return 0
+            if args.record_command == "reject":
+                decide_record(
+                    project_root,
+                    actor,
+                    args.acquisition_id,
+                    "rejected",
+                    args.reason,
+                )
+                log("PASS", f"Record rejected: {args.acquisition_id}")
+                return 0
         if args.command == "catalogue":
             project_root = discover_project_root(args.root)
             if args.catalogue_command == "checkpoint":
+                require_project_authority(project_root)
                 path = write_checkpoint(project_root, args.toolkit_root or project_root)
                 log("PASS", f"Catalogue checkpoint signed: {path}")
                 return 0
@@ -467,6 +703,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "package":
             project_root = discover_project_root(args.root)
+            require_project_authority(project_root)
             outputs = create_project_package(
                 project_root,
                 args.toolkit_root or Path.cwd(),

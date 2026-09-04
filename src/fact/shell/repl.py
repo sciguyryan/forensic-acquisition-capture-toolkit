@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 from contextlib import suppress
 from pathlib import Path
 
+from ..core.authority import authority_enabled
 from ..core.catalogue import list_identifiers
 from ..errors import ToolkitError
 from .interactive import ReadlineFeatures
@@ -27,7 +28,10 @@ Output = Callable[[str], None]
 _HELP = """FACT interactive shell
 
 Context:
-  context                         Show the selected project and case
+  context                         Show the selected project, case and operator
+  auth                            Authenticate the active operator for this shell
+  whoami                          Show the authenticated operator
+  logout                          Clear shell operator authentication
   project select PATH|PROJECT-ID  Select an existing FACT project
   projects                        Show validated locally registered projects
   select project PATH             Alias for project select
@@ -39,6 +43,9 @@ Context:
 
 Operations:
   acquire ...                     Run a collector in the selected project
+  contributor ...                 Manage signed contributor membership
+  owner ...                       Inspect or transfer responsibility
+  record ...                      Review pending/approved/rejected records
   catalogue ...                   Run catalogue operations
   package ...                     Package the selected project
   verify ...                      Verify an evidence archive
@@ -48,8 +55,8 @@ Shell:
   help [COMMAND ...]              Show shell or command-specific help
   exit | quit                     Leave the shell
 
-Future case ownership, notes, audit/seal/package lifecycle operations and
-review commands will plug into this same dispatcher rather than a second CLI.
+Future notes, audit/seal/package lifecycle operations and review commands will
+plug into this same dispatcher rather than a second CLI.
 """
 
 
@@ -67,6 +74,15 @@ def _show_context(session: ShellSession, output_fn: Output) -> None:
         output_fn("Case:    none")
         return
     output_fn(f"Project: {session.project_id()} ({session.project_root})")
+    authenticated = session.authenticated_operator
+    output_fn(
+        "Operator: "
+        + (
+            f"{authenticated.operator_id} ({authenticated.signing_fingerprint})"
+            if authenticated is not None
+            else "not authenticated"
+        )
+    )
     try:
         case_id = session.case_id()
     except ToolkitError:
@@ -81,6 +97,19 @@ def _normalise_aliases(tokens: list[str]) -> list[str]:
     if len(tokens) >= 2 and tokens[0] == "select" and tokens[1] in {"project", "case"}:
         return [tokens[1], "select", *tokens[2:]]
     return tokens
+
+
+def _requires_authenticated_operator(tokens: Sequence[str]) -> bool:
+    """Return whether a shell command mutates protected project state."""
+
+    if not tokens:
+        return False
+    command = tokens[0]
+    if command in {"acquire", "contributor", "owner", "record", "package"}:
+        return True
+    if command == "case" and len(tokens) > 1 and tokens[1] in {"create", "retire"}:
+        return True
+    return command == "catalogue" and len(tokens) > 1 and tokens[1] == "checkpoint"
 
 
 def _dispatch_line(
@@ -116,6 +145,29 @@ def _dispatch_line(
         return True
     if command == "context":
         _show_context(session, output_fn)
+        return True
+    if command == "auth":
+        if len(tokens) != 1:
+            raise ToolkitError("Usage: auth")
+        authenticated = session.authenticate()
+        output_fn(
+            f"Authenticated operator: {authenticated.operator_id} "
+            f"({authenticated.signing_fingerprint})"
+        )
+        return True
+    if command == "whoami":
+        authenticated = session.authenticated_operator
+        if authenticated is None:
+            output_fn("Operator: not authenticated")
+        else:
+            output_fn(
+                f"Operator: {authenticated.operator_id} "
+                f"({authenticated.signing_fingerprint})"
+            )
+        return True
+    if command == "logout":
+        session.logout_operator()
+        output_fn("Operator authentication cleared")
         return True
     if command == "shell":
         raise ToolkitError("A FACT shell is already active")
@@ -169,6 +221,8 @@ def _dispatch_line(
         return True
 
     project_root = session.require_project()
+    if authority_enabled(project_root) and _requires_authenticated_operator(tokens):
+        session.require_authenticated_operator()
     dispatch(_with_root(project_root, tokens))
     return True
 
@@ -178,17 +232,23 @@ def _completion_candidates(session: ShellSession, text: str) -> list[str]:
 
     commands = [
         "acquire",
+        "auth",
         "case",
         "catalogue",
         "context",
+        "contributor",
         "exit",
         "help",
+        "logout",
+        "owner",
         "package",
         "project",
         "projects",
         "quit",
+        "record",
         "select",
         "verify",
+        "whoami",
         "checkpoint",
         "clear",
         "create",

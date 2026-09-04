@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.8.0
+
+- Added project-retained operator identity, public signing-key records, contributor membership, project and case ownership, ownership transfers, and evidential approval state to the tamper-evident catalogue.
+- Added signed authority transactions bound to the rolling catalogue chain and exact historical operator signing fingerprint.
+- Added authenticated shell operator sessions while retaining per-transaction signatures for authority-changing actions.
+- Added two-sided contributor admission and signed project/case ownership transfer workflows.
+- Added pending, approved and rejected acquisition authority states without rewriting original acquisition metadata or deleting rejected records.
+- Extended catalogue verification and checkpoint state digests to detect direct tampering with identity, key, membership, ownership, transfer and approval state.
+- Added explicit signed authority bootstrap for older projects while preserving pre-authority history as such.
+- Prevented authority records from being attached to invented or inactive acquisition identifiers.
+- Preserved already sealed evidence as an active acquisition if later authority recording fails instead of falsely marking the sealed acquisition as failed.
+
 ## 2.7.1
 
 - Repair repository-wide Ruff 0.16.6 lint failures exposed by the GitHub runner.

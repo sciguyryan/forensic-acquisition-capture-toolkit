@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
+import shutil
 from contextlib import suppress
 from pathlib import Path
 
 from ..errors import ToolkitError
+from ..identity import OperatorIdentity
+from .authority import assign_case_owner, bootstrap_project_authority
 from .catalogue import (
     PROJECT_NAME,
     fail_identifier,
@@ -41,6 +44,50 @@ def initialise_project(root: Path, project_id: str, title: str) -> Path:
         project_file.unlink(missing_ok=True)
         raise
     return project_file
+
+
+def initialise_owned_project(
+    root: Path,
+    project_id: str,
+    title: str,
+    owner: OperatorIdentity,
+    owner_public_key: str,
+) -> Path:
+    """Create a project whose first usable state includes a signed owner.
+
+    Project creation and authority bootstrap are treated as one operator-facing
+    operation. If the owner cannot sign the initial authority transaction, the
+    incomplete project is removed rather than leaving an apparently usable
+    ownerless project behind.
+    """
+    project_file = initialise_project(root, project_id, title)
+    try:
+        bootstrap_project_authority(root, owner, owner_public_key)
+    except Exception:
+        # No evidential work is permitted before authority bootstrap, so a failed
+        # initial signature may safely unwind the newly-created empty project.
+        shutil.rmtree(root / ".fact", ignore_errors=True)
+        shutil.rmtree(root / "cases", ignore_errors=True)
+        project_file.unlink(missing_ok=True)
+        raise
+    return project_file
+
+
+def create_owned_case(
+    project_root: Path,
+    owner: OperatorIdentity,
+    title: str = "",
+    comment: str = "",
+) -> str:
+    """Create a case and bind its initial responsibility to the project owner."""
+    identifier = create_case(project_root, title, comment)
+    try:
+        assign_case_owner(project_root, identifier, owner)
+    except Exception as exc:
+        with suppress(Exception):
+            fail_identifier(project_root, identifier, str(exc))
+        raise
+    return identifier
 
 
 def create_case(project_root: Path, title: str = "", comment: str = "") -> str:

@@ -131,6 +131,7 @@ def test_package_command_dispatches_project_packaging(
     """Create a project package through the public command-line dispatcher."""
     project = tmp_path / "project"
     initialise_project(project, "P-1", "Project")
+    monkeypatch.setattr(cli, "require_project_authority", lambda root: None)
     calls = []
     archive = tmp_path / "P-1.fact.tar.gz"
     monkeypatch.setattr(
@@ -155,3 +156,181 @@ def test_package_command_dispatches_project_packaging(
         == 0
     )
     assert calls[0][1]["encrypt_to"] == ["RECIPIENT"]
+
+
+def test_authority_cli_dispatches_project_bootstrap_and_membership(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Expose signed authority operations through the canonical CLI dispatcher."""
+    project = tmp_path / "project"
+    profile = tmp_path / "owner.json"
+    profile.write_text("{}", encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(
+        cli,
+        "resolve_identity",
+        lambda *args, **kwargs: (IDENTITY, profile, "active_profile"),
+    )
+    monkeypatch.setattr(cli, "export_public_key_text", lambda identity: "PUBLIC KEY")
+    monkeypatch.setattr(
+        cli,
+        "initialise_owned_project",
+        lambda *args: calls.append(("project", args)) or project / "PROJECT.toml",
+    )
+    monkeypatch.setattr(cli, "log", lambda *args: calls.append(("log", args)))
+    assert (
+        cli.main(
+            [
+                "project",
+                "init",
+                str(project),
+                "--project-id",
+                "P-1",
+                "--title",
+                "Project",
+            ]
+        )
+        == 0
+    )
+    assert calls[0][0] == "project"
+
+    project.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(cli, "discover_project_root", lambda root: project)
+    monkeypatch.setattr(cli, "require_project_authority", lambda root: None)
+    monkeypatch.setattr(cli, "_active_project_identity", lambda root: (IDENTITY, profile, "active"))
+    contributor = OperatorIdentity(1, "bob", "Bob", None, None, None, "C" * 40, "D" * 40)
+    monkeypatch.setattr(cli, "load_identity_file", lambda path: contributor)
+    monkeypatch.setattr(cli, "invite_contributor", lambda *args: calls.append(("invite", args)))
+    assert (
+        cli.main(
+            [
+                "--root",
+                str(project),
+                "contributor",
+                "invite",
+                "--identity-file",
+                str(tmp_path / "bob.json"),
+            ]
+        )
+        == 0
+    )
+    assert any(item[0] == "invite" for item in calls)
+
+
+def test_authority_cli_owner_record_and_listing_paths(tmp_path: Path, monkeypatch) -> None:
+    """Dispatch owner decisions, contributor state and record review commands."""
+    project = tmp_path / "project"
+    project.mkdir()
+    profile = tmp_path / "owner.json"
+    calls = []
+    monkeypatch.setattr(cli, "discover_project_root", lambda root: project)
+    monkeypatch.setattr(cli, "require_project_authority", lambda root: None)
+    monkeypatch.setattr(cli, "_active_project_identity", lambda root: (IDENTITY, profile, "active"))
+    monkeypatch.setattr(
+        cli,
+        "list_members",
+        lambda root: [
+            {
+                "operator_id": "jane",
+                "membership_role": "owner",
+                "state": "active",
+                "name": "Jane Doe",
+            }
+        ],
+    )
+    assert cli.main(["--root", str(project), "contributor", "list"]) == 0
+
+    monkeypatch.setattr(cli, "accept_contributor", lambda *args: calls.append("accept-contributor"))
+    monkeypatch.setattr(cli, "reject_contributor", lambda *args: calls.append("reject-contributor"))
+    monkeypatch.setattr(cli, "remove_contributor", lambda *args: calls.append("remove-contributor"))
+    assert cli.main(["--root", str(project), "contributor", "accept"]) == 0
+    assert cli.main(["--root", str(project), "contributor", "reject"]) == 0
+    assert (
+        cli.main(
+            [
+                "--root",
+                str(project),
+                "contributor",
+                "remove",
+                "bob",
+                "--reason",
+                "done",
+            ]
+        )
+        == 0
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "current_owner",
+        lambda *args, **kwargs: {
+            "owner_id": "jane",
+            "name": "Jane Doe",
+            "effective_from_sequence": 2,
+        },
+    )
+    assert cli.main(["--root", str(project), "owner", "current"]) == 0
+    monkeypatch.setattr(cli, "propose_ownership_transfer", lambda *args, **kwargs: "XFER-1")
+    monkeypatch.setattr(cli, "accept_ownership_transfer", lambda *args, **kwargs: "XFER-1")
+    monkeypatch.setattr(cli, "reject_ownership_transfer", lambda *args, **kwargs: "XFER-1")
+    monkeypatch.setattr(cli, "cancel_ownership_transfer", lambda *args, **kwargs: "XFER-1")
+    assert (
+        cli.main(
+            [
+                "--root",
+                str(project),
+                "owner",
+                "transfer",
+                "bob",
+                "--reason",
+                "handover",
+            ]
+        )
+        == 0
+    )
+    assert cli.main(["--root", str(project), "owner", "accept"]) == 0
+    assert (
+        cli.main(
+            ["--root", str(project), "owner", "reject", "--reason", "declined"]
+        )
+        == 0
+    )
+    assert (
+        cli.main(
+            ["--root", str(project), "owner", "cancel", "--reason", "changed"]
+        )
+        == 0
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "list_records",
+        lambda root: [
+            {
+                "object_id": "ACQ-000001",
+                "status": "pending",
+                "submitted_by": "bob",
+                "scope_id": "CASE-000001",
+            }
+        ],
+    )
+    assert cli.main(["--root", str(project), "record", "list"]) == 0
+    monkeypatch.setattr(cli, "decide_record", lambda *args: calls.append(("decision", args)))
+    assert (
+        cli.main(["--root", str(project), "record", "approve", "ACQ-000001"])
+        == 0
+    )
+    assert (
+        cli.main(
+            [
+                "--root",
+                str(project),
+                "record",
+                "reject",
+                "ACQ-000002",
+                "--reason",
+                "irrelevant",
+            ]
+        )
+        == 0
+    )

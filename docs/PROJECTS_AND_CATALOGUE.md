@@ -120,3 +120,17 @@ Verify the signed checkpoint:
 ```bash
 fact --root /path/to/project catalogue verify --checkpoint --public-key /path/to/evidence-public-key.asc
 ```
+
+## Identity and authority state
+
+FACT 2.8 extends the project catalogue so project-relevant operator identity and authority are protected by the same integrity model as the rest of the project state. Operator records, retained public signing keys, contributor membership, project and case ownership, ownership-transfer state, and evidential approval state are stored in dedicated tables in `catalogue.sqlite`.
+
+These tables do not contain private keys, passphrases or GnuPG session state. They retain the public information necessary to understand and verify project history. FACT does not maintain local `operators/*.json` profiles for project authority. When a protected operation requires signing, FACT resolves the exact retained fingerprint and uses the matching private key from the local GnuPG environment without introducing a second mutable identity record.
+
+Authority changes are represented by signed canonical transactions in the audit event chain. The transaction binds the actor, signing fingerprint, event sequence and previous chain head before it is appended. Verification reconstructs the authority tables from those events and compares the reconstructed state with the live relational state.
+
+As a result, a direct SQL edit to a contributor state, owner, operator identity, retained public key or acquisition approval state is not treated as a legitimate project change. It creates a discrepancy that `catalogue verify` reports.
+
+The catalogue state digest used by signed checkpoints now covers identifiers and authority state. This means a signed checkpoint is sensitive to ex post facto changes to identity, membership, ownership, transfer and approval records as well as identifier state.
+
+See `docs/AUTHORITY_AND_IDENTITY.md` for the signed transaction model, session authentication, contributor admission, ownership transfer, approval lifecycle, threat model and current key-lifecycle limitations.

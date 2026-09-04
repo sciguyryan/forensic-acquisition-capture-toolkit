@@ -1,6 +1,6 @@
-# FACT v2.7.0 field validation
+# FACT v2.8.0 field validation
 
-This release completes the interactive shell foundation. Field validation should concentrate on context visibility, safe project and case switching, project-ID registry behaviour, explicit help, optional local history/completion, normal command dispatch, and unchanged screenshot/YouTube acquisition behaviour.
+This release establishes FACT's project identity, authority and tamper-detection foundation. Field validation should concentrate on signed initial ownership, project-retained identity, contributor admission, ownership transfer, pending/approved/rejected acquisition state, authenticated shell context, catalogue tamper detection, and regression of existing acquisition and packaging behaviour.
 
 ## Fresh environment
 
@@ -12,130 +12,160 @@ source .venv/bin/activate.fish
 python -m pip install -e '.[dev,screenshot]'
 ```
 
-Run the automated and local style checks:
+Run the release gates without modifying the tree:
 
 ```fish
+python -m ruff check src tests
+python -m ruff format --check src tests
 python -m pytest
-ruff check .
-ruff format --check .
 ```
 
-Confirm the new command is present:
+All three must pass before the release candidate is promoted.
+
+## Initial owner and project creation
+
+Create a disposable signing key in the local GnuPG environment and note its full fingerprint. Then create a disposable project while supplying the initial owner identity explicitly:
 
 ```fish
-fact --help
-fact help
-fact help acquire
-fact shell
-```
-
-## Start inside an existing project
-
-Change into your test project or one of its case directories and start:
-
-```fish
-fact shell
+fact project init /tmp/fact-authority-test --project-id FACT-AUTHORITY-TEST --title "FACT authority test" --owner-id OWNER-ID --owner-key OWNER-FINGERPRINT
 ```
 
 Expected behaviour:
 
-1. FACT identifies the containing project automatically.
-2. The prompt shows the project ID.
-3. If the project already has a selected active case, the prompt also shows that case ID.
-4. `context` prints the project ID, project path, and selected case.
+1. The operator must sign the initial authority transaction.
+2. FACT reports the project creation and initial owner.
+3. `fact --root /tmp/fact-authority-test authority status` reports authority as active and names the retained owner.
+4. `fact --root /tmp/fact-authority-test catalogue verify` succeeds.
 
-A typical prompt should resemble:
+If signing the initial authority transaction is cancelled or fails, FACT should remove the incomplete newly created project state rather than leave an apparently usable ownerless project.
 
-```text
-JAMES-KOASH-2026 / CASE-000001> 
-```
+## Legacy authority bootstrap
 
-## Start outside a project
-
-From a directory that is not within a FACT project:
+For a disposable project created by an older FACT build, run:
 
 ```fish
-fact shell
+fact --root /path/to/legacy-project authority status
+fact --root /path/to/legacy-project authority bootstrap --operator-id OWNER-ID --signing-key OWNER-FINGERPRINT
+fact --root /path/to/legacy-project catalogue verify
 ```
 
-The prompt should be:
+The first command should report uninitialised authority. Bootstrap should require a valid operator signature. Earlier catalogue events must remain historically earlier than the authority root and must not be retroactively attributed to the bootstrap operator.
 
-```text
-fact> 
+## Shell authentication
+
+Start the shell in the test project:
+
+```fish
+fact --root /tmp/fact-authority-test shell
 ```
 
 Run:
 
 ```text
 context
-project select /mnt/storage/Forensic/projects/james-koash-2026
+auth OWNER-ID
+whoami
 ```
 
-FACT should bind the explicit project and change the prompt. Run `projects` and confirm the project is now listed. Clear the project, then select it again by project ID and confirm FACT resolves the validated registry entry. It must not guess an unregistered or ambiguous project ID.
+The authentication step should resolve the owner's project-retained fingerprint, invoke the matching private key from the local GnuPG environment, and then display the authenticated operator. `logout` must clear that identity. Selecting or clearing another project must also clear it.
 
-## Case selection
+Before `auth`, attempt a protected mutation such as `case create`. The shell should refuse it and direct the operator to authenticate. Read-only inspection such as `catalogue verify`, `authority status`, `contributor list`, and `record list` should remain available as appropriate.
 
-Inside the shell, try:
+## Contributor admission
+
+Create a second disposable signing key and export only its public key for admission to the project. Have the owner record an invitation using the contributor's explicit operator ID and public verification key:
+
+```fish
+gpg --armor --export CONTRIBUTOR-FINGERPRINT > /tmp/contributor-public-key.asc
+fact --root /tmp/fact-authority-test contributor invite --operator-id CONTRIBUTOR-ID --public-key /tmp/contributor-public-key.asc
+fact --root /tmp/fact-authority-test contributor list
+```
+
+The contributor should initially appear as `pending` and must not be allowed to submit project work merely because the owner invited them.
+
+Accept the invitation as that operator by selecting the project-retained contributor identity explicitly:
+
+```fish
+fact --root /tmp/fact-authority-test contributor accept --operator-id CONTRIBUTOR-ID
+```
+
+The acceptance must be signed by the invited contributor's registered key. `contributor list` should then show the contributor as active.
+
+Also test rejection with another disposable invitation. The rejected identity should remain represented historically rather than disappearing.
+
+## Ownership transfer
+
+As the current owner, propose a transfer to an active contributor:
+
+```fish
+fact --root /tmp/fact-authority-test owner transfer CONTRIBUTOR-ID --reason "Field validation handover"
+```
+
+`owner current` must still report the original owner until the transferee accepts. Use the incoming operator's project-retained identity and run:
+
+```fish
+fact --root /tmp/fact-authority-test owner accept --operator-id CONTRIBUTOR-ID
+fact --root /tmp/fact-authority-test owner current
+fact --root /tmp/fact-authority-test catalogue verify
+```
+
+The incoming operator should become owner only after their signed acceptance. Repeat with disposable transfers to exercise signed rejection and owner cancellation. Historical ownership must not be rewritten.
+
+## Case responsibility and contributor acquisition
+
+Create and select a disposable case as the current project owner. The case should receive signed initial ownership automatically.
+
+Switch to an active contributor, authenticate in the shell, and perform a screenshot acquisition:
 
 ```text
-case list
-case select
-case current
+PROJECT-ID / CASE-000001> auth CONTRIBUTOR-ID
+PROJECT-ID / CASE-000001> acquire screenshot --acquisition-comment "Pending contributor acquisition"
 ```
 
-When more than one active case exists, the numbered selector should allow selection without retyping the case ID. The prompt should update immediately after selection.
-
-Also test the direct form with a known disposable case:
+The acquisition should seal through the normal acquisition path and then appear in:
 
 ```text
-select case CASE-000001
+record list
 ```
 
-If practical, retire the selected disposable case from a second terminal. The existing shell prompt should change to:
+with status `pending` because the contributor is not the responsible case owner. The archive, original acquisition timestamp, operator attribution and cryptographic provenance must already be fixed and must not change when the owner later decides the record.
+
+As the responsible owner, approve the acquisition:
 
 ```text
-PROJECT-ID / !invalid-case> 
+record approve ACQ-000001
 ```
 
-FACT must not silently choose another active case. Select a valid case explicitly before continuing.
-
-## Screenshot acquisition through the shell
-
-With the correct project and case visible in the prompt, run:
+For another contributor acquisition, reject it with a reason:
 
 ```text
-acquire screenshot --acquisition-comment "FACT v2.7 shell screenshot validation"
+record reject ACQ-000002 --reason "Outside agreed evidential scope"
 ```
 
-Expected behaviour is identical to the ordinary CLI screenshot workflow. On Wayland, the desktop/compositor should present its trusted capture selector. FACT must preserve the returned original screenshot bytes without annotations, redactions, resizing, or re-encoding.
+Both acquisitions must remain listed. The second should be retained as `rejected`, not deleted or made to appear never to have existed.
 
-After capture, verify that the acquisition receives the next catalogue-owned `ACQ-######` identifier and completes the normal sealing and self-verification path.
+## Tamper detection
 
-## Command and input behaviour
+Make a backup of the disposable test project before this section. Direct database changes are intentionally destructive to the test copy.
 
-Confirm:
+With the project in a valid state, confirm:
 
-```text
-help
-help acquire
-context
-projects
-catalogue verify
+```fish
+fact --root /tmp/fact-authority-test catalogue verify
 ```
 
-Start a second shell with `fact shell --no-history` and confirm tab completion still works while new commands are not persisted to the local history file. In a normal shell, confirm command history is bounded local state and that a command containing a sensitive option such as `--cookies` is not retained.
+Then use an SQLite client against `.fact/catalogue.sqlite` to alter one current-state authority field without creating the corresponding signed event. Suitable disposable tests include changing an operator name, replacing retained public-key text, changing an active contributor to removed, substituting a case owner, or changing a pending record to approved.
 
-Then test the following interaction behaviour:
+Run catalogue verification again. FACT must reject the altered state because reconstruction from signed history no longer matches the live authority tables.
 
-- press `Ctrl-C` at an empty shell prompt and confirm the shell remains active;
-- enter a malformed quoted command and confirm FACT reports the parsing error without exiting;
-- type `shell` and confirm nested shell creation is refused;
-- type `exit` or `quit` and confirm the shell exits cleanly.
+Restore the valid backup before testing another tamper scenario. Do not treat a successful direct SQL write as a FACT-supported mutation.
+
+Also modify a copied evidence archive or other digest-bound evidence file and confirm its normal evidence verification fails. These tests demonstrate the intended security property: FACT cannot prevent a sufficiently privileged user from writing different bytes, but unauthorised modification should not silently verify as legitimate project history.
 
 ## Regression checks
 
-Run one representative YouTube acquisition through the ordinary CLI or the shell and confirm its output remains consistent with the accepted v2.5 behaviour.
+Run representative owner and contributor screenshot acquisitions and one representative YouTube acquisition. Confirm successful evidence still follows the accepted sealing, detached-signature and self-verification process.
 
-Create a normal project package and confirm sealed acquisition archives and their sidecars remain present while mutable `.staging-*` directories remain excluded.
+Create a project package and confirm catalogue verification occurs before export. Confirm the package retains the catalogue, project-retained public verification material and sealed acquisition bundles while excluding private signing keys, passphrases, local GnuPG agent state, mutable staging directories and other ignored operational material. Confirm no `operators/` profile directory or active-profile configuration is created by the 2.8 workflow.
 
-The `.gitignore` in this release should match the accepted FACT baseline and the release tree should not contain `src/fact_forensic_toolkit.egg-info/` or other generated `*.egg-info/` directories.
+The release tree should not contain generated `*.egg-info/`, `coverage.xml`, `.coverage`, `__pycache__/`, `.pytest_cache/` or other development output.

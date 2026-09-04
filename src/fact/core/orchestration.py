@@ -22,7 +22,13 @@ from ..identity import OperatorIdentity, export_public_key
 from ..keys import ensure_key
 from ..models import CaseInfo
 from ..services.commands import CommandRunner
+from ..services.hashing import digest
 from .acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
+from .authority import (
+    authority_enabled,
+    record_acquisition,
+    require_registered_operator,
+)
 from .catalogue import catalogue_path, fail_identifier, issue_identifier
 from .records import initial_record_for_source, write_record
 from .sealing import seal_acquisition
@@ -56,11 +62,16 @@ def run_collector_acquisition(
     work. Once issued, an ``ACQ-######`` value is consumed permanently. Any
     subsequent preparation, capture, sealing, or verification failure therefore
     marks that identifier as failed while preserving the ``INCOMPLETE`` staging
-    tree whenever one was created.
+    tree whenever one was created. Once sealing succeeds, the identifier remains
+    active even if later catalogue authority recording fails, because FACT must
+    not relabel already-sealed evidence as a failed acquisition.
     """
 
     root = root.resolve()
     catalogued = catalogue_path(root).is_file()
+    identity = OperatorIdentity(**case.operator_identity)
+    if catalogued and authority_enabled(root):
+        require_registered_operator(root, identity)
     run_id = (
         issue_identifier(root, "acquisition", "ACQ") if catalogued else acquisition_id()
     )
@@ -75,6 +86,7 @@ def run_collector_acquisition(
             fail_identifier(root, run_id, "workspace creation failed")
         raise
 
+    sealed = False
     try:
         context = AcquisitionContext(
             project_root=root,
@@ -93,7 +105,6 @@ def run_collector_acquisition(
         gnupg_home = pgp_dir / "keyring"
         fingerprint = ensure_key(gnupg_home, public_key, fingerprint_file)
 
-        identity = OperatorIdentity(**case.operator_identity)
         workspace.note(
             "INFO",
             (
@@ -128,7 +139,7 @@ def run_collector_acquisition(
         record.tools = dict(context.metadata.get("tools", {}))
         record.observations.extend(result.observations)
 
-        return seal_acquisition(
+        archive = seal_acquisition(
             context=context,
             result=result,
             case=case,
@@ -138,10 +149,27 @@ def run_collector_acquisition(
             gnupg_home=gnupg_home,
             key_fingerprint=fingerprint,
         )
+        sealed = True
+        if catalogued and authority_enabled(root):
+            status = record_acquisition(
+                root,
+                identity,
+                acquisition_id=run_id,
+                case_id=case.case_id,
+                archive=archive,
+                archive_sha256=digest(archive, "sha256"),
+                collector=result.collector,
+                completed_utc=str(record.acquisition["completed_utc"]),
+            )
+            workspace.note(
+                "INFO",
+                f"Acquisition authority state recorded as {status}: {run_id}",
+            )
+        return archive
     except Exception as exc:
         # The first exception is the evidentially useful failure. Catalogue
         # bookkeeping must not conceal it if marking the identifier also fails.
-        if catalogued:
+        if catalogued and not sealed:
             with suppress(Exception):
                 fail_identifier(root, run_id, str(exc))
         raise

@@ -12,8 +12,13 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.authority import (
+    AuthenticatedOperator,
+    authenticate_operator_session,
+)
 from ..core.context import discover_project_root, get_selected_case
 from ..errors import ToolkitError
+from ..identity import resolve_identity
 from .registry import register_project, resolve_registered_project
 
 
@@ -22,6 +27,7 @@ class ShellSession:
     """Represent the project currently bound to one interactive shell session."""
 
     project_root: Path | None = None
+    authenticated_operator: AuthenticatedOperator | None = None
 
     @classmethod
     def from_start(cls, start: Path) -> ShellSession:
@@ -45,6 +51,7 @@ class ShellSession:
         """Bind an existing FACT project selected explicitly by the operator."""
 
         self.project_root = discover_project_root(path)
+        self.authenticated_operator = None
         with suppress(ToolkitError):
             register_project(self.project_root)
         return self.project_root
@@ -56,12 +63,37 @@ class ShellSession:
         if candidate.exists() or candidate.is_absolute() or "/" in selector:
             return self.bind_project(candidate)
         self.project_root = resolve_registered_project(selector)
+        self.authenticated_operator = None
         return self.project_root
 
     def clear_project(self) -> None:
         """Clear only shell context; project files and selected-case state remain."""
 
         self.project_root = None
+        self.authenticated_operator = None
+
+    def authenticate(self) -> AuthenticatedOperator:
+        """Authenticate the active local operator against project-retained identity."""
+
+        project_root = self.require_project()
+        identity, _, _ = resolve_identity(project_root, None)
+        authenticated = authenticate_operator_session(project_root, identity)
+        self.authenticated_operator = authenticated
+        return authenticated
+
+    def logout_operator(self) -> None:
+        """Clear transient shell authentication without changing project identity."""
+
+        self.authenticated_operator = None
+
+    def require_authenticated_operator(self) -> AuthenticatedOperator:
+        """Return current shell authentication or fail closed."""
+
+        if self.authenticated_operator is None:
+            raise ToolkitError(
+                "This project operation requires an authenticated operator; run 'auth' first"
+            )
+        return self.authenticated_operator
 
     def project_id(self) -> str | None:
         """Return the human-readable project ID from ``PROJECT.toml``."""

@@ -293,3 +293,73 @@ def test_history_filter_excludes_sensitive_commands() -> None:
     assert not should_retain_history("   ")
     assert not should_retain_history("command --token abc")
     assert not should_retain_history("export-keypair")
+
+
+def test_shell_operator_authentication_context_and_logout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Require and expose cryptographic operator context inside the interactive shell."""
+    from fact.core.authority import AuthenticatedOperator
+    from fact.shell import repl as repl_module
+
+    root, _ = make_project(tmp_path)
+    session = ShellSession(project_root=root)
+    authenticated = AuthenticatedOperator("jane", "F" * 40, "2026-09-04T12:00:00Z", "a" * 64)
+    output: list[str] = []
+
+    assert _dispatch_line(session, ["whoami"], lambda argv: 0, output.append)
+    assert output[-1] == "Operator: not authenticated"
+
+    # Dataclass slot instances cannot have methods rebound in-place, so exercise
+    # the command path with a small session subclass that preserves real state.
+    class AuthenticatingSession(ShellSession):
+        def authenticate(self):
+            self.authenticated_operator = authenticated
+            return authenticated
+
+    session = AuthenticatingSession(project_root=root)
+    assert _dispatch_line(session, ["auth"], lambda argv: 0, output.append)
+    assert session.authenticated_operator == authenticated
+    assert "Authenticated operator: jane" in output[-1]
+    assert _dispatch_line(session, ["whoami"], lambda argv: 0, output.append)
+    assert "Operator: jane" in output[-1]
+    assert _dispatch_line(session, ["logout"], lambda argv: 0, output.append)
+    assert session.authenticated_operator is None
+
+    monkeypatch.setattr(repl_module, "authority_enabled", lambda project_root: True)
+    with pytest.raises(ToolkitError, match="requires an authenticated operator"):
+        _dispatch_line(
+            ShellSession(project_root=root),
+            ["acquire", "screenshot"],
+            lambda argv: 0,
+            output.append,
+        )
+
+
+def test_session_authenticate_uses_project_local_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bind shell authentication to the local signer and retained project identity."""
+    from fact.core.authority import AuthenticatedOperator
+    from fact.identity import OperatorIdentity
+    from fact.shell import session as session_module
+
+    root, _ = make_project(tmp_path)
+    identity = OperatorIdentity(1, "jane", "Jane", None, None, None, "A" * 40, "B" * 40)
+    expected = AuthenticatedOperator("jane", "B" * 40, "2026-09-04T12:00:00Z", "c" * 64)
+    monkeypatch.setattr(
+        session_module,
+        "resolve_identity",
+        lambda project_root, override: (identity, root / "operators/jane.json", "active"),
+    )
+    monkeypatch.setattr(
+        session_module,
+        "authenticate_operator_session",
+        lambda project_root, operator: expected,
+    )
+    session = ShellSession(project_root=root)
+    assert session.authenticate() == expected
+    assert session.require_authenticated_operator() == expected
+    session.logout_operator()
+    with pytest.raises(ToolkitError, match="run 'auth' first"):
+        session.require_authenticated_operator()

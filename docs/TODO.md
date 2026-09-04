@@ -2,12 +2,13 @@
 
 This document records accepted future work that has not yet been implemented. Items are architectural commitments or investigation targets rather than promises that a particular interface is final.
 
-## Ownership and responsibility
+## Identity and key lifecycle
 
-- Add project and case ownership as first-class auditable state based on owner ID.
-- Keep responsibility separate from permissions. A project or case has a current responsible owner while authorised contributors may perform permitted actions.
-- Make ownership transfers explicit and auditable, preserving previous ownership history.
-- Bind sealing records to the responsible owner at the time of sealing.
+- Add auditable operator signing-key rotation without invalidating historical signatures or rewriting the key that represented an operator at an earlier catalogue sequence.
+- Add explicit signing-key revocation and compromised or lost-key recovery with conservative, highly visible exceptional transactions rather than making recovery appear to be an ordinary key rotation.
+- Design exceptional ownership recovery for situations in which the current owner cannot participate. Recovery must never masquerade as a consensual ownership transfer and must retain the reason, authority and recovery path in project history.
+- Review contributor public-key import and explicit project-identity selection ergonomics while preserving the rule that local keyring state cannot redefine project-retained identity.
+- Continue extending individually signed authority semantics to later structural lifecycle operations where attribution is evidentially meaningful.
 
 ## Notes
 
