@@ -1,19 +1,14 @@
 """Commit immutable files into the authoritative FACT evidence tree.
 
-FACT treats every retained evidential payload as a file. Collectors and other
-producers may create files in mutable staging, but a file does not become part
-of the authoritative project merely because it exists there. Check-in assigns a
-never-reused ``FILE-######`` identifier, copies the exact bytes into the case
-file store, hashes those bytes, and records the resulting identity in the
-catalogue and rolling audit chain.
+FACT treats every retained evidential payload as a file. Producers may create
+material in mutable staging, but a payload becomes authoritative only when FACT
+assigns a never-reused ``FILE-######`` identifier, stores its exact bytes in the
+project tree, hashes those bytes, and records the check-in in the catalogue and
+rolling audit chain.
 
-The filesystem and SQLite cannot share a native transaction. FACT therefore
-prepares copies under a private temporary directory, validates every prepared
-copy, and performs the catalogue mutation and final renames as one guarded
-operation. An ordinary failure removes every file created by the attempted
-batch and rolls back the catalogue transaction. Crash recovery is deliberately
-conservative: an unexplained file not represented by the catalogue is not
-silently adopted as evidence.
+Project-scoped files live below ``files/``. Case-scoped files live below
+``cases/CASE-######/files/``. A case is therefore an evidential grouping, not a
+requirement imposed on every file in a project.
 """
 
 from __future__ import annotations
@@ -21,11 +16,15 @@ from __future__ import annotations
 import hashlib
 import shutil
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 from ..errors import ToolkitError
 from .catalogue import _append_event, _utc_now, _write_transaction
+
+T = TypeVar("T")
 
 
 @dataclass(slots=True, frozen=True)
@@ -39,12 +38,34 @@ class FileCandidate:
     description: str | None = None
 
 
+@dataclass(slots=True, frozen=True)
+class FilePayloadCandidate:
+    """Describe already-prepared bytes that should become a committed file."""
+
+    payload: bytes
+    logical_path: str
+    classification: str
+    media_type: str | None = None
+    description: str | None = None
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _normalise_logical_path(value: str) -> str:
+    logical_path = value.strip().replace("\\", "/")
+    if (
+        not logical_path
+        or logical_path.startswith("/")
+        or ".." in Path(logical_path).parts
+    ):
+        raise ToolkitError(f"Unsafe logical file path: {value}")
+    return logical_path
 
 
 def _allocate_file_identifier(connection) -> tuple[str, int]:
@@ -77,144 +98,294 @@ def _allocate_file_identifier(connection) -> tuple[str, int]:
     return identifier, sequence
 
 
-def commit_files(
+def _scope_root(project_root: Path, case_id: str | None) -> Path:
+    return (
+        project_root / "files"
+        if case_id is None
+        else project_root / "cases" / case_id / "files"
+    )
+
+
+def _validate_scope(
+    connection, project_root: Path, case_id: str | None, acquisition_id: str | None
+) -> None:
+    if case_id is not None:
+        case_root = project_root / "cases" / case_id
+        if not case_root.is_dir():
+            raise ToolkitError(f"Unknown FACT case: {case_id}")
+        row = connection.execute(
+            "SELECT state FROM identifiers WHERE identifier = ? AND namespace = 'case'",
+            (case_id,),
+        ).fetchone()
+        if row is None or row["state"] != "active":
+            raise ToolkitError(f"FACT case is not active: {case_id}")
+    if acquisition_id is not None:
+        if case_id is None:
+            raise ToolkitError("An acquisition-scoped file must belong to a case")
+        row = connection.execute(
+            "SELECT state FROM identifiers WHERE identifier = ? AND namespace = 'acquisition'",
+            (acquisition_id,),
+        ).fetchone()
+        if row is None or row["state"] != "active":
+            raise ToolkitError(f"FACT acquisition is not active: {acquisition_id}")
+
+
+def _commit_prepared(
+    connection,
     project_root: Path,
     *,
-    case_id: str,
+    case_id: str | None,
     acquisition_id: str | None,
     actor_id: str,
-    candidates: list[FileCandidate],
-) -> list[dict[str, object]]:
-    """Commit a complete batch of files or leave none of that batch committed.
+    prepared: list[tuple[str, str, str | None, str | None, Path, str, int]],
+) -> tuple[list[dict[str, object]], list[Path]]:
+    """Move prepared bytes into the authoritative tree inside a DB transaction.
 
-    Duplicate content is intentionally not deduplicated. Two captures of the
-    same bytes are two evidential check-ins with different provenance and must
-    therefore receive different permanent file identifiers.
+    The returned directories must be removed by the caller if a later mutation
+    in the same SQLite transaction fails. This is how higher-level operations,
+    such as note creation, make file check-in and their catalogue relationship
+    indivisible in normal failure handling.
     """
 
-    if not candidates:
-        return []
-    project_root = project_root.resolve()
-    case_root = project_root / "cases" / case_id
-    if not case_root.is_dir():
-        raise ToolkitError(f"Unknown FACT case: {case_id}")
+    _validate_scope(connection, project_root, case_id, acquisition_id)
+    created: list[Path] = []
+    committed: list[dict[str, object]] = []
+    destination_root = _scope_root(project_root, case_id)
+    destination_root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    for (
+        logical_path,
+        classification,
+        media_type,
+        description,
+        temporary,
+        sha256,
+        size,
+    ) in prepared:
+        file_id, _ = _allocate_file_identifier(connection)
+        suffix = Path(logical_path).name or "payload"
+        destination_dir = destination_root / file_id
+        destination_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+        destination = destination_dir / suffix
+        temporary.replace(destination)
+        created.append(destination_dir)
+        storage_path = destination.relative_to(project_root).as_posix()
+        event_details = {
+            "case_id": case_id,
+            "acquisition_id": acquisition_id,
+            "actor_id": actor_id,
+            "logical_path": logical_path,
+            "classification": classification,
+            "media_type": media_type,
+            "sha256": sha256,
+            "size_bytes": size,
+            "storage_path": storage_path,
+        }
+        _append_event(connection, "FILE_COMMITTED", "file", file_id, event_details)
+        sequence = connection.execute(
+            "SELECT MAX(event_sequence) FROM audit_events"
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO files(file_id, case_id, acquisition_id, actor_id, logical_path, "
+            "classification, media_type, description, sha256, size_bytes, storage_path, "
+            "committed_sequence, presentation_state) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'presented')",
+            (
+                file_id,
+                case_id,
+                acquisition_id,
+                actor_id,
+                logical_path,
+                classification,
+                media_type,
+                description,
+                sha256,
+                size,
+                storage_path,
+                sequence,
+            ),
+        )
+        committed.append({"file_id": file_id, **event_details})
+    return committed, created
 
-    seen_paths: set[str] = set()
-    prepared: list[tuple[FileCandidate, Path, str, int]] = []
+
+def _prepare_path_candidates(
+    project_root: Path, candidates: list[FileCandidate]
+) -> tuple[Path, list[tuple[str, str, str | None, str | None, Path, str, int]]]:
     transfer_root = (
         project_root / ".fact" / "staging" / f"file-checkin-{uuid.uuid4().hex}"
     )
     transfer_root.mkdir(parents=True, mode=0o700)
-    try:
-        for index, candidate in enumerate(candidates, start=1):
-            source = candidate.path.resolve()
-            if candidate.path.is_symlink() or not source.is_file():
-                raise ToolkitError(
-                    f"File check-in requires a regular file: {candidate.path}"
-                )
-            logical_path = candidate.logical_path.strip().replace("\\", "/")
-            if (
-                not logical_path
-                or logical_path.startswith("/")
-                or ".." in Path(logical_path).parts
-            ):
-                raise ToolkitError(
-                    f"Unsafe logical file path: {candidate.logical_path}"
-                )
-            if logical_path in seen_paths:
-                raise ToolkitError(
-                    f"Duplicate logical file path in check-in batch: {logical_path}"
-                )
-            seen_paths.add(logical_path)
-            temporary = transfer_root / f"{index:08d}.payload"
-            shutil.copyfile(source, temporary)
-            source_hash = _sha256(source)
-            if _sha256(temporary) != source_hash:
-                raise ToolkitError(
-                    f"Prepared file failed byte-for-byte hash validation: {logical_path}"
-                )
-            prepared.append(
-                (candidate, temporary, source_hash, temporary.stat().st_size)
+    seen_paths: set[str] = set()
+    prepared: list[tuple[str, str, str | None, str | None, Path, str, int]] = []
+    for index, candidate in enumerate(candidates, start=1):
+        source = candidate.path.resolve()
+        if candidate.path.is_symlink() or not source.is_file():
+            raise ToolkitError(
+                f"File check-in requires a regular file: {candidate.path}"
             )
+        logical_path = _normalise_logical_path(candidate.logical_path)
+        if logical_path in seen_paths:
+            raise ToolkitError(
+                f"Duplicate logical file path in check-in batch: {logical_path}"
+            )
+        seen_paths.add(logical_path)
+        temporary = transfer_root / f"{index:08d}.payload"
+        shutil.copyfile(source, temporary)
+        source_hash = _sha256(source)
+        if _sha256(temporary) != source_hash:
+            raise ToolkitError(
+                f"Prepared file failed byte-for-byte hash validation: {logical_path}"
+            )
+        prepared.append(
+            (
+                logical_path,
+                candidate.classification,
+                candidate.media_type,
+                candidate.description,
+                temporary,
+                source_hash,
+                temporary.stat().st_size,
+            )
+        )
+    return transfer_root, prepared
 
-        created: list[Path] = []
-        committed: list[dict[str, object]] = []
-        try:
-            with _write_transaction(project_root) as connection:
-                case_identifier = connection.execute(
-                    "SELECT state FROM identifiers WHERE identifier = ? AND namespace = 'case'",
-                    (case_id,),
-                ).fetchone()
-                if case_identifier is None or case_identifier["state"] != "active":
-                    raise ToolkitError(f"FACT case is not active: {case_id}")
-                if acquisition_id is not None:
-                    acquisition = connection.execute(
-                        "SELECT state FROM identifiers WHERE identifier = ? AND namespace = 'acquisition'",
-                        (acquisition_id,),
-                    ).fetchone()
-                    if acquisition is None or acquisition["state"] != "active":
-                        raise ToolkitError(
-                            f"FACT acquisition is not active: {acquisition_id}"
-                        )
 
-                for candidate, temporary, sha256, size in prepared:
-                    file_id, _ = _allocate_file_identifier(connection)
-                    suffix = Path(candidate.logical_path).name or "payload"
-                    destination_dir = case_root / "files" / file_id
-                    destination_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
-                    destination = destination_dir / suffix
-                    temporary.replace(destination)
-                    created.append(destination_dir)
-                    storage_path = destination.relative_to(project_root).as_posix()
-                    event_details = {
-                        "case_id": case_id,
-                        "acquisition_id": acquisition_id,
-                        "actor_id": actor_id,
-                        "logical_path": candidate.logical_path,
-                        "classification": candidate.classification,
-                        "media_type": candidate.media_type,
-                        "sha256": sha256,
-                        "size_bytes": size,
-                        "storage_path": storage_path,
-                    }
-                    _append_event(
-                        connection,
-                        "FILE_COMMITTED",
-                        "file",
-                        file_id,
-                        event_details,
-                    )
-                    sequence = connection.execute(
-                        "SELECT MAX(event_sequence) FROM audit_events"
-                    ).fetchone()[0]
-                    connection.execute(
-                        "INSERT INTO files(file_id, case_id, acquisition_id, actor_id, logical_path, "
-                        "classification, media_type, description, sha256, size_bytes, storage_path, "
-                        "committed_sequence, presentation_state) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'presented')",
-                        (
-                            file_id,
-                            case_id,
-                            acquisition_id,
-                            actor_id,
-                            candidate.logical_path,
-                            candidate.classification,
-                            candidate.media_type,
-                            candidate.description,
-                            sha256,
-                            size,
-                            storage_path,
-                            sequence,
-                        ),
-                    )
-                    committed.append({"file_id": file_id, **event_details})
-        except Exception:
-            for directory in reversed(created):
-                shutil.rmtree(directory, ignore_errors=True)
-            raise
-        return committed
+def _prepare_payload_candidates(
+    project_root: Path, candidates: list[FilePayloadCandidate]
+) -> tuple[Path, list[tuple[str, str, str | None, str | None, Path, str, int]]]:
+    transfer_root = (
+        project_root / ".fact" / "staging" / f"payload-checkin-{uuid.uuid4().hex}"
+    )
+    transfer_root.mkdir(parents=True, mode=0o700)
+    seen_paths: set[str] = set()
+    prepared: list[tuple[str, str, str | None, str | None, Path, str, int]] = []
+    for index, candidate in enumerate(candidates, start=1):
+        logical_path = _normalise_logical_path(candidate.logical_path)
+        if logical_path in seen_paths:
+            raise ToolkitError(
+                f"Duplicate logical file path in check-in batch: {logical_path}"
+            )
+        seen_paths.add(logical_path)
+        temporary = transfer_root / f"{index:08d}.payload"
+        temporary.write_bytes(candidate.payload)
+        temporary.chmod(0o600)
+        digest = hashlib.sha256(candidate.payload).hexdigest()
+        if _sha256(temporary) != digest:
+            raise ToolkitError(
+                f"Prepared payload failed byte-for-byte hash validation: {logical_path}"
+            )
+        prepared.append(
+            (
+                logical_path,
+                candidate.classification,
+                candidate.media_type,
+                candidate.description,
+                temporary,
+                digest,
+                len(candidate.payload),
+            )
+        )
+    return transfer_root, prepared
+
+
+def _commit_with_mutation(
+    project_root: Path,
+    *,
+    case_id: str | None,
+    acquisition_id: str | None,
+    actor_id: str,
+    prepared_root: Path,
+    prepared: list[tuple[str, str, str | None, str | None, Path, str, int]],
+    mutation: Callable[[object, list[dict[str, object]]], T] | None = None,
+) -> tuple[list[dict[str, object]], T | None]:
+    created: list[Path] = []
+    try:
+        with _write_transaction(project_root) as connection:
+            committed, created = _commit_prepared(
+                connection,
+                project_root,
+                case_id=case_id,
+                acquisition_id=acquisition_id,
+                actor_id=actor_id,
+                prepared=prepared,
+            )
+            result = mutation(connection, committed) if mutation is not None else None
+        return committed, result
+    except Exception:
+        for directory in reversed(created):
+            shutil.rmtree(directory, ignore_errors=True)
+        raise
     finally:
-        shutil.rmtree(transfer_root, ignore_errors=True)
+        shutil.rmtree(prepared_root, ignore_errors=True)
+
+
+def commit_files(
+    project_root: Path,
+    *,
+    case_id: str | None,
+    acquisition_id: str | None,
+    actor_id: str,
+    candidates: list[FileCandidate],
+) -> list[dict[str, object]]:
+    """Commit a complete batch of files or leave none of that batch committed."""
+
+    if not candidates:
+        return []
+    project_root = project_root.resolve()
+    transfer_root: Path | None = None
+    try:
+        transfer_root, prepared = _prepare_path_candidates(project_root, candidates)
+        committed, _ = _commit_with_mutation(
+            project_root,
+            case_id=case_id,
+            acquisition_id=acquisition_id,
+            actor_id=actor_id,
+            prepared_root=transfer_root,
+            prepared=prepared,
+        )
+        return committed
+    except Exception:
+        if transfer_root is not None:
+            shutil.rmtree(transfer_root, ignore_errors=True)
+        raise
+
+
+def commit_payload_files(
+    project_root: Path,
+    *,
+    case_id: str | None,
+    acquisition_id: str | None,
+    actor_id: str,
+    candidates: list[FilePayloadCandidate],
+    mutation: Callable[[object, list[dict[str, object]]], T] | None = None,
+) -> tuple[list[dict[str, object]], T | None]:
+    """Commit prepared bytes and an optional related catalogue mutation atomically.
+
+    This specialised path is used when the producer already has the canonical
+    bytes in memory, notably note revisions and encrypted representations. The
+    bytes are staged with restrictive permissions before they enter the final
+    authoritative file tree.
+    """
+
+    if not candidates:
+        return [], None
+    project_root = project_root.resolve()
+    transfer_root: Path | None = None
+    try:
+        transfer_root, prepared = _prepare_payload_candidates(project_root, candidates)
+        return _commit_with_mutation(
+            project_root,
+            case_id=case_id,
+            acquisition_id=acquisition_id,
+            actor_id=actor_id,
+            prepared_root=transfer_root,
+            prepared=prepared,
+            mutation=mutation,
+        )
+    except Exception:
+        if transfer_root is not None:
+            shutil.rmtree(transfer_root, ignore_errors=True)
+        raise
 
 
 def list_files(

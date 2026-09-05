@@ -1,6 +1,6 @@
-# FACT v2.10.0 field validation
+# FACT v2.11.0 field validation
 
-This release establishes individually committed files as FACT's atomic evidential objects and strengthens catalogue verification around immutable file identity, storage paths, sizes and hashes. Field validation should concentrate on file check-in, all-or-nothing multi-file commits, missing or altered payload detection, never-reused file identifiers, richer collector-retained evidence, and regression of the existing authority, acquisition, note and packaging behaviour.
+This release completes the first note convergence onto FACT's everything-as-a-file architecture. Field validation should concentrate on immutable file-backed note revisions, project versus case storage scope, confidential ciphertext persistence, note-to-file relationships, ownership-transfer re-encryption, filtered package disclosure, catalogue sanctity checks, and regression of the existing authority, acquisition and packaging behaviour.
 
 ## Fresh environment
 
@@ -162,14 +162,16 @@ Create a project package and confirm catalogue verification occurs before export
 The release tree should not contain generated `*.egg-info/`, `coverage.xml`, `.coverage`, `__pycache__/`, `.pytest_cache/` or other development output.
 
 
-## Retained notes and confidential transfer
+## File-backed notes and confidential transfer
 
-1. Create a project-visible note and confirm another active contributor can read it. Revise it with a reason and confirm the earlier revision remains readable.
-2. Create a confidential note and confirm the author and current project owner can read it while another active contributor is denied. Inspect the catalogue and confirm the confidential title/body do not appear in the stored payload.
-3. Propose a project ownership transfer to an active contributor and accept it. Confirm all confidential revisions are cycled before ownership changes, the new owner can read them, and the former owner cannot read a note unless they are its author.
-4. Inject or simulate a failure during confidential-note re-encryption. Confirm the ownership transfer remains pending, the old owner remains authoritative, and all live confidential ciphertext remains in its pre-transfer state.
-5. Package the project without changing note disclosure and confirm note payloads are absent from the package catalogue snapshot while note metadata and payload hashes remain. Explicitly include a confidential note and confirm the package still contains ciphertext rather than plaintext.
-6. Remove or alter a committed note/revision in a disposable test project and confirm `fact catalogue verify` reports a sanctity violation rather than repairing or deleting history.
+1. Create a project-visible note with no case association. Inspect the catalogue and project tree. Revision 1 must point to a `FILE-######` row and its bytes must live below `files/FILE-######/`, not inside a note payload BLOB in SQLite. Confirm another active contributor can read it.
+2. Revise the note with a reason. Confirm revision 2 has a different `FILE-######` identity and that the revision 1 file still exists unchanged and remains readable by explicitly selecting revision 1.
+3. Create a case-level note. Its revision file must live below `cases/CASE-######/files/`. If the note is associated with an existing committed file, inspect `file_relationships` and confirm an explicit `note-about` relationship connects the subject file to the note revision file.
+4. Create a confidential note and confirm the author and current project owner can read it while another active contributor is denied. Inspect the corresponding committed revision file directly: the title and body must not appear in plaintext, the file classification must be `confidential-note-revision`, and its SHA-256 must match the `files` table.
+5. Propose a project ownership transfer to an active contributor and accept it. Confirm the previous confidential revision file remains present, a new `FILE-######` cryptographic revision is appended, the note's current revision advances, and ownership changes only after the complete confidential transition succeeds.
+6. Inject or simulate a failure during confidential-note re-encryption. Confirm the ownership transfer remains pending, the old owner remains authoritative, no new authoritative note revision remains committed, and the previous ciphertext file is untouched.
+7. Package the project without changing note disclosure. Confirm withheld note revision bytes are absent from the package while their note IDs, file IDs, hashes and lineage remain represented in the catalogue snapshot. Mark a project note for inclusion and confirm its committed file appears. Mark a confidential note for inclusion and confirm the package contains ciphertext rather than decrypted plaintext.
+8. Alter one note revision file byte and run `fact catalogue verify`. Verification must fail as a committed-file byte change. Restore from the disposable backup, remove the revision file, and confirm verification reports a missing committed file. FACT must not repair either condition by blessing replacement bytes or deleting history.
 
 ## Everything-as-a-file checks
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.11.0 - File-backed Notes
+
+- Moved retained note content onto the ordinary immutable `FILE-######` store; SQLite now retains note lineage and file references rather than note payload BLOBs.
+- Added project-scoped file check-in beneath `files/` so project notes and other future project-level artefacts do not require a synthetic case.
+- Added explicit file association for notes through `note-about` relationships, while case-bound note revisions continue to live in the corresponding case file tree.
+- Changed confidential-note ownership cycling to append new immutable cryptographic revision files while preserving every historical ciphertext representation and hash.
+- Kept project ownership transfer all-or-nothing in normal failure handling by rolling back catalogue state and removing filesystem representations created solely by a failed transfer transaction.
+- Updated note package disclosure so withheld note files are omitted from the filtered package view while their identities, hashes and lineage remain represented in catalogue history.
+- Added the generalised evidence-export and interactive operator/project-local cryptographic-bootstrap programmes to the accepted future-work documentation.
+
 ## 2.10.0 - File Foundations
 
 - Established individually committed files as FACT's atomic evidential objects, with never-reused `FILE-######` identifiers, SHA-256 hashes, provenance, classifications and stable storage paths.

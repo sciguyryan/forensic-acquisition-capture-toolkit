@@ -1,15 +1,22 @@
-"""Retain attributable project notes without weakening evidential sanctity.
+"""Retain attributable notes as ordinary immutable FACT files.
 
-Project notes are readable by authenticated project members. Confidential notes
-are encrypted before they cross the SQLite boundary and are readable only by
-their author and the current project owner. Revisions append history; committed
-note records are never deleted by normal FACT operations.
+A note has a stable ``NOTE-######`` identity, but its content is not a mutable
+SQLite payload. Every semantic or cryptographic revision is a separately
+checked-in ``FILE-######`` object with its own immutable bytes, hash, provenance
+and storage location. The note tables retain only the logical note lineage and
+point each revision at the corresponding committed file.
+
+Project notes are readable by authenticated project members. Confidential note
+revision files contain ciphertext only and are readable by the note author and
+the current project owner. Re-encryption appends another file-backed revision;
+it never rewrites historical ciphertext.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -27,9 +34,17 @@ from .authority import (
     registered_operator_public_key,
     require_registered_operator,
 )
-from .catalogue import _connect, _write_transaction, issue_identifier
+from .catalogue import _append_event, _connect, _write_transaction, issue_identifier
+from .files import (
+    FilePayloadCandidate,
+    _commit_prepared,
+    _prepare_payload_candidates,
+    commit_payload_files,
+)
 
 NOTE_PAYLOAD_SCHEMA = "fact-note-payload/v1"
+NOTE_MEDIA_TYPE = "application/vnd.fact.note+json"
+CONFIDENTIAL_NOTE_MEDIA_TYPE = "application/pgp-encrypted"
 
 
 def _payload(title: str, body: str) -> bytes:
@@ -75,6 +90,88 @@ def _recipient_keys(project_root: Path, author_id: str, owner_id: str) -> list[s
     ]
 
 
+def _revision_candidate(
+    note_id: str,
+    revision: int,
+    stored: bytes,
+    visibility: str,
+) -> FilePayloadCandidate:
+    confidential = visibility == "confidential"
+    suffix = ".json.gpg" if confidential else ".json"
+    return FilePayloadCandidate(
+        stored,
+        f"notes/{note_id}/revision-{revision:06d}{suffix}",
+        "confidential-note-revision" if confidential else "note-revision",
+        CONFIDENTIAL_NOTE_MEDIA_TYPE if confidential else NOTE_MEDIA_TYPE,
+        f"Immutable revision {revision} of {note_id}",
+    )
+
+
+def _read_revision_bytes(
+    connection: sqlite3.Connection,
+    project_root: Path,
+    file_id: str,
+) -> bytes:
+    row = connection.execute(
+        "SELECT sha256, size_bytes, storage_path FROM files WHERE file_id = ?",
+        (file_id,),
+    ).fetchone()
+    if row is None:
+        raise ToolkitError(
+            f"Note revision refers to an unknown committed file: {file_id}"
+        )
+    path = project_root / str(row["storage_path"])
+    if path.is_symlink() or not path.is_file():
+        raise ToolkitError(f"Committed note revision file is missing: {file_id}")
+    stored = path.read_bytes()
+    if len(stored) != int(row["size_bytes"]) or hashlib.sha256(
+        stored
+    ).hexdigest() != str(row["sha256"]):
+        raise ToolkitError(f"Note revision file integrity check failed: {file_id}")
+    return stored
+
+
+def _validate_subject_file(
+    connection: sqlite3.Connection,
+    subject_file_id: str | None,
+    case_id: str | None,
+) -> None:
+    if subject_file_id is None:
+        return
+    row = connection.execute(
+        "SELECT case_id FROM files WHERE file_id = ?", (subject_file_id,)
+    ).fetchone()
+    if row is None:
+        raise ToolkitError(f"Unknown FACT file: {subject_file_id}")
+    subject_case = row["case_id"]
+    if case_id is not None and subject_case not in {None, case_id}:
+        raise ToolkitError("A case note cannot target a file from another case")
+
+
+def _link_note_file(
+    connection: sqlite3.Connection,
+    *,
+    subject_file_id: str | None,
+    revision_file_id: str,
+) -> None:
+    if subject_file_id is None:
+        return
+    _append_event(
+        connection,
+        "FILE_RELATIONSHIP_ADDED",
+        "file",
+        revision_file_id,
+        {"parent_file_id": subject_file_id, "relationship": "note-about"},
+    )
+    sequence = connection.execute(
+        "SELECT MAX(event_sequence) FROM audit_events"
+    ).fetchone()[0]
+    connection.execute(
+        "INSERT INTO file_relationships VALUES (?, ?, 'note-about', ?)",
+        (subject_file_id, revision_file_id, sequence),
+    )
+
+
 def create_note(
     project_root: Path,
     actor: OperatorIdentity,
@@ -83,8 +180,10 @@ def create_note(
     *,
     visibility: str = "project",
     case_id: str | None = None,
+    subject_file_id: str | None = None,
 ) -> str:
-    """Create an immutable first note revision and return its never-reused ID."""
+    """Create a note whose first revision is an ordinary committed FACT file."""
+
     require_registered_operator(project_root, actor)
     if visibility not in {"project", "confidential"}:
         raise ToolkitError("Note visibility must be 'project' or 'confidential'")
@@ -97,17 +196,13 @@ def create_note(
     else:
         stored = raw
     note_id = issue_identifier(project_root, "note", "NOTE")
-    with _write_transaction(project_root) as connection:
+    digest = hashlib.sha256(stored).hexdigest()
+
+    def mutation(connection, committed: list[dict[str, object]]) -> None:
         _require_authority_tables(connection)
-        if case_id is not None:
-            case = connection.execute(
-                "SELECT state FROM identifiers WHERE namespace = 'case' AND identifier = ?",
-                (case_id,),
-            ).fetchone()
-            if case is None:
-                raise ToolkitError(f"Unknown FACT case: {case_id}")
+        _validate_subject_file(connection, subject_file_id, case_id)
+        revision_file_id = str(committed[0]["file_id"])
         key = _key_row(connection, actor.operator_id)
-        digest = hashlib.sha256(stored).hexdigest()
         sequence = _append_signed(
             connection,
             actor=actor,
@@ -118,32 +213,61 @@ def create_note(
                 "visibility": visibility,
                 "author_id": actor.operator_id,
                 "case_id": case_id,
+                "subject_file_id": subject_file_id,
                 "revision": 1,
+                "revision_type": "content",
+                "file_id": revision_file_id,
                 "payload_sha256": digest,
                 "package_disclosure": "withheld",
             },
             verification_key=str(key["public_key"]),
         )
         connection.execute(
-            "INSERT INTO notes VALUES (?, ?, ?, ?, ?, 1, 'withheld')",
-            (note_id, visibility, actor.operator_id, case_id, sequence),
+            "INSERT INTO notes(note_id, visibility, author_id, case_id, subject_file_id, "
+            "created_sequence, latest_revision, package_disclosure) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1, 'withheld')",
+            (
+                note_id,
+                visibility,
+                actor.operator_id,
+                case_id,
+                subject_file_id,
+                sequence,
+            ),
         )
         connection.execute(
-            "INSERT INTO note_revisions VALUES (?, 1, ?, ?, ?, ?, NULL)",
-            (note_id, stored, digest, sequence, actor.operator_id),
+            "INSERT INTO note_revisions(note_id, revision, file_id, revision_type, "
+            "created_sequence, revised_by, reason) VALUES (?, 1, ?, 'content', ?, ?, NULL)",
+            (note_id, revision_file_id, sequence, actor.operator_id),
         )
+        _link_note_file(
+            connection,
+            subject_file_id=subject_file_id,
+            revision_file_id=revision_file_id,
+        )
+
+    commit_payload_files(
+        project_root,
+        case_id=case_id,
+        acquisition_id=None,
+        actor_id=actor.operator_id,
+        candidates=[_revision_candidate(note_id, 1, stored, visibility)],
+        mutation=mutation,
+    )
     return note_id
 
 
 def list_notes(project_root: Path) -> list[dict[str, object]]:
     """List retained note metadata without exposing note bodies."""
+
     connection = _connect(project_root)
     try:
         return [
             dict(row)
             for row in connection.execute(
-                "SELECT note_id, visibility, author_id, case_id, latest_revision, package_disclosure "
-                "FROM notes ORDER BY created_sequence, note_id"
+                "SELECT note_id, visibility, author_id, case_id, subject_file_id, "
+                "latest_revision, package_disclosure FROM notes "
+                "ORDER BY created_sequence, note_id"
             ).fetchall()
         ]
     finally:
@@ -157,7 +281,8 @@ def read_note(
     *,
     revision: int | None = None,
 ) -> dict[str, object]:
-    """Read one note revision subject to project and confidential access rules."""
+    """Read one file-backed note revision subject to its access rules."""
+
     require_registered_operator(project_root, actor)
     connection = _connect(project_root)
     try:
@@ -179,11 +304,7 @@ def read_note(
         ).fetchone()
         if row is None:
             raise ToolkitError(f"Unknown revision {selected} for note {note_id}")
-        if row["payload"] is None:
-            raise ToolkitError("Note content was withheld from this project package")
-        stored = bytes(row["payload"])
-        if hashlib.sha256(stored).hexdigest() != row["payload_sha256"]:
-            raise ToolkitError("Note payload integrity check failed")
+        stored = _read_revision_bytes(connection, project_root, str(row["file_id"]))
         raw = (
             decrypt_confidential_payload(stored)
             if note["visibility"] == "confidential"
@@ -195,7 +316,10 @@ def read_note(
             "visibility": str(note["visibility"]),
             "author_id": str(note["author_id"]),
             "case_id": note["case_id"],
+            "subject_file_id": note["subject_file_id"],
             "revision": selected,
+            "revision_type": str(row["revision_type"]),
+            "file_id": str(row["file_id"]),
             "title": content["title"],
             "body": content["body"],
         }
@@ -211,7 +335,8 @@ def revise_note(
     body: str,
     reason: str,
 ) -> int:
-    """Append a note revision; prior revisions remain permanently retained."""
+    """Append a semantic note revision as another immutable committed file."""
+
     require_registered_operator(project_root, actor)
     if not reason.strip():
         raise ToolkitError("Note revision requires a reason")
@@ -225,8 +350,12 @@ def revise_note(
         if str(note["author_id"]) != actor.operator_id:
             raise ToolkitError("Only the note author may revise a retained note")
         visibility = str(note["visibility"])
+        case_id = note["case_id"]
+        subject_file_id = note["subject_file_id"]
+        revision = int(note["latest_revision"]) + 1
     finally:
         connection.close()
+
     raw = _payload(title.strip(), body)
     if visibility == "confidential":
         owner_id = str(current_owner(project_root)["owner_id"])
@@ -235,14 +364,21 @@ def revise_note(
         )
     else:
         stored = raw
-    with _write_transaction(project_root) as connection:
-        note = connection.execute(
+    digest = hashlib.sha256(stored).hexdigest()
+
+    def mutation(connection, committed: list[dict[str, object]]) -> int:
+        live = connection.execute(
             "SELECT * FROM notes WHERE note_id = ?", (note_id,)
         ).fetchone()
-        if note is None or str(note["author_id"]) != actor.operator_id:
-            raise ToolkitError("Note authority changed while revision was prepared")
-        revision = int(note["latest_revision"]) + 1
-        digest = hashlib.sha256(stored).hexdigest()
+        if (
+            live is None
+            or str(live["author_id"]) != actor.operator_id
+            or int(live["latest_revision"]) + 1 != revision
+        ):
+            raise ToolkitError(
+                "Note authority or revision state changed while revision was prepared"
+            )
+        revision_file_id = str(committed[0]["file_id"])
         key = _key_row(connection, actor.operator_id)
         sequence = _append_signed(
             connection,
@@ -252,18 +388,20 @@ def revise_note(
             object_id=note_id,
             data={
                 "revision": revision,
+                "revision_type": "content",
+                "file_id": revision_file_id,
                 "payload_sha256": digest,
                 "reason": reason.strip(),
             },
             verification_key=str(key["public_key"]),
         )
         connection.execute(
-            "INSERT INTO note_revisions VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO note_revisions(note_id, revision, file_id, revision_type, "
+            "created_sequence, revised_by, reason) VALUES (?, ?, ?, 'content', ?, ?, ?)",
             (
                 note_id,
                 revision,
-                stored,
-                digest,
+                revision_file_id,
                 sequence,
                 actor.operator_id,
                 reason.strip(),
@@ -273,13 +411,33 @@ def revise_note(
             "UPDATE notes SET latest_revision = ? WHERE note_id = ?",
             (revision, note_id),
         )
+        _link_note_file(
+            connection,
+            subject_file_id=subject_file_id,
+            revision_file_id=revision_file_id,
+        )
         return revision
+
+    _, result = commit_payload_files(
+        project_root,
+        case_id=case_id,
+        acquisition_id=None,
+        actor_id=actor.operator_id,
+        candidates=[_revision_candidate(note_id, revision, stored, visibility)],
+        mutation=mutation,
+    )
+    assert result is not None
+    return result
 
 
 def set_note_disclosure(
-    project_root: Path, actor: OperatorIdentity, note_id: str, include: bool
+    project_root: Path,
+    actor: OperatorIdentity,
+    note_id: str,
+    include: bool,
 ) -> None:
     """Set explicit package disclosure policy; only the project owner may disclose."""
+
     require_registered_operator(project_root, actor)
     with _write_transaction(project_root) as connection:
         if _project_owner_id(connection) != actor.operator_id:
@@ -313,32 +471,26 @@ def reencrypt_confidential_notes_for_transfer(
     project_root: Path,
     incoming_owner: OperatorIdentity,
 ) -> dict[str, object]:
-    """Append new immutable ciphertext revisions for an incoming project owner.
+    """Append file-backed cryptographic revisions for an incoming project owner.
 
-    Re-encryption never rewrites historical ciphertext. Each confidential note's
-    current revision is decrypted in process memory and encrypted for the note
-    author and incoming owner. The replacement is appended as a new revision
-    inside the caller's ownership-transfer transaction. Any failure rolls back
-    every new revision and leaves ownership unchanged.
+    All affected note ciphertext is prepared first. Only after every current
+    confidential revision has decrypted, re-encrypted and round-trip validated
+    are the new files moved into the authoritative tree and related note
+    revisions appended to the caller's ownership-transfer transaction.
     """
+
     rows = connection.execute(
-        "SELECT r.note_id, r.revision, r.payload, r.payload_sha256, n.author_id "
-        "FROM note_revisions r JOIN notes n ON n.note_id = r.note_id "
+        "SELECT r.note_id, r.revision, r.file_id, n.author_id, n.case_id, "
+        "n.subject_file_id FROM note_revisions r JOIN notes n ON n.note_id = r.note_id "
         "WHERE n.visibility = 'confidential' AND r.revision = n.latest_revision "
         "ORDER BY r.note_id"
     ).fetchall()
-    new_hashes: list[str] = []
     key = _key_row(connection, incoming_owner.operator_id)
+    staged: list[tuple[sqlite3.Row, bytes, str]] = []
     for row in rows:
-        if row["payload"] is None:
-            raise ToolkitError(
-                "Cannot transfer ownership while confidential note content is withheld"
-            )
-        old_ciphertext = bytes(row["payload"])
-        if hashlib.sha256(old_ciphertext).hexdigest() != str(row["payload_sha256"]):
-            raise ToolkitError(
-                "Confidential note ciphertext failed integrity validation"
-            )
+        old_ciphertext = _read_revision_bytes(
+            connection, project_root, str(row["file_id"])
+        )
         plaintext = decrypt_confidential_payload(old_ciphertext)
         try:
             recipient_ids = tuple(
@@ -363,41 +515,92 @@ def reencrypt_confidential_notes_for_transfer(
                 )
         finally:
             plaintext = b""
-        digest = hashlib.sha256(replacement).hexdigest()
-        revision = int(row["revision"]) + 1
-        reason = "Cryptographic re-encryption following project ownership transfer"
-        sequence = _append_signed(
-            connection,
-            actor=incoming_owner,
-            event_type="NOTE_REENCRYPTED",
-            object_type="note",
-            object_id=str(row["note_id"]),
-            data={
-                "revision": revision,
-                "payload_sha256": digest,
-                "reason": reason,
-            },
-            verification_key=str(key["public_key"]),
-        )
-        connection.execute(
-            "INSERT INTO note_revisions VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                row["note_id"],
-                revision,
-                replacement,
-                digest,
-                sequence,
-                incoming_owner.operator_id,
-                reason,
-            ),
-        )
-        connection.execute(
-            "UPDATE notes SET latest_revision = ? WHERE note_id = ?",
-            (revision, row["note_id"]),
-        )
-        new_hashes.append(f"{row['note_id']}:{revision}:{digest}")
+        staged.append((row, replacement, hashlib.sha256(replacement).hexdigest()))
+
+    created_directories: list[Path] = []
+    transfer_roots: list[Path] = []
+    prepared_revisions = []
+    new_hashes: list[str] = []
+    try:
+        # Prepare every replacement beneath private staging before moving any of
+        # them into the authoritative file tree. This keeps ownership transfer
+        # genuinely all-or-nothing in evidential meaning.
+        for row, replacement, digest in staged:
+            revision = int(row["revision"]) + 1
+            transfer_root, prepared = _prepare_payload_candidates(
+                project_root,
+                [
+                    _revision_candidate(
+                        str(row["note_id"]), revision, replacement, "confidential"
+                    )
+                ],
+            )
+            transfer_roots.append(transfer_root)
+            prepared_revisions.append((row, digest, revision, prepared))
+
+        for row, digest, revision, prepared in prepared_revisions:
+            committed, created = _commit_prepared(
+                connection,
+                project_root,
+                case_id=row["case_id"],
+                acquisition_id=None,
+                actor_id=incoming_owner.operator_id,
+                prepared=prepared,
+            )
+            created_directories.extend(created)
+            revision_file_id = str(committed[0]["file_id"])
+            reason = "Cryptographic re-encryption following project ownership transfer"
+            sequence = _append_signed(
+                connection,
+                actor=incoming_owner,
+                event_type="NOTE_REENCRYPTED",
+                object_type="note",
+                object_id=str(row["note_id"]),
+                data={
+                    "revision": revision,
+                    "revision_type": "cryptographic",
+                    "file_id": revision_file_id,
+                    "payload_sha256": digest,
+                    "reason": reason,
+                },
+                verification_key=str(key["public_key"]),
+            )
+            connection.execute(
+                "INSERT INTO note_revisions(note_id, revision, file_id, revision_type, "
+                "created_sequence, revised_by, reason) "
+                "VALUES (?, ?, ?, 'cryptographic', ?, ?, ?)",
+                (
+                    row["note_id"],
+                    revision,
+                    revision_file_id,
+                    sequence,
+                    incoming_owner.operator_id,
+                    reason,
+                ),
+            )
+            connection.execute(
+                "UPDATE notes SET latest_revision = ? WHERE note_id = ?",
+                (revision, row["note_id"]),
+            )
+            _link_note_file(
+                connection,
+                subject_file_id=row["subject_file_id"],
+                revision_file_id=revision_file_id,
+            )
+            new_hashes.append(
+                f"{row['note_id']}:{revision}:{revision_file_id}:{digest}"
+            )
+    except Exception:
+        for directory in reversed(created_directories):
+            shutil.rmtree(directory, ignore_errors=True)
+        raise
+    finally:
+        for transfer_root in transfer_roots:
+            shutil.rmtree(transfer_root, ignore_errors=True)
+
     aggregate = hashlib.sha256("\n".join(new_hashes).encode("ascii")).hexdigest()
     return {
         "confidential_revision_count": len(rows),
         "confidential_ciphertext_digest": aggregate,
+        "_created_file_directories": created_directories,
     }

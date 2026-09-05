@@ -260,6 +260,8 @@ It cannot make a fully compromised host trustworthy. An attacker who controls th
 
 ## Retained note disclosure
 
-Retained notes are excluded from external project packages by default. Packaging modifies only its consistent catalogue snapshot: withheld note payloads are replaced with `NULL` while their identifiers, authorship, visibility, revision metadata and payload digests remain available to show that retained material was deliberately withheld. The authoritative project catalogue is never rewritten by packaging.
+Retained notes are excluded from external project packages by default. Because each note revision is now an ordinary committed file, packaging does not null a database payload. Instead, the filtered package view omits the revision-file bytes for notes whose disclosure policy is `withheld`, while the catalogue snapshot still retains the note identity, revision lineage, `FILE-######` identity, SHA-256 and provenance showing that the material exists in the authoritative project. The authoritative project catalogue is never rewritten by packaging.
 
-The current project owner may explicitly mark an individual note for inclusion. Project-visible note payloads are then included. Confidential note payloads remain OpenPGP ciphertext and are never decrypted by the packaging path.
+The current project owner may explicitly mark an individual note for inclusion. Project-visible revision files are then included as their committed bytes. Confidential revision files remain encrypted ciphertext and are never decrypted by the packaging path.
+
+A project package is therefore allowed to be physically missing only the exact note revision file IDs that the package disclosure selection deliberately withheld. Package construction verifies the staged tree with that explicit omission set. An unrelated missing committed file still fails verification. This prevents note disclosure filtering from becoming a general mechanism for overlooking damaged or missing evidence.

@@ -21,7 +21,10 @@ collector capture
 explicit artefact registry
         |
         v
-provenance and records
+immutable FILE-###### check-in
+        |
+        v
+provenance, relationships and records
         |
         v
 evidence-set manifest
@@ -47,6 +50,8 @@ src/fact/
 ├── core/
 │   ├── acquisition.py
 │   ├── catalogue.py
+│   ├── files.py
+│   ├── notes.py
 │   ├── packaging.py
 │   ├── project.py
 │   ├── records.py
@@ -111,6 +116,14 @@ A collector is not responsible for:
 - project packaging.
 
 The current built-in registry contains the YouTube collector. The registry is explicit rather than plugin-driven for now. This provides a clean extension point without committing FACT to a third-party plugin security model prematurely.
+
+## Immutable file core
+
+`core/files.py` is the common evidential persistence boundary. A retained byte sequence is committed as a `FILE-######` object with a scope, classification, logical path, SHA-256 digest, size, actor attribution and immutable storage path. Project-scoped files live under `files/`; case-scoped files live under the corresponding case `files/` directory.
+
+This layer is deliberately reusable outside collectors. Retained notes already use it: every content revision and every ownership-transfer re-encryption is a normal committed file. Future encrypted artefacts, review layers, rendered derivatives and export-generated artefacts that are deliberately checked back into FACT should use the same mechanism rather than inventing separate byte stores.
+
+The catalogue may record mutable *current presentation pointers* such as which note revision is current, but it does not rewrite the bytes or hash of a committed representation. A change adds a new file or state-transition event.
 
 ## Artefact registry
 
@@ -199,6 +212,6 @@ Screenshot capture is now implemented through a reusable capability/backend boun
 
 The canonical evidential unit is now the individually committed file. Acquisitions are provenance-bearing events and artefacts are logical classifications or relationships around files. They are not opaque containers that replace file identity. See `EVERYTHING_AS_A_FILE.md` for the normative model and worked examples.
 
-This architecture favours a richer evidence tree. A source collector should preserve useful request, response, metadata, transcript and diagnostic material as files when those bytes form part of what FACT observed. Each committed file is independently hashed and represented in the rolling catalogue history.
+This architecture deliberately favours a richer evidence tree. A source collector should preserve useful request, response, metadata, transcript and diagnostic material as files when those bytes form part of what FACT observed. Each committed file is independently hashed and represented in the rolling catalogue history.
 
 The governing mutation rule is **no change left behind**. Existing authoritative bytes are never edited to express a new fact. New bytes become new files; new meaning becomes a relationship or state transition; and presentation filters never erase committed history.

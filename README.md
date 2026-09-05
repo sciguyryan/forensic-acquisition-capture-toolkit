@@ -136,9 +136,9 @@ Detailed module boundaries, collector responsibilities and artefact-registry rul
 
 ## Everything as a file
 
-FACT treats every retained byte-bearing evidential object as an individually checked-in file. Primary media, screenshots, network request and response material, metadata, transcripts, manifests, verification reports and other retained context receive independent immutable file identities and hashes. Acquisitions organise and explain those files rather than replacing them as the atomic evidential objects.
+FACT treats every retained byte-bearing evidential object as an individually checked-in file. Primary media, screenshots, network request and response material, metadata, transcripts, manifests, verification reports and retained note revisions receive independent immutable file identities and hashes. Acquisitions, notes and later artefact groupings organise and explain those files rather than replacing them as the atomic evidential objects.
 
-Once committed, file bytes and hashes are never rewritten. Later corrections, derivations, retractions and presentation decisions create new records or state transitions while preserving the original history. This is the project's **no change left behind** rule. See `docs/EVERYTHING_AS_A_FILE.md` for the data model, examples, verification behaviour and the planned convergence of notes and encrypted artefacts onto the same machinery.
+Once committed, file bytes and hashes are never rewritten. Later corrections, derivations, cryptographic re-encryption, retractions and presentation decisions create new files, records or state transitions while preserving the original history. This is the project's **no change left behind** rule. See `docs/EVERYTHING_AS_A_FILE.md` for the data model, examples and verification behaviour.
 
 ## Evidence staging
 
@@ -152,9 +152,9 @@ Successful acquisition proceeds through finalisation and evidence-package creati
 
 ## Retained notes
 
-FACT projects can retain attributable notes as part of the project record. Project-visible notes can be read by active authenticated project members, while confidential notes are encrypted before SQLite receives their content and are readable only by their author and the current project owner. Revisions append history rather than silently overwriting prior content.
+FACT projects can retain attributable notes as part of the project record. Every note revision is an ordinary immutable `FILE-######` object. Project-visible notes are stored as canonical note files and can be read by active authenticated project members. Confidential note revision files contain ciphertext only and are readable through FACT only by their author and the current project owner. SQLite retains note lineage, authority and file references rather than a mutable note-body BLOB.
 
-Notes are withheld from external project packages by default. The project owner may explicitly include selected notes; confidential notes remain encrypted even when included. Project ownership transfer cycles confidential-note ciphertext for the author and incoming owner before the authority change is allowed to commit. See `docs/NOTES.md` for the security and failure model.
+Notes are withheld from external project packages by default. Withholding omits their committed revision-file bytes from the filtered package view while retaining their identities and hashes in catalogue history. The project owner may explicitly include selected notes; confidential notes remain encrypted even when included. Project ownership transfer appends new cryptographic revision files for confidential notes before the authority change is allowed to commit. See `docs/NOTES.md` for examples and the security and failure model.
 
 ## Evidence packages
 

@@ -34,7 +34,7 @@ Once FACT issues an identifier, that identifier is permanently consumed within t
 
 Retiring or deleting the object associated with an identifier must never make the identifier available again. Failed later work must likewise not rewind the counter. Gaps in the sequence are therefore legitimate and meaningful.
 
-Case and acquisition identifiers use six decimal digits, for example `CASE-000001` and `ACQ-000001`. Notes and individually committed files use the same monotonic pattern, for example `NOTE-000001` and `FILE-000001`.
+Case identifiers use six decimal digits, for example `CASE-000001`. Individually committed files use the same monotonic pattern, for example `FILE-000001`.
 
 Allocation uses a SQLite `BEGIN IMMEDIATE` transaction. This serialises concurrent writers before the current sequence is read and advanced, preventing two FACT processes from being issued the same identifier.
 

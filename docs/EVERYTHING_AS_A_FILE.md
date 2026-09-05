@@ -117,7 +117,7 @@ A confidential revision is hashed over its stored encrypted representation. Re-e
 
 A note may be retracted from the presented record, but neither its identity nor any committed revision disappears from the authoritative history. Full-record export can include the complete lineage, while a presented-record export may omit material currently marked retracted. The latter must identify itself as a filtered presentation rather than as the complete record.
 
-The current note subsystem predates the unified file store and is being converged onto the same file-backed machinery. Until that convergence is complete, its append-only note identity and revision semantics remain mandatory and must not be weakened by compatibility work.
+This convergence is now implemented. Every note revision is an ordinary committed `FILE-######` object. Project notes live in the project file store, case notes live in the corresponding case file store, and a note about another file is connected through an explicit `note-about` relationship. The note tables retain logical lineage and authority state rather than duplicating mutable payload bytes in SQLite.
 
 ## Encrypted artefacts
 
@@ -125,7 +125,7 @@ Encrypted artefacts are a planned extension of the same model rather than a sepa
 
 Ownership transfer must be all or nothing for encrypted material. FACT must successfully decrypt, re-encrypt, validate and stage every affected confidential note representation and encrypted artefact before the new ownership state is committed. No partial transfer may become authoritative.
 
-Large encrypted files may require chunked or streaming authenticated encryption so that confidentiality does not require loading an entire artefact into memory. That cryptographic design is intentionally deferred until the ordinary immutable file model is established.
+Large encrypted files may require chunked or streaming authenticated encryption so that confidentiality does not require loading an entire artefact into memory. That cryptographic design is deferred to a dedicated future phase so it can be introduced without weakening the established immutable file model.
 
 ## What this model does and does not prove
 

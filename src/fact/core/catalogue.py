@@ -17,7 +17,7 @@ from ..identity import verify_operator_payload
 from ..keys import fingerprint, prepare_gnupg, sign
 from ..services.commands import run
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 GENESIS_HASH = "0" * 64
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
@@ -80,11 +80,11 @@ def _state_digest(connection: sqlite3.Connection) -> str:
             "FROM record_authority ORDER BY submitted_sequence, object_type, object_id"
         ),
         "notes": (
-            "SELECT note_id, visibility, author_id, case_id, created_sequence, latest_revision, "
-            "package_disclosure FROM notes ORDER BY note_id"
+            "SELECT note_id, visibility, author_id, case_id, subject_file_id, created_sequence, "
+            "latest_revision, package_disclosure FROM notes ORDER BY note_id"
         ),
         "note_revisions": (
-            "SELECT note_id, revision, payload_sha256, created_sequence, revised_by, reason "
+            "SELECT note_id, revision, file_id, revision_type, created_sequence, revised_by, reason "
             "FROM note_revisions ORDER BY note_id, revision"
         ),
         "files": (
@@ -226,7 +226,7 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
             );
             CREATE TABLE files (
                 file_id TEXT PRIMARY KEY,
-                case_id TEXT NOT NULL,
+                case_id TEXT,
                 acquisition_id TEXT,
                 actor_id TEXT NOT NULL,
                 logical_path TEXT NOT NULL,
@@ -255,22 +255,25 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 visibility TEXT NOT NULL CHECK(visibility IN ('project', 'confidential')),
                 author_id TEXT NOT NULL,
                 case_id TEXT,
+                subject_file_id TEXT,
                 created_sequence INTEGER NOT NULL,
                 latest_revision INTEGER NOT NULL CHECK(latest_revision > 0),
                 package_disclosure TEXT NOT NULL DEFAULT 'withheld'
                     CHECK(package_disclosure IN ('withheld', 'include')),
-                FOREIGN KEY(author_id) REFERENCES operators(operator_id)
+                FOREIGN KEY(author_id) REFERENCES operators(operator_id),
+                FOREIGN KEY(subject_file_id) REFERENCES files(file_id)
             );
             CREATE TABLE note_revisions (
                 note_id TEXT NOT NULL,
                 revision INTEGER NOT NULL CHECK(revision > 0),
-                payload BLOB,
-                payload_sha256 TEXT NOT NULL,
+                file_id TEXT NOT NULL UNIQUE,
+                revision_type TEXT NOT NULL CHECK(revision_type IN ('content', 'cryptographic')),
                 created_sequence INTEGER NOT NULL,
                 revised_by TEXT NOT NULL,
                 reason TEXT,
                 PRIMARY KEY(note_id, revision),
                 FOREIGN KEY(note_id) REFERENCES notes(note_id),
+                FOREIGN KEY(file_id) REFERENCES files(file_id),
                 FOREIGN KEY(revised_by) REFERENCES operators(operator_id)
             );
             """
@@ -840,17 +843,17 @@ def _verify_authority_state(
 def _verify_note_sanctity(
     connection: sqlite3.Connection, rows: list[sqlite3.Row]
 ) -> None:
-    """Detect missing or altered committed note records without deleting history."""
+    """Verify immutable note identities and their file-backed revision lineage."""
     tables = {
         str(row[0])
         for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         )
     }
-    if not {"notes", "note_revisions"}.issubset(tables):
+    if not {"notes", "note_revisions", "files"}.issubset(tables):
         return
     created: dict[str, dict[str, object]] = {}
-    revisions: set[tuple[str, int]] = set()
+    revision_events: dict[tuple[str, int], dict[str, object]] = {}
     latest: dict[str, int] = {}
     disclosure: dict[str, str] = {}
     for row in rows:
@@ -877,37 +880,41 @@ def _verify_note_sanctity(
             disclosure[note_id] = str(data["package_disclosure"])
             continue
         revision = int(data["revision"])
-        revisions.add((note_id, revision))
+        revision_events[(note_id, revision)] = data
         latest[note_id] = revision
         if row["event_type"] == "NOTE_CREATED":
             created[note_id] = data
             disclosure[note_id] = str(data["package_disclosure"])
         elif note_id not in created:
             raise ToolkitError("Note revision precedes note creation")
+
     live_notes = {
         str(row["note_id"]): dict(row)
         for row in connection.execute(
-            "SELECT note_id, visibility, author_id, case_id, created_sequence, "
-            "latest_revision, package_disclosure FROM notes"
+            "SELECT note_id, visibility, author_id, case_id, subject_file_id, "
+            "created_sequence, latest_revision, package_disclosure FROM notes"
         ).fetchall()
     }
     if set(live_notes) != set(created):
         raise ToolkitError(
             "Committed note tree does not match its signed creation history"
         )
+
     live_revisions = {
-        (str(row["note_id"]), int(row["revision"]))
+        (str(row["note_id"]), int(row["revision"])): dict(row)
         for row in connection.execute(
-            "SELECT note_id, revision FROM note_revisions"
+            "SELECT note_id, revision, file_id, revision_type, created_sequence, "
+            "revised_by, reason FROM note_revisions"
         ).fetchall()
     }
-    if live_revisions != revisions:
+    if set(live_revisions) != set(revision_events):
         raise ToolkitError(
             "Committed note revision tree does not match its signed history"
         )
+
     for note_id, data in created.items():
         live = live_notes[note_id]
-        for field in ("visibility", "author_id", "case_id"):
+        for field in ("visibility", "author_id", "case_id", "subject_file_id"):
             if live[field] != data.get(field):
                 raise ToolkitError(f"Committed note metadata was altered: {note_id}")
         if int(live["latest_revision"]) != latest[note_id]:
@@ -918,24 +925,52 @@ def _verify_note_sanctity(
             raise ToolkitError(
                 f"Committed note disclosure state was altered: {note_id}"
             )
-    for row in connection.execute(
-        "SELECT note_id, revision, payload, payload_sha256 FROM note_revisions"
-    ):
-        if (
-            row["payload"] is not None
-            and hashlib.sha256(bytes(row["payload"])).hexdigest()
-            != row["payload_sha256"]
-        ):
+
+    file_rows = {
+        str(row["file_id"]): dict(row)
+        for row in connection.execute(
+            "SELECT file_id, classification, sha256 FROM files"
+        ).fetchall()
+    }
+    for key, live in live_revisions.items():
+        data = revision_events[key]
+        file_id = str(live["file_id"])
+        if file_id != str(data.get("file_id")):
             raise ToolkitError(
-                f"Note payload integrity check failed: {row['note_id']} "
-                f"revision {row['revision']}"
+                f"Committed note revision file pointer was altered: {key[0]}"
+            )
+        if str(live["revision_type"]) != str(data.get("revision_type")):
+            raise ToolkitError(f"Committed note revision type was altered: {key[0]}")
+        file_row = file_rows.get(file_id)
+        if file_row is None:
+            raise ToolkitError(
+                f"Committed note revision file is missing from catalogue: {file_id}"
+            )
+        if str(file_row["sha256"]) != str(data.get("payload_sha256")):
+            raise ToolkitError(
+                f"Note revision hash differs from its signed history: {file_id}"
+            )
+        visibility = str(live_notes[key[0]]["visibility"])
+        expected_classification = (
+            "confidential-note-revision"
+            if visibility == "confidential"
+            else "note-revision"
+        )
+        if str(file_row["classification"]) != expected_classification:
+            raise ToolkitError(
+                f"Note revision file classification was altered: {file_id}"
             )
 
 
 def _verify_file_sanctity(
-    connection: sqlite3.Connection, project_root: Path, rows: list[sqlite3.Row]
+    connection: sqlite3.Connection,
+    project_root: Path,
+    rows: list[sqlite3.Row],
+    *,
+    permitted_missing_file_ids: set[str] | None = None,
 ) -> None:
     """Verify every committed file still exists with exactly its committed bytes."""
+    permitted_missing_file_ids = permitted_missing_file_ids or set()
     committed_events: dict[str, dict[str, object]] = {}
     presentation: dict[str, str] = {}
     relationships: set[tuple[str, str, str, int]] = set()
@@ -976,7 +1011,7 @@ def _verify_file_sanctity(
         if details is None:
             raise ToolkitError(f"Committed file has no audit event: {file_id}")
         expected = {
-            "case_id": str(row["case_id"]),
+            "case_id": row["case_id"],
             "acquisition_id": row["acquisition_id"],
             "actor_id": str(row["actor_id"]),
             "logical_path": str(row["logical_path"]),
@@ -996,6 +1031,8 @@ def _verify_file_sanctity(
             )
         path = project_root / str(row["storage_path"])
         if path.is_symlink() or not path.is_file():
+            if file_id in permitted_missing_file_ids:
+                continue
             raise ToolkitError(
                 f"Committed file is missing from the authoritative tree: {file_id}"
             )
@@ -1015,15 +1052,22 @@ def _verify_file_sanctity(
             int(row["created_sequence"]),
         )
         for row in connection.execute(
-            "SELECT parent_file_id, child_file_id, relationship, created_sequence FROM file_relationships"
+            "SELECT parent_file_id, child_file_id, relationship, created_sequence "
+            "FROM file_relationships"
         ).fetchall()
     }
     if live_relationships != relationships:
         raise ToolkitError("File relationships do not match their audit history")
 
 
-def verify_chain(project_root: Path) -> dict[str, object]:
-    """Verify the complete audit chain and current-state consistency."""
+def verify_chain(
+    project_root: Path, *, permitted_missing_file_ids: set[str] | None = None
+) -> dict[str, object]:
+    """Verify the complete audit chain and current-state consistency.
+
+    ``permitted_missing_file_ids`` is reserved for constructing explicitly
+    filtered package views. Normal project verification must leave it unset.
+    """
     connection = _connect(project_root)
     try:
         rows = connection.execute(
@@ -1095,7 +1139,12 @@ def verify_chain(project_root: Path) -> dict[str, object]:
 
         _verify_authority_state(connection, rows)
         _verify_note_sanctity(connection, rows)
-        _verify_file_sanctity(connection, project_root, rows)
+        _verify_file_sanctity(
+            connection,
+            project_root,
+            rows,
+            permitted_missing_file_ids=permitted_missing_file_ids,
+        )
 
         for counter in connection.execute(
             "SELECT namespace, next_sequence FROM counters"

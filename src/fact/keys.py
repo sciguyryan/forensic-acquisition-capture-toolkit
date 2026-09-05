@@ -320,7 +320,7 @@ def export_keypair(
         datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     )
     readme_path.write_text(
-        "YOUTUBE FORENSIC TOOLKIT — EVIDENCE KEY BACKUP\n"
+        "FACT - EVIDENCE KEY BACKUP\n"
         "================================================\n\n"
         "SECURITY WARNING\n"
         "----------------\n"

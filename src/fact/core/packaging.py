@@ -157,8 +157,8 @@ def _copy_sealed_acquisitions(project_root: Path, destination: Path) -> None:
             shutil.copy2(item, destination / item.name)
 
 
-def _copy_project_state(project_root: Path, staging: Path) -> None:
-    """Copy only the project artefacts that belong in a FACT package."""
+def _copy_project_state(project_root: Path, staging: Path) -> list[dict[str, str]]:
+    """Copy packageable project state and omit explicitly withheld note files."""
     shutil.copy2(project_root / PROJECT_NAME, staging / PROJECT_NAME)
 
     source_fact = project_root / CATALOGUE_DIR
@@ -168,7 +168,6 @@ def _copy_project_state(project_root: Path, staging: Path) -> None:
         source_fact / CATALOGUE_NAME,
         destination_fact / CATALOGUE_NAME,
     )
-    _apply_note_disclosure(destination_fact / CATALOGUE_NAME)
     for name in ("catalogue-checkpoint.json", "catalogue-checkpoint.json.asc"):
         source = source_fact / name
         if source.exists():
@@ -176,19 +175,25 @@ def _copy_project_state(project_root: Path, staging: Path) -> None:
                 raise ToolkitError(f"Invalid catalogue checkpoint artefact: {source}")
             shutil.copy2(source, destination_fact / name)
 
+    _copy_tree(project_root / "files", staging / "files")
     _copy_tree(project_root / "cases", staging / "cases")
     _copy_sealed_acquisitions(project_root, staging / "archived")
+    return _apply_note_disclosure(destination_fact / CATALOGUE_NAME, staging)
 
 
-def _apply_note_disclosure(snapshot: Path) -> None:
-    """Remove withheld note payloads from a package catalogue snapshot.
+def _apply_note_disclosure(
+    snapshot: Path, package_root: Path | None = None
+) -> list[dict[str, str]]:
+    """Identify and optionally remove withheld note revision files from a package.
 
-    The authoritative project catalogue is untouched. Payload hashes and note
-    metadata remain so the package records that a retained note existed without
-    disclosing its contents. Confidential notes that are explicitly included
-    remain ciphertext; packaging never decrypts them.
+    Note history remains present in the catalogue, including each immutable file
+    identifier and digest. A filtered package simply omits the selected payload
+    bytes. This is presentation filtering, not deletion from the authoritative
+    project record. Confidential notes that are explicitly included remain
+    ciphertext; packaging never decrypts them.
     """
     connection = sqlite3.connect(snapshot)
+    connection.row_factory = sqlite3.Row
     try:
         tables = {
             row[0]
@@ -196,14 +201,45 @@ def _apply_note_disclosure(snapshot: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
-        if {"notes", "note_revisions"}.issubset(tables):
-            connection.execute(
-                "UPDATE note_revisions SET payload = NULL WHERE note_id IN ("
-                "SELECT note_id FROM notes WHERE package_disclosure = 'withheld')"
-            )
-            connection.commit()
+        if not {"notes", "note_revisions", "files"}.issubset(tables):
+            return []
+        rows = connection.execute(
+            "SELECT r.note_id, r.file_id, f.storage_path "
+            "FROM note_revisions r "
+            "JOIN notes n ON n.note_id = r.note_id "
+            "JOIN files f ON f.file_id = r.file_id "
+            "WHERE n.package_disclosure = 'withheld' "
+            "ORDER BY r.note_id, r.revision"
+        ).fetchall()
+        withheld = [
+            {
+                "note_id": str(row["note_id"]),
+                "file_id": str(row["file_id"]),
+                "storage_path": str(row["storage_path"]),
+            }
+            for row in rows
+        ]
     finally:
         connection.close()
+
+    if package_root is not None:
+        package_root = package_root.resolve()
+        for item in withheld:
+            payload = (package_root / item["storage_path"]).resolve()
+            try:
+                payload.relative_to(package_root)
+            except ValueError as exc:
+                raise ToolkitError(
+                    "Withheld note file has an unsafe storage path"
+                ) from exc
+            if payload.exists():
+                if payload.is_symlink() or not payload.is_file():
+                    raise ToolkitError(f"Invalid withheld note payload path: {payload}")
+                payload.unlink()
+                parent = payload.parent
+                if parent != package_root and not any(parent.iterdir()):
+                    parent.rmdir()
+    return withheld
 
 
 def _export_public_key(gnupg_home: Path, fpr: str) -> str:
@@ -467,18 +503,17 @@ def create_project_package(
         with tempfile.TemporaryDirectory(prefix="fact-package-build-") as temporary:
             staging = Path(temporary) / project_id
             staging.mkdir(mode=0o700)
-            _copy_project_state(project_root, staging)
+            withheld_note_files = _copy_project_state(project_root, staging)
 
-            # Verify the actual SQLite snapshot that will be packaged, rather than
-            # assuming it still matches the live database verified above.
-            snapshot_root = Path(temporary) / "snapshot-check"
-            snapshot_root.mkdir()
-            (snapshot_root / CATALOGUE_DIR).mkdir()
-            shutil.copy2(
-                staging / CATALOGUE_DIR / CATALOGUE_NAME,
-                snapshot_root / CATALOGUE_DIR / CATALOGUE_NAME,
+            # Verify the exact staged package view. Withheld note files are an
+            # explicit presentation filter, so only those recorded file IDs may
+            # be absent from this otherwise complete immutable file tree.
+            snapshot_verified = verify_chain(
+                staging,
+                permitted_missing_file_ids={
+                    item["file_id"] for item in withheld_note_files
+                },
             )
-            snapshot_verified = verify_chain(snapshot_root)
             if snapshot_verified != verified:
                 raise ToolkitError(
                     "Catalogue changed while the project package was being prepared"
@@ -499,7 +534,16 @@ def create_project_package(
                 "catalogue_checkpoint_status": checkpoint_status,
                 "signing_key_fingerprint": fpr,
                 "state_timestamp": verified["last_event_at"],
-                "included_roots": [PROJECT_NAME, CATALOGUE_DIR, "cases", "archived"],
+                "included_roots": [
+                    PROJECT_NAME,
+                    CATALOGUE_DIR,
+                    "files",
+                    "cases",
+                    "archived",
+                ],
+                "withheld_note_file_ids": [
+                    item["file_id"] for item in withheld_note_files
+                ],
             }
             (metadata / PACKAGE_DESCRIPTOR).write_text(
                 json.dumps(descriptor, indent=2, sort_keys=True) + "\n",

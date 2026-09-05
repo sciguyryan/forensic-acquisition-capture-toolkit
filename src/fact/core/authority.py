@@ -12,6 +12,7 @@ Private keys, passphrases and GnuPG agent state remain outside the project.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import sqlite3
 import uuid
 from dataclasses import asdict, dataclass
@@ -752,68 +753,81 @@ def accept_ownership_transfer(
     scope_type: str = "project",
     scope_id: str | None = None,
 ) -> str:
-    """Accept responsibility using the incoming owner's registered signing key."""
-    with _write_transaction(project_root) as connection:
-        _require_authority_tables(connection)
-        transfer = _pending_transfer(
-            connection,
-            actor.operator_id,
-            scope_type=scope_type,
-            scope_id=scope_id,
-            as_owner=False,
-        )
-        key = _key_row(connection, actor.operator_id)
-        confidential_transition: dict[str, object] = {}
-        if transfer["scope_type"] == "project":
-            # Confidential-note cycling is deliberately the first stateful step
-            # after acceptance. It stages ciphertext only and must succeed in
-            # full before any ownership flags or audit state are changed.
-            from .notes import reencrypt_confidential_notes_for_transfer
-
-            confidential_transition = reencrypt_confidential_notes_for_transfer(
-                connection, project_root, actor
-            )
-        sequence = _append_signed(
-            connection,
-            actor=actor,
-            event_type="OWNERSHIP_TRANSFER_ACCEPTED",
-            object_type=str(transfer["scope_type"]),
-            object_id=str(transfer["scope_id"]),
-            data={
-                "transfer_id": str(transfer["transfer_id"]),
-                "from_operator_id": str(transfer["from_operator_id"]),
-                "to_operator_id": actor.operator_id,
-                **confidential_transition,
-            },
-            verification_key=str(key["public_key"]),
-        )
-        connection.execute(
-            "UPDATE ownership_transfers SET state = 'accepted', resolved_sequence = ? "
-            "WHERE transfer_id = ?",
-            (sequence, transfer["transfer_id"]),
-        )
-        connection.execute(
-            "UPDATE ownership SET owner_id = ?, effective_from_sequence = ? "
-            "WHERE scope_type = ? AND scope_id = ?",
-            (
+    """Accept responsibility only after confidential material transitions in full."""
+    created_file_directories: list[Path] = []
+    try:
+        with _write_transaction(project_root) as connection:
+            _require_authority_tables(connection)
+            transfer = _pending_transfer(
+                connection,
                 actor.operator_id,
-                sequence,
-                transfer["scope_type"],
-                transfer["scope_id"],
-            ),
-        )
-        if transfer["scope_type"] == "project":
-            connection.execute(
-                "UPDATE project_memberships SET membership_role = 'contributor' "
-                "WHERE operator_id = ?",
-                (transfer["from_operator_id"],),
+                scope_type=scope_type,
+                scope_id=scope_id,
+                as_owner=False,
+            )
+            key = _key_row(connection, actor.operator_id)
+            confidential_transition: dict[str, object] = {}
+            if transfer["scope_type"] == "project":
+                # Every confidential representation must be prepared and committed
+                # inside the same authority transaction. The helper returns the
+                # created filesystem directories so an outer transaction failure
+                # can remove material that never became authoritative.
+                from .notes import reencrypt_confidential_notes_for_transfer
+
+                confidential_transition = reencrypt_confidential_notes_for_transfer(
+                    connection, project_root, actor
+                )
+                created_file_directories = list(
+                    confidential_transition.pop("_created_file_directories", [])
+                )
+            sequence = _append_signed(
+                connection,
+                actor=actor,
+                event_type="OWNERSHIP_TRANSFER_ACCEPTED",
+                object_type=str(transfer["scope_type"]),
+                object_id=str(transfer["scope_id"]),
+                data={
+                    "transfer_id": str(transfer["transfer_id"]),
+                    "from_operator_id": str(transfer["from_operator_id"]),
+                    "to_operator_id": actor.operator_id,
+                    **confidential_transition,
+                },
+                verification_key=str(key["public_key"]),
             )
             connection.execute(
-                "UPDATE project_memberships SET membership_role = 'owner', state = 'active' "
-                "WHERE operator_id = ?",
-                (actor.operator_id,),
+                "UPDATE ownership_transfers SET state = 'accepted', resolved_sequence = ? "
+                "WHERE transfer_id = ?",
+                (sequence, transfer["transfer_id"]),
             )
-        return str(transfer["transfer_id"])
+            connection.execute(
+                "UPDATE ownership SET owner_id = ?, effective_from_sequence = ? "
+                "WHERE scope_type = ? AND scope_id = ?",
+                (
+                    actor.operator_id,
+                    sequence,
+                    transfer["scope_type"],
+                    transfer["scope_id"],
+                ),
+            )
+            if transfer["scope_type"] == "project":
+                connection.execute(
+                    "UPDATE project_memberships SET membership_role = 'contributor' "
+                    "WHERE operator_id = ?",
+                    (transfer["from_operator_id"],),
+                )
+                connection.execute(
+                    "UPDATE project_memberships SET membership_role = 'owner', state = 'active' "
+                    "WHERE operator_id = ?",
+                    (actor.operator_id,),
+                )
+            transfer_id = str(transfer["transfer_id"])
+        return transfer_id
+    except Exception:
+        # SQLite has already rolled back at this point. Remove only filesystem
+        # objects created by this uncommitted transfer; historical files remain.
+        for directory in reversed(created_file_directories):
+            shutil.rmtree(directory, ignore_errors=True)
+        raise
 
 
 def reject_ownership_transfer(
