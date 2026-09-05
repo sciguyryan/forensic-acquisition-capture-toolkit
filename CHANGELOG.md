@@ -1,6 +1,17 @@
 # Changelog
 
-## 2.8.0
+## 2.9.0 - Notes and Confidentiality
+
+- Added retained project and confidential notes with never-reused note identifiers and append-only revision history.
+- Added confidential-note encryption before the SQLite boundary so persistent project state receives ciphertext only.
+- Restricted confidential-note plaintext to its author and the current project owner while retaining project-visible note metadata.
+- Integrated confidential-note recipient cycling into project ownership acceptance before ownership flags change, with ciphertext-only temporary staging, cardinality checks and complete transaction rollback on failure.
+- Added note sanctity verification for missing committed records, missing revisions, altered metadata, altered revision pointers, disclosure-state changes and payload digest mismatches.
+- Added package disclosure controls that withhold note payloads by default while retaining note existence and payload digests in package catalogue snapshots.
+- Bumped the current FACT project schema boundary to version 3; active projects created under earlier trust/schema versions remain with the FACT version that created them rather than being migrated in place.
+- Added confidential-persistence boundary tests that reject plaintext crossing into SQLite parameters and scan project/package artefacts, failure logs and GnuPG invocation paths for sentinel plaintext.
+
+## 2.8.0 - Clean Authority Architecture
 
 - Added project-retained operator identity, public signing-key records, contributor membership, project and case ownership, ownership transfers, and evidential approval state to the tamper-evident catalogue.
 - Added signed authority transactions bound to the rolling catalogue chain and exact historical operator signing fingerprint.
@@ -13,14 +24,14 @@
 - Preserved already sealed evidence as an active acquisition if later authority recording fails instead of falsely marking the sealed acquisition as failed.
 - Removed obsolete local operator-profile/configuration paths, legacy FACT compatibility import wrappers, and in-place catalogue migration behaviour that no longer matches the current trust model.
 
-## 2.7.1
+## 2.7.1 - Ruff Repair
 
 - Repair repository-wide Ruff 0.16.6 lint failures exposed by the GitHub runner.
 - Normalise import ordering in canonical and compatibility modules and tests.
 - Apply selected modern typing and simplification rules without weakening the lint configuration.
 - Preserve the completed interactive-shell behaviour from 2.7.0.
 
-## 2.7.0
+## 2.7.0 - Interactive Shell Completion
 
 - Completed the interactive shell foundation with explicit command help, safe local history, tab completion, and validated project-ID selection.
 - Added a local non-evidential project registry that revalidates project records and refuses ambiguous duplicate IDs.
@@ -104,6 +115,11 @@
 - Added `operator_source` and `operator_username` to case records, and mirrored runtime identity and hostname in `TOOLKIT.json`.
 - Added operator identity to the acquisition log, acquisition summary, and `acquisition.txt`.
 - Added regression tests for precedence, fallback, configuration permissions, and CLI parsing.
+- Added interactive `init` wizard for name, stable ID, organisation, role, public contact, and system-keyring signing-key selection.
+- Added full primary/signing-subkey fingerprint validation and optional test signing.
+- Added active-profile digest pinning in `config.json` and per-acquisition `--identity-file` override.
+- Added operator identity/public-key snapshots and mandatory personal detached archive signatures.
+- Extended verification to validate the operator signature and exact signing fingerprint.
 
 ## 2.0.0-rc7
 
@@ -112,7 +128,19 @@
 - Retained exact unmodified command output in the existing dedicated report files.
 - Added finalization-stage log messages and regression tests for transcript capture.
 
-# Changelog
+## 2.0.0-rc5
+
+- Verification summaries now size the label column dynamically so every detail value remains aligned, including long document names.
+- Added a regression test for summary-column alignment.
+
+## 2.0.0-rc4
+
+- Prepare and validate the dedicated GnuPG environment before first-run key generation.
+- Detect a controlling terminal and configure an available pinentry helper automatically.
+- Reload and launch `gpg-agent`, then require a reported agent socket before invoking key generation.
+- Preserve existing evidence keys without requiring pinentry during the inspection phase.
+- Improve actionable errors for missing terminal, pinentry, agent, or socket initialization.
+- Document public-key export, protected secret-key backup, ownertrust export, and restoration into a fresh dedicated keyring.
 
 ## 2.0.0-rc3
 
@@ -121,8 +149,6 @@
 - Documented the fish `activate.fish` requirement.
 - Added distro-specific guidance for installing `venv` and `pip`.
 - Clarified that runtime execution has no third-party Python package dependencies.
-
-# Changelog
 
 ## 2.0.0-rc2 - 2026-07-19
 
@@ -143,25 +169,3 @@
 - Retained dedicated passphrase-protected RSA-4096 GPG signing keys.
 - Retained best-effort, separately reported live-chat acquisition.
 - Added automated tests for transient-state exclusion, Unicode paths, case records, CLI requirements, and archive path safety.
-
-## 2.0.0-rc5
-
-- Verification summaries now size the label column dynamically so every detail value remains aligned, including long document names.
-- Added a regression test for summary-column alignment.
-
-## 2.0.0-rc4
-
-- Prepare and validate the dedicated GnuPG environment before first-run key generation.
-- Detect a controlling terminal and configure an available pinentry helper automatically.
-- Reload and launch `gpg-agent`, then require a reported agent socket before invoking key generation.
-- Preserve existing evidence keys without requiring pinentry during the inspection phase.
-- Improve actionable errors for missing terminal, pinentry, agent, or socket initialization.
-- Document public-key export, protected secret-key backup, ownertrust export, and restoration into a fresh dedicated keyring.
-
-## 2.0.0-rc9
-
-- Added interactive `init` wizard for name, stable ID, organisation, role, public contact, and system-keyring signing-key selection.
-- Added full primary/signing-subkey fingerprint validation and optional test signing.
-- Added active-profile digest pinning in `config.json` and per-acquisition `--identity-file` override.
-- Added operator identity/public-key snapshots and mandatory personal detached archive signatures.
-- Extended verification to validate the operator signature and exact signing fingerprint.

@@ -48,6 +48,13 @@ from .core.context import (
     selected_case_path,
     set_selected_case,
 )
+from .core.notes import (
+    create_note,
+    list_notes,
+    read_note,
+    revise_note,
+    set_note_disclosure,
+)
 from .core.orchestration import run_collector_acquisition
 from .core.packaging import create_project_package
 from .core.project import (
@@ -214,6 +221,28 @@ def parser() -> argparse.ArgumentParser:
     record_reject = record_commands.add_parser("reject")
     record_reject.add_argument("acquisition_id")
     record_reject.add_argument("--reason", required=True)
+
+    note_parser = subcommands.add_parser("note")
+    note_commands = note_parser.add_subparsers(dest="note_command", required=True)
+    note_create = note_commands.add_parser("create")
+    note_create.add_argument("--title", default="")
+    note_create.add_argument("--body")
+    note_create.add_argument("--body-file", type=Path)
+    note_create.add_argument("--case-id")
+    note_create.add_argument("--confidential", action="store_true")
+    note_commands.add_parser("list")
+    note_read = note_commands.add_parser("read")
+    note_read.add_argument("note_id")
+    note_read.add_argument("--revision", type=int)
+    note_revise = note_commands.add_parser("revise")
+    note_revise.add_argument("note_id")
+    note_revise.add_argument("--title", default="")
+    note_revise.add_argument("--body")
+    note_revise.add_argument("--body-file", type=Path)
+    note_revise.add_argument("--reason", required=True)
+    note_disclose = note_commands.add_parser("disclose")
+    note_disclose.add_argument("note_id")
+    note_disclose.add_argument("policy", choices=["include", "withhold"])
 
     catalogue_parser = subcommands.add_parser("catalogue")
     catalogue_commands = catalogue_parser.add_subparsers(
@@ -421,6 +450,17 @@ def _command_help(topic: Sequence[str]) -> int:
     return 0
 
 
+def _note_body(args: argparse.Namespace) -> str:
+    """Read note text from one explicit CLI source."""
+    if args.body is not None and args.body_file is not None:
+        raise ToolkitError("Use either --body or --body-file, not both")
+    if args.body_file is not None:
+        return args.body_file.read_text(encoding="utf-8")
+    if args.body is not None:
+        return args.body
+    raise ToolkitError("Note content requires --body or --body-file")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the requested command and return a process exit status."""
 
@@ -623,6 +663,57 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.reason,
                 )
                 log("PASS", f"Record rejected: {args.acquisition_id}")
+                return 0
+        if args.command == "note":
+            project_root = discover_project_root(args.root)
+            require_project_authority(project_root)
+            if args.note_command == "list":
+                for item in list_notes(project_root):
+                    print(
+                        f"{item['note_id']}\t{item['visibility']}\t"
+                        f"author={item['author_id']}\tcase={item['case_id'] or '-'}\t"
+                        f"revision={item['latest_revision']}\tdisclosure={item['package_disclosure']}"
+                    )
+                return 0
+            actor = _active_project_identity(project_root, args.operator_id)
+            if args.note_command == "create":
+                note_id = create_note(
+                    project_root,
+                    actor,
+                    args.title,
+                    _note_body(args),
+                    visibility="confidential" if args.confidential else "project",
+                    case_id=args.case_id,
+                )
+                log("PASS", f"Note retained: {note_id}")
+                return 0
+            if args.note_command == "read":
+                item = read_note(
+                    project_root, actor, args.note_id, revision=args.revision
+                )
+                print(
+                    f"{item['note_id']} revision {item['revision']} [{item['visibility']}]"
+                )
+                if item["title"]:
+                    print(item["title"])
+                print(item["body"])
+                return 0
+            if args.note_command == "revise":
+                revision = revise_note(
+                    project_root,
+                    actor,
+                    args.note_id,
+                    args.title,
+                    _note_body(args),
+                    args.reason,
+                )
+                log("PASS", f"Note revised: {args.note_id} revision {revision}")
+                return 0
+            if args.note_command == "disclose":
+                set_note_disclosure(
+                    project_root, actor, args.note_id, args.policy == "include"
+                )
+                log("PASS", f"Note disclosure changed: {args.note_id} -> {args.policy}")
                 return 0
         if args.command == "catalogue":
             project_root = discover_project_root(args.root)

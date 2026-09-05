@@ -17,7 +17,7 @@ from ..identity import verify_operator_payload
 from ..keys import fingerprint, prepare_gnupg, sign
 from ..services.commands import run
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 GENESIS_HASH = "0" * 64
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
@@ -78,6 +78,14 @@ def _state_digest(connection: sqlite3.Connection) -> str:
             "SELECT object_type, object_id, scope_type, scope_id, submitted_by, status, "
             "submitted_sequence, decided_by, decision_sequence, decision_reason, archive_sha256 "
             "FROM record_authority ORDER BY submitted_sequence, object_type, object_id"
+        ),
+        "notes": (
+            "SELECT note_id, visibility, author_id, case_id, created_sequence, latest_revision, "
+            "package_disclosure FROM notes ORDER BY note_id"
+        ),
+        "note_revisions": (
+            "SELECT note_id, revision, payload_sha256, created_sequence, revised_by, reason "
+            "FROM note_revisions ORDER BY note_id, revision"
         ),
     }
     serialised: dict[str, list[dict[str, object]]] = {}
@@ -211,6 +219,29 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 FOREIGN KEY(submitted_by) REFERENCES operators(operator_id),
                 FOREIGN KEY(decided_by) REFERENCES operators(operator_id)
             );
+            CREATE TABLE notes (
+                note_id TEXT PRIMARY KEY,
+                visibility TEXT NOT NULL CHECK(visibility IN ('project', 'confidential')),
+                author_id TEXT NOT NULL,
+                case_id TEXT,
+                created_sequence INTEGER NOT NULL,
+                latest_revision INTEGER NOT NULL CHECK(latest_revision > 0),
+                package_disclosure TEXT NOT NULL DEFAULT 'withheld'
+                    CHECK(package_disclosure IN ('withheld', 'include')),
+                FOREIGN KEY(author_id) REFERENCES operators(operator_id)
+            );
+            CREATE TABLE note_revisions (
+                note_id TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK(revision > 0),
+                payload BLOB,
+                payload_sha256 TEXT NOT NULL,
+                created_sequence INTEGER NOT NULL,
+                revised_by TEXT NOT NULL,
+                reason TEXT,
+                PRIMARY KEY(note_id, revision),
+                FOREIGN KEY(note_id) REFERENCES notes(note_id),
+                FOREIGN KEY(revised_by) REFERENCES operators(operator_id)
+            );
             """
         )
         connection.execute(
@@ -227,6 +258,7 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
         )
         connection.execute("INSERT INTO counters VALUES ('case', 1)")
         connection.execute("INSERT INTO counters VALUES ('acquisition', 1)")
+        connection.execute("INSERT INTO counters VALUES ('note', 1)")
     finally:
         connection.close()
     path.chmod(0o600)
@@ -319,7 +351,7 @@ def issue_identifier(project_root: Path, namespace: str, prefix: str) -> str:
     Missing counters therefore indicate an incompatible or damaged catalogue,
     not a migration opportunity. FACT fails closed rather than rewriting it.
     """
-    known_prefixes = {"case": "CASE", "acquisition": "ACQ"}
+    known_prefixes = {"case": "CASE", "acquisition": "ACQ", "note": "NOTE"}
     if namespace not in known_prefixes or known_prefixes[namespace] != prefix:
         raise ToolkitError(f"Unknown identifier namespace: {namespace}")
     with _write_transaction(project_root) as connection:
@@ -768,6 +800,100 @@ def _verify_authority_state(
         )
 
 
+def _verify_note_sanctity(
+    connection: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> None:
+    """Detect missing or altered committed note records without deleting history."""
+    tables = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    if not {"notes", "note_revisions"}.issubset(tables):
+        return
+    created: dict[str, dict[str, object]] = {}
+    revisions: set[tuple[str, int]] = set()
+    latest: dict[str, int] = {}
+    disclosure: dict[str, str] = {}
+    for row in rows:
+        if row["event_type"] not in {
+            "NOTE_CREATED",
+            "NOTE_REVISED",
+            "NOTE_DISCLOSURE_CHANGED",
+        }:
+            continue
+        details = json.loads(row["details_json"])
+        transaction = details.get("authority_transaction")
+        if not isinstance(transaction, dict) or not isinstance(
+            transaction.get("data"), dict
+        ):
+            raise ToolkitError(
+                f"Note authority event is malformed at event {row['event_sequence']}"
+            )
+        data = transaction["data"]
+        note_id = str(row["object_id"])
+        if row["event_type"] == "NOTE_DISCLOSURE_CHANGED":
+            if note_id not in created:
+                raise ToolkitError("Note disclosure change precedes note creation")
+            disclosure[note_id] = str(data["package_disclosure"])
+            continue
+        revision = int(data["revision"])
+        revisions.add((note_id, revision))
+        latest[note_id] = revision
+        if row["event_type"] == "NOTE_CREATED":
+            created[note_id] = data
+            disclosure[note_id] = str(data["package_disclosure"])
+        elif note_id not in created:
+            raise ToolkitError("Note revision precedes note creation")
+    live_notes = {
+        str(row["note_id"]): dict(row)
+        for row in connection.execute(
+            "SELECT note_id, visibility, author_id, case_id, created_sequence, "
+            "latest_revision, package_disclosure FROM notes"
+        ).fetchall()
+    }
+    if set(live_notes) != set(created):
+        raise ToolkitError(
+            "Committed note tree does not match its signed creation history"
+        )
+    live_revisions = {
+        (str(row["note_id"]), int(row["revision"]))
+        for row in connection.execute(
+            "SELECT note_id, revision FROM note_revisions"
+        ).fetchall()
+    }
+    if live_revisions != revisions:
+        raise ToolkitError(
+            "Committed note revision tree does not match its signed history"
+        )
+    for note_id, data in created.items():
+        live = live_notes[note_id]
+        for field in ("visibility", "author_id", "case_id"):
+            if live[field] != data.get(field):
+                raise ToolkitError(f"Committed note metadata was altered: {note_id}")
+        if int(live["latest_revision"]) != latest[note_id]:
+            raise ToolkitError(
+                f"Committed note revision pointer was altered: {note_id}"
+            )
+        if str(live["package_disclosure"]) != disclosure[note_id]:
+            raise ToolkitError(
+                f"Committed note disclosure state was altered: {note_id}"
+            )
+    for row in connection.execute(
+        "SELECT note_id, revision, payload, payload_sha256 FROM note_revisions"
+    ):
+        if (
+            row["payload"] is not None
+            and hashlib.sha256(bytes(row["payload"])).hexdigest()
+            != row["payload_sha256"]
+        ):
+            raise ToolkitError(
+                f"Note payload integrity check failed: {row['note_id']} "
+                f"revision {row['revision']}"
+            )
+
+
 def verify_chain(project_root: Path) -> dict[str, object]:
     """Verify the complete audit chain and current-state consistency."""
     connection = _connect(project_root)
@@ -840,6 +966,7 @@ def verify_chain(project_root: Path) -> dict[str, object]:
             )
 
         _verify_authority_state(connection, rows)
+        _verify_note_sanctity(connection, rows)
 
         for counter in connection.execute(
             "SELECT namespace, next_sequence FROM counters"

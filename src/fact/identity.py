@@ -372,3 +372,97 @@ def interactive_identity(*, test_key: bool = False) -> OperatorIdentity:
     ).strip().lower() in {"y", "yes"}:
         test_signing_key(identity)
     return identity
+
+
+def _import_encryption_fingerprints(
+    public_key: str, home: Path, env: dict[str, str]
+) -> list[str]:
+    """Import one public key and return its usable encryption fingerprints."""
+    import subprocess
+
+    imported = subprocess.run(
+        ["gpg", "--batch", "--import"],
+        env=env,
+        input=public_key.encode("utf-8"),
+        capture_output=True,
+    )
+    if imported.returncode != 0:
+        raise ToolkitError("Unable to import confidential-note recipient key")
+    listing = subprocess.run(
+        ["gpg", "--batch", "--with-colons", "--list-keys"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    fingerprints: list[str] = []
+    pending_encrypt = False
+    for line in listing.stdout.splitlines():
+        fields = line.split(":")
+        if fields[0] in {"pub", "sub"}:
+            pending_encrypt = "e" in fields[11].lower() and fields[1] not in {
+                "r",
+                "e",
+                "d",
+            }
+        elif fields[0] == "fpr" and pending_encrypt:
+            fingerprints.append(fields[9])
+            pending_encrypt = False
+    return fingerprints
+
+
+def encrypt_for_project_keys(payload: bytes, public_keys: list[str]) -> bytes:
+    """Encrypt bytes to every retained project recipient without storing plaintext.
+
+    Public keys are not secret and may enter an isolated temporary keyring. The
+    note payload itself crosses the GnuPG boundary only through stdin and only
+    ciphertext is returned from stdout. Each intended recipient must contribute
+    at least one usable encryption-capable key.
+    """
+    import subprocess
+
+    unique_keys = list(dict.fromkeys(public_keys))
+    if not unique_keys:
+        raise ToolkitError("Confidential material requires at least one recipient")
+    with tempfile.TemporaryDirectory(prefix="fact-note-encrypt-") as temporary:
+        home = Path(temporary) / "keyring"
+        home.mkdir(mode=0o700)
+        env = os.environ.copy()
+        env["GNUPGHOME"] = str(home)
+        fingerprints: list[str] = []
+        for public_key in unique_keys:
+            before = set(fingerprints)
+            available = _import_encryption_fingerprints(public_key, home, env)
+            new_for_recipient = [item for item in available if item not in before]
+            if not new_for_recipient:
+                raise ToolkitError(
+                    "A confidential-note recipient has no usable encryption key"
+                )
+            fingerprints.extend(new_for_recipient)
+        command = [
+            "gpg",
+            "--batch",
+            "--yes",
+            "--trust-model",
+            "always",
+            "--encrypt",
+        ]
+        for fingerprint_value in fingerprints:
+            command.extend(["--recipient", fingerprint_value + "!"])
+        encrypted = subprocess.run(command, env=env, input=payload, capture_output=True)
+        if encrypted.returncode != 0 or not encrypted.stdout:
+            raise ToolkitError("Confidential-note encryption failed")
+        return encrypted.stdout
+
+
+def decrypt_confidential_payload(ciphertext: bytes) -> bytes:
+    """Decrypt confidential bytes through pipes only, never a plaintext file."""
+    import subprocess
+
+    result = subprocess.run(
+        ["gpg", "--decrypt"],
+        input=ciphertext,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise ToolkitError("Confidential-note decryption failed for this operator")
+    return result.stdout

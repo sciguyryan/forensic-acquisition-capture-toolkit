@@ -521,3 +521,94 @@ def test_catalogue_verify_paths_and_checkpoint_requirement(
         )
         == 0
     )
+
+
+def test_note_cli_dispatches_create_read_revise_list_and_disclosure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Exercise the operator-facing note command family without real cryptography."""
+    project = tmp_path / "project"
+    project.mkdir()
+    calls = []
+    monkeypatch.setattr(cli, "discover_project_root", lambda root: project)
+    monkeypatch.setattr(cli, "require_project_authority", lambda root: None)
+    monkeypatch.setattr(
+        cli, "_active_project_identity", lambda root, operator_id: IDENTITY
+    )
+    monkeypatch.setattr(cli, "log", lambda *args: calls.append(("log", args)))
+    monkeypatch.setattr(
+        cli,
+        "create_note",
+        lambda *args, **kwargs: calls.append(("create", args, kwargs)) or "NOTE-000001",
+    )
+    monkeypatch.setattr(
+        cli,
+        "list_notes",
+        lambda root: [
+            {
+                "note_id": "NOTE-000001",
+                "visibility": "project",
+                "author_id": "jane",
+                "case_id": None,
+                "latest_revision": 2,
+                "package_disclosure": "withheld",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        cli,
+        "read_note",
+        lambda *args, **kwargs: {
+            "note_id": "NOTE-000001",
+            "revision": 2,
+            "visibility": "project",
+            "title": "Title",
+            "body": "Body",
+        },
+    )
+    monkeypatch.setattr(
+        cli, "revise_note", lambda *args, **kwargs: calls.append(("revise", args)) or 3
+    )
+    monkeypatch.setattr(
+        cli, "set_note_disclosure", lambda *args: calls.append(("disclose", args))
+    )
+
+    base = ["--root", str(project), "--operator-id", "jane", "note"]
+    assert (
+        cli.main([*base, "create", "--title", "T", "--body", "B", "--confidential"])
+        == 0
+    )
+    assert cli.main([*base, "list"]) == 0
+    assert cli.main([*base, "read", "NOTE-000001", "--revision", "2"]) == 0
+    assert (
+        cli.main(
+            [
+                *base,
+                "revise",
+                "NOTE-000001",
+                "--title",
+                "T2",
+                "--body",
+                "B2",
+                "--reason",
+                "clarify",
+            ]
+        )
+        == 0
+    )
+    assert cli.main([*base, "disclose", "NOTE-000001", "include"]) == 0
+    assert any(item[0] == "create" for item in calls)
+    assert any(item[0] == "revise" for item in calls)
+    assert any(item[0] == "disclose" for item in calls)
+
+
+def test_note_body_requires_exactly_one_source(tmp_path: Path) -> None:
+    """Reject ambiguous or absent note-body sources."""
+    body = tmp_path / "body.txt"
+    body.write_text("From file", encoding="utf-8")
+    assert cli._note_body(Namespace(body=None, body_file=body)) == "From file"
+    assert cli._note_body(Namespace(body="Inline", body_file=None)) == "Inline"
+    with pytest.raises(ToolkitError, match="either --body or --body-file"):
+        cli._note_body(Namespace(body="Inline", body_file=body))
+    with pytest.raises(ToolkitError, match="requires --body"):
+        cli._note_body(Namespace(body=None, body_file=None))

@@ -10,12 +10,18 @@ This document records accepted future work that has not yet been implemented. It
 - Improve contributor public-key import and selection ergonomics while preserving the rule that project-retained identity cannot be silently redefined by local keyring state.
 - Continue extending individually signed authority semantics to later structural lifecycle operations where attribution is evidentially meaningful.
 
-## Notes
+## Notes follow-on
 
-- Add first-class retained notes with project scope and optional case association, with a future-friendly optional acquisition association.
-- Preserve note authorship, creation time, revisions, edit history, and reasons for meaningful changes. Do not silently overwrite note history.
-- Add package-time note disclosure controls. Notes remain retained inside FACT but are excluded from external packages by default unless explicitly included.
-- Support inclusion of all notes or selected notes and retain internal package history describing what each export included or withheld.
+- Add optional direct acquisition association to retained notes once acquisition-level review workflows need it.
+- Add package-selection ergonomics for including all eligible notes or a selected set while preserving explicit owner authority and internal disclosure history.
+
+## Audit timeline and contribution queries
+
+- Add a chronological project timeline derived from the canonical signed catalogue event stream.
+- Add operator contribution queries, including filtering by operator, case, acquisition, event type and time range.
+- Distinguish performed, authored, approved or rejected, owned, and otherwise affected relationships rather than collapsing all activity into a single meaning.
+- Add a readable terminal renderer and later reuse the verified query layer for a richer HTML/SVG project-closing timeline.
+- Keep timeline presentation derived from authoritative catalogue history; it must never become another source of truth.
 
 ## Case lifecycle
 

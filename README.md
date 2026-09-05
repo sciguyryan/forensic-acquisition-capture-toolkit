@@ -144,6 +144,12 @@ If acquisition fails, staging material is retained rather than automatically des
 
 Successful acquisition proceeds through finalisation and evidence-package creation.
 
+## Retained notes
+
+FACT projects can retain attributable notes as part of the project record. Project-visible notes can be read by active authenticated project members, while confidential notes are encrypted before SQLite receives their content and are readable only by their author and the current project owner. Revisions append history rather than silently overwriting prior content.
+
+Notes are withheld from external project packages by default. The project owner may explicitly include selected notes; confidential notes remain encrypted even when included. Project ownership transfer cycles confidential-note ciphertext for the author and incoming owner before the authority change is allowed to commit. See `docs/NOTES.md` for the security and failure model.
+
 ## Evidence packages
 
 FACT packages completed acquisitions into self-contained evidence archives.

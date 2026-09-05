@@ -33,7 +33,7 @@ def _initialise_project(root: Path, project_id: str, title: str) -> Path:
         raise ToolkitError(f"FACT project already exists at {root}")
     escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
     project_file.write_text(
-        f'schema_version = 2\nfact_version = "2.8.0"\nproject_id = "{project_id}"\ntitle = "{escaped_title}"\n',
+        f'schema_version = 3\nfact_version = "2.9.0"\nproject_id = "{project_id}"\ntitle = "{escaped_title}"\n',
         encoding="utf-8",
     )
     project_file.chmod(0o600)

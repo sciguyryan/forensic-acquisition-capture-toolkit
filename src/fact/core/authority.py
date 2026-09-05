@@ -763,6 +763,16 @@ def accept_ownership_transfer(
             as_owner=False,
         )
         key = _key_row(connection, actor.operator_id)
+        confidential_transition: dict[str, object] = {}
+        if transfer["scope_type"] == "project":
+            # Confidential-note cycling is deliberately the first stateful step
+            # after acceptance. It stages ciphertext only and must succeed in
+            # full before any ownership flags or audit state are changed.
+            from .notes import reencrypt_confidential_notes_for_transfer
+
+            confidential_transition = reencrypt_confidential_notes_for_transfer(
+                connection, project_root, actor.operator_id
+            )
         sequence = _append_signed(
             connection,
             actor=actor,
@@ -773,6 +783,7 @@ def accept_ownership_transfer(
                 "transfer_id": str(transfer["transfer_id"]),
                 "from_operator_id": str(transfer["from_operator_id"]),
                 "to_operator_id": actor.operator_id,
+                **confidential_transition,
             },
             verification_key=str(key["public_key"]),
         )

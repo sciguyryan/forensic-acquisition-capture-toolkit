@@ -168,6 +168,7 @@ def _copy_project_state(project_root: Path, staging: Path) -> None:
         source_fact / CATALOGUE_NAME,
         destination_fact / CATALOGUE_NAME,
     )
+    _apply_note_disclosure(destination_fact / CATALOGUE_NAME)
     for name in ("catalogue-checkpoint.json", "catalogue-checkpoint.json.asc"):
         source = source_fact / name
         if source.exists():
@@ -177,6 +178,32 @@ def _copy_project_state(project_root: Path, staging: Path) -> None:
 
     _copy_tree(project_root / "cases", staging / "cases")
     _copy_sealed_acquisitions(project_root, staging / "archived")
+
+
+def _apply_note_disclosure(snapshot: Path) -> None:
+    """Remove withheld note payloads from a package catalogue snapshot.
+
+    The authoritative project catalogue is untouched. Payload hashes and note
+    metadata remain so the package records that a retained note existed without
+    disclosing its contents. Confidential notes that are explicitly included
+    remain ciphertext; packaging never decrypts them.
+    """
+    connection = sqlite3.connect(snapshot)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        if {"notes", "note_revisions"}.issubset(tables):
+            connection.execute(
+                "UPDATE note_revisions SET payload = NULL WHERE note_id IN ("
+                "SELECT note_id FROM notes WHERE package_disclosure = 'withheld')"
+            )
+            connection.commit()
+    finally:
+        connection.close()
 
 
 def _export_public_key(gnupg_home: Path, fpr: str) -> str:

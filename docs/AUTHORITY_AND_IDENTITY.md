@@ -137,3 +137,11 @@ Signed catalogue checkpoints and sealed packages provide stronger external ancho
 FACT 2.8 establishes the signed identity and authority foundation but does not yet implement the complete operator-key lifecycle. Auditable signing-key rotation, explicit revocation, compromised or lost-key recovery, and exceptional administrative ownership recovery require their own conservative transaction designs. Historical verification must remain possible when those capabilities are added.
 
 Until that work is implemented, operators should treat the signing key registered with a project as durable project identity material and protect its private counterpart appropriately. FACT must never silently replace a project-retained key merely because the local system keyring has changed.
+
+## Confidential-note authority
+
+The project catalogue already retains each registered operator's public OpenPGP key material. FACT uses that retained public material for confidential-note encryption; it does not create a second mutable identity database for note access.
+
+Confidential note content is authorised to the note author and current project owner. Project ownership acceptance therefore includes a ciphertext-recipient transition before ownership flags change. The signed ownership-transfer event records the completed transition as an aggregate consequence of the transfer rather than creating one authority event for every re-encrypted revision.
+
+Private decryption keys remain outside project authority. A transfer that cannot complete the confidential-note transition fails closed and leaves the previous ownership state authoritative.

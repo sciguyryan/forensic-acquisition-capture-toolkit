@@ -1,6 +1,6 @@
-# FACT v2.8.0 field validation
+# FACT v2.9.0 field validation
 
-This release establishes FACT's project identity, authority and tamper-detection foundation. Field validation should concentrate on signed initial ownership, project-retained identity, contributor admission, ownership transfer, pending/approved/rejected acquisition state, authenticated shell context, catalogue tamper detection, and regression of existing acquisition and packaging behaviour.
+This release adds retained project notes and confidential-note handling on top of FACT's project identity, authority and tamper-detection foundation. Field validation should concentrate on note retention and revision history, confidential-note access and persistence boundaries, ownership-transfer re-encryption, package disclosure, catalogue sanctity checks, and regression of the existing authority, acquisition and packaging behaviour.
 
 ## Fresh environment
 
@@ -160,3 +160,13 @@ Run representative owner and contributor screenshot acquisitions and one represe
 Create a project package and confirm catalogue verification occurs before export. Confirm the package retains the catalogue and sealed acquisition bundles while excluding private signing keys, passphrases, local GnuPG agent state, mutable staging directories and other operational material that does not belong in an evidential package.
 
 The release tree should not contain generated `*.egg-info/`, `coverage.xml`, `.coverage`, `__pycache__/`, `.pytest_cache/` or other development output.
+
+
+## Retained notes and confidential transfer
+
+1. Create a project-visible note and confirm another active contributor can read it. Revise it with a reason and confirm the earlier revision remains readable.
+2. Create a confidential note and confirm the author and current project owner can read it while another active contributor is denied. Inspect the catalogue and confirm the confidential title/body do not appear in the stored payload.
+3. Propose a project ownership transfer to an active contributor and accept it. Confirm all confidential revisions are cycled before ownership changes, the new owner can read them, and the former owner cannot read a note unless they are its author.
+4. Inject or simulate a failure during confidential-note re-encryption. Confirm the ownership transfer remains pending, the old owner remains authoritative, and all live confidential ciphertext remains in its pre-transfer state.
+5. Package the project without changing note disclosure and confirm note payloads are absent from the package catalogue snapshot while note metadata and payload hashes remain. Explicitly include a confidential note and confirm the package still contains ciphertext rather than plaintext.
+6. Remove or alter a committed note/revision in a disposable test project and confirm `fact catalogue verify` reports a sanctity violation rather than repairing or deleting history.

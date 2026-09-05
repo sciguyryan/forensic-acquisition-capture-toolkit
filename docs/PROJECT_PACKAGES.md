@@ -257,3 +257,9 @@ This is transitional architecture. Key ownership and reusable acquisition infras
 Project packaging is intended to make ordinary corruption, accidental changes and unsophisticated evidence rewriting detectable. It also makes later catalogue rollback more difficult once a package has been independently retained.
 
 It cannot make a fully compromised host trustworthy. An attacker who controls the running FACT process, all signing credentials, every package copy, all recipient keys and all external records can potentially construct a replacement history. Independent retention of signed packages, protected signing keys and appropriate organisational controls remain important.
+
+## Retained note disclosure
+
+Retained notes are excluded from external project packages by default. Packaging modifies only its consistent catalogue snapshot: withheld note payloads are replaced with `NULL` while their identifiers, authorship, visibility, revision metadata and payload digests remain available to show that retained material was deliberately withheld. The authoritative project catalogue is never rewritten by packaging.
+
+The current project owner may explicitly mark an individual note for inclusion. Project-visible note payloads are then included. Confidential note payloads remain OpenPGP ciphertext and are never decrypted by the packaging path.
