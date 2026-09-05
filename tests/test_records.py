@@ -1,14 +1,11 @@
-"""Tests for machine-readable and human-readable case records."""
+"""Tests for structured acquisition provenance records."""
 
-import json
-from pathlib import Path
-
-from fact.core.records import initial_record_for_source, write_record
+from fact.core.records import initial_record_for_source
 from fact.models import CaseInfo
 
 
-def test_case_comments_written_to_both_formats(tmp_path: Path) -> None:
-    """Write case comments to both JSON and Markdown case records."""
+def test_case_comments_are_preserved_in_catalogue_record_material() -> None:
+    """Keep case context in the structured record signed into the catalogue."""
     identity = {
         "schema_version": 1,
         "operator_id": "analyst",
@@ -22,14 +19,12 @@ def test_case_comments_written_to_both_formats(tmp_path: Path) -> None:
     comments = "What this acquisition is about."
     record = initial_record_for_source(
         CaseInfo("CASE-1", comments, identity, "login"),
-        "A-1",
+        "ACQ-000001",
         {"submitted_url": "https://example.test"},
         {},
     )
 
-    write_record(tmp_path, record)
-
-    markdown = (tmp_path / "CASE_RECORD.md").read_text(encoding="utf-8")
-    data = json.loads((tmp_path / "CASE_RECORD.json").read_text(encoding="utf-8"))
-    assert comments in markdown
+    data = record.to_dict()
+    assert data["schema_version"] == "3.0"
     assert data["case"]["comments"] == comments
+    assert data["acquisition"]["acquisition_id"] == "ACQ-000001"

@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from fact.errors import ToolkitError
 from fact.models import ToolResult
+from fact.services import commands
 from fact.services.commands import run
 
 
@@ -38,16 +40,15 @@ def test_run_does_not_write_transcript_unless_requested(tmp_path: Path) -> None:
     assert not transcript.exists()
 
 
-def test_require_and_archive_tool(monkeypatch) -> None:
-    """Resolve required executables and prefer the standalone 7-Zip binary."""
-    from fact.errors import ToolkitError
-    from fact.services import commands
-
+def test_require_resolves_commands_and_rejects_missing(monkeypatch) -> None:
+    """Resolve required executables without retaining archive-specific policy."""
     monkeypatch.setattr(
-        commands.shutil, "which", lambda name: f"/bin/{name}" if name == "7zz" else None
+        commands.shutil,
+        "which",
+        lambda command: f"/bin/{command}" if command == "tool" else None,
     )
-    assert commands.archive_tool() == "/bin/7zz"
-    with pytest.raises(ToolkitError, match="Required command"):
+    assert commands.require("tool") == "/bin/tool"
+    with pytest.raises(ToolkitError, match="Required command not found"):
         commands.require("missing")
 
 

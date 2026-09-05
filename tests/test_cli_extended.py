@@ -9,7 +9,6 @@ from fact import cli
 from fact.core.project import _initialise_project as initialise_project
 from fact.errors import ToolkitError
 from fact.identity import OperatorIdentity
-from fact.models import VerificationSummary
 
 IDENTITY = OperatorIdentity(1, "jane", "Jane Doe", None, None, None, "A" * 40, "B" * 40)
 
@@ -32,24 +31,19 @@ def test_acquisition_comments_reads_file_and_rejects_empty(tmp_path: Path) -> No
 
 
 def test_verify_keygen_and_export_helpers(tmp_path: Path, monkeypatch) -> None:
-    """Return verification status and invoke key-management helpers."""
-    passed = VerificationSummary(tmp_path / "case.7z")
-    failed = VerificationSummary(tmp_path / "bad.7z")
-    failed.add("stage", "FAIL")
-    monkeypatch.setattr(cli, "verify_archive", lambda *args: passed)
-    assert (
-        cli._verify(Namespace(archive=passed.archive, public_key=None, report=None))
-        == 0
-    )
-    monkeypatch.setattr(cli, "verify_archive", lambda *args: failed)
-    assert (
-        cli._verify(Namespace(archive=failed.archive, public_key=None, report=None))
-        == 1
-    )
-
+    """Verify the project and invoke key-management helpers."""
     calls = []
-    monkeypatch.setattr(cli, "ensure_key", lambda *args: "FPR")
+    monkeypatch.setattr(cli, "discover_project_root", lambda path: tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "verify_chain",
+        lambda root: {"event_count": 7, "chain_head": "a" * 64},
+    )
     monkeypatch.setattr(cli, "log", lambda *args: calls.append(args))
+    assert cli._verify(Namespace(path=tmp_path)) == 0
+    assert calls[-1][0] == "PASS"
+
+    monkeypatch.setattr(cli, "ensure_key", lambda *args: "FPR")
     assert cli._keygen(Namespace(root=tmp_path)) == 0
     assert calls[-1][0] == "PASS"
 

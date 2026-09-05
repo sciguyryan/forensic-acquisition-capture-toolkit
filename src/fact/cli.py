@@ -62,7 +62,6 @@ from .core.project import (
     initialise_owned_project,
     retire_case,
 )
-from .core.verification import verify_archive
 from .errors import ToolkitError
 from .identity import export_public_key_text, interactive_identity, validate_identity
 from .keys import ensure_key, export_keypair
@@ -137,9 +136,13 @@ def parser() -> argparse.ArgumentParser:
     )
 
     verify_parser = subcommands.add_parser("verify")
-    verify_parser.add_argument("archive", type=Path)
-    verify_parser.add_argument("--public-key", type=Path)
-    verify_parser.add_argument("--report", type=Path)
+    verify_parser.add_argument(
+        "path",
+        type=Path,
+        nargs="?",
+        default=Path.cwd(),
+        help="Project path or a path beneath the project; defaults to the current directory",
+    )
 
     subcommands.add_parser("keygen")
 
@@ -401,14 +404,15 @@ def _acquire(args: argparse.Namespace) -> int:
 
 
 def _verify(args: argparse.Namespace) -> int:
-    """Verify an evidence archive and return a shell-compatible status."""
+    """Verify the authoritative project catalogue and every committed file."""
 
-    verification = verify_archive(
-        args.archive,
-        args.public_key,
-        args.report,
+    project_root = discover_project_root(args.path)
+    result = verify_chain(project_root)
+    log(
+        "PASS",
+        f"FACT project verified: {result['event_count']} events, chain {result['chain_head']}",
     )
-    return 0 if verification.passed else 1
+    return 0
 
 
 def _keygen(args: argparse.Namespace) -> int:

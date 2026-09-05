@@ -94,11 +94,11 @@ def test_verify_is_available_without_project_context() -> None:
     calls: list[list[str]] = []
     assert _dispatch_line(
         session,
-        ["verify", "evidence.7z"],
+        ["verify", "/evidence/project"],
         lambda argv: calls.append(list(argv)) or 0,
         lambda _: None,
     )
-    assert calls == [["verify", "evidence.7z"]]
+    assert calls == [["verify", "/evidence/project"]]
 
 
 def test_shell_help_context_parse_errors_interrupt_and_exit(tmp_path: Path) -> None:

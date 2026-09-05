@@ -106,57 +106,6 @@ def _snapshot_catalogue(source: Path, destination: Path) -> None:
     destination.chmod(0o600)
 
 
-_ACQUISITION_SIDECAR_SUFFIXES = (
-    ".sha256",
-    ".sha512",
-    ".asc",
-    ".operator.asc",
-    ".verification.txt",
-)
-
-
-def _copy_sealed_acquisitions(project_root: Path, destination: Path) -> None:
-    """Copy only complete, final sealed acquisition bundles.
-
-    Mutable ``.staging-*`` trees are intentionally excluded. A top-level 7z
-    archive is treated as packageable evidence only when every sidecar created
-    by the sealing lifecycle is present as a regular non-symlink file. This
-    prevents project packaging from silently omitting evidence while also
-    avoiding a blind copy of unrelated or incomplete working state.
-    """
-
-    source = project_root / "archived"
-    if not source.exists():
-        return
-    if source.is_symlink() or not source.is_dir():
-        raise ToolkitError(f"Invalid FACT archived directory: {source}")
-
-    archives = sorted(
-        path
-        for path in source.iterdir()
-        if path.is_file() and path.name.endswith(".7z")
-    )
-    if not archives:
-        return
-    destination.mkdir(parents=True, exist_ok=True)
-    for archive in archives:
-        if archive.is_symlink():
-            raise ToolkitError(
-                f"Project packages do not permit symbolic links: {archive}"
-            )
-        required = [
-            archive,
-            *(Path(str(archive) + suffix) for suffix in _ACQUISITION_SIDECAR_SUFFIXES),
-        ]
-        for item in required:
-            if item.is_symlink() or not item.is_file():
-                raise ToolkitError(
-                    f"Sealed acquisition bundle is incomplete or unsafe: {item.name}"
-                )
-        for item in required:
-            shutil.copy2(item, destination / item.name)
-
-
 def _copy_project_state(project_root: Path, staging: Path) -> list[dict[str, str]]:
     """Copy packageable project state and omit explicitly withheld note files."""
     shutil.copy2(project_root / PROJECT_NAME, staging / PROJECT_NAME)
@@ -177,7 +126,6 @@ def _copy_project_state(project_root: Path, staging: Path) -> list[dict[str, str
 
     _copy_tree(project_root / "files", staging / "files")
     _copy_tree(project_root / "cases", staging / "cases")
-    _copy_sealed_acquisitions(project_root, staging / "archived")
     return _apply_note_disclosure(destination_fact / CATALOGUE_NAME, staging)
 
 
@@ -534,13 +482,7 @@ def create_project_package(
                 "catalogue_checkpoint_status": checkpoint_status,
                 "signing_key_fingerprint": fpr,
                 "state_timestamp": verified["last_event_at"],
-                "included_roots": [
-                    PROJECT_NAME,
-                    CATALOGUE_DIR,
-                    "files",
-                    "cases",
-                    "archived",
-                ],
+                "included_roots": [PROJECT_NAME, CATALOGUE_DIR, "files", "cases"],
                 "withheld_note_file_ids": [
                     item["file_id"] for item in withheld_note_files
                 ],

@@ -1,8 +1,8 @@
 """YouTube source collector migrated from the original FACT acquisition path.
 
 The collector is intentionally limited to source interaction and technical
-inspection.  It does not allocate IDs, create evidence keys, seal archives, sign
-outputs, or perform mandatory package verification.  Those evidential lifecycle
+inspection. It does not allocate IDs, create project keys, commit authority
+state, package outputs, or perform final project verification.  Those evidential lifecycle
 responsibilities belong to FACT core.
 """
 
@@ -377,7 +377,7 @@ class YouTubeCollector:
                 or ".part-frag" in path.name.lower()
             ):
                 # Successful acquisition scratch is not evidential material. It
-                # must not be archived merely because the source tool happened
+                # must not be retained merely because the source tool happened
                 # to leave it in staging. Failed acquisitions retain their
                 # incomplete workspace under the separate failure policy.
                 path.unlink()

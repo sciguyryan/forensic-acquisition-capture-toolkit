@@ -72,7 +72,7 @@ def make_context(tmp_path: Path, commands: FakeCommands) -> AcquisitionContext:
 def test_capture_returns_source_metadata_and_registered_outputs(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """YouTube-specific capture returns structured metadata without sealing."""
+    """YouTube-specific capture returns structured metadata without committing authority state."""
 
     # Disable optional curl/mediainfo branches so this test remains independent
     # of whichever utilities happen to exist on the test host.

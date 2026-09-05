@@ -26,15 +26,6 @@ def require(command: str) -> str:
     return path
 
 
-def archive_tool() -> str:
-    """Return the first supported 7-Zip executable found on PATH."""
-    for name in ("7zz", "7z"):
-        path = shutil.which(name)
-        if path:
-            return path
-    raise ToolkitError("Required archive tool not found: 7zz or 7z")
-
-
 def _utc_now() -> str:
     """Return the current UTC time in ISO 8601 format."""
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")

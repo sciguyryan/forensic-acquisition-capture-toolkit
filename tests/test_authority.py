@@ -28,6 +28,7 @@ from fact.core.authority import (
     require_registered_operator,
 )
 from fact.core.catalogue import catalogue_path, issue_identifier, verify_chain
+from fact.core.files import FileCandidate, commit_files
 from fact.core.project import _initialise_project as initialise_project
 from fact.core.project import create_case
 from fact.errors import ToolkitError
@@ -77,6 +78,38 @@ def invite_and_accept(
 ) -> None:
     invite_contributor(root, owner, contributor, f"PUBLIC {contributor.operator_id}")
     accept_contributor(root, contributor)
+
+
+def record_test_acquisition(
+    root: Path,
+    actor: OperatorIdentity,
+    *,
+    acquisition_id: str,
+    case_id: str,
+    payload: bytes = b"evidence",
+    completed_utc: str = "2026-09-04T12:00:00Z",
+) -> str:
+    """Commit one representative file and bind it to an acquisition event."""
+
+    source = root / f"{acquisition_id}.bin"
+    source.write_bytes(payload)
+    files = commit_files(
+        root,
+        case_id=case_id,
+        acquisition_id=acquisition_id,
+        actor_id=actor.operator_id,
+        candidates=[FileCandidate(source, "evidence.bin", "primary")],
+    )
+    return record_acquisition(
+        root,
+        actor,
+        acquisition_id=acquisition_id,
+        case_id=case_id,
+        collector="screenshot",
+        completed_utc=completed_utc,
+        file_ids=[str(files[0]["file_id"])],
+        record={"source": {"collector": "screenshot"}},
+    )
 
 
 def test_bootstrap_binds_owner_and_verifies_reconstructed_state(tmp_path: Path) -> None:
@@ -216,20 +249,9 @@ def test_case_owner_is_hash_chained_and_contributor_record_starts_pending(
         == owner.operator_id
     )
 
-    archive = tmp_path / "archived" / "evidence.7z"
-    archive.parent.mkdir()
-    archive.write_bytes(b"evidence")
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
-    status = record_acquisition(
-        tmp_path,
-        alice,
-        acquisition_id=acquisition_id,
-        case_id=case_id,
-        archive=archive,
-        archive_sha256=digest,
-        collector="screenshot",
-        completed_utc="2026-09-04T12:00:00Z",
+    status = record_test_acquisition(
+        tmp_path, alice, acquisition_id=acquisition_id, case_id=case_id
     )
     assert status == "pending"
     assert list_records(tmp_path)[0]["status"] == "pending"
@@ -249,18 +271,13 @@ def test_owner_submission_is_immediately_approved_and_rejection_is_retained(
     case_id = create_case(tmp_path)
     assign_case_owner(tmp_path, case_id, owner)
     owner_acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
-    archive = tmp_path / "owner.7z"
-    archive.write_bytes(b"owner evidence")
-    sha = hashlib.sha256(archive.read_bytes()).hexdigest()
     assert (
-        record_acquisition(
+        record_test_acquisition(
             tmp_path,
             owner,
             acquisition_id=owner_acquisition_id,
             case_id=case_id,
-            archive=archive,
-            archive_sha256=sha,
-            collector="screenshot",
+            payload=b"owner evidence",
             completed_utc="2026-09-04T13:00:00Z",
         )
         == "approved"
@@ -269,16 +286,12 @@ def test_owner_submission_is_immediately_approved_and_rejection_is_retained(
         decide_record(tmp_path, owner, owner_acquisition_id, "rejected", "No")
 
     pending_acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
-    pending = tmp_path / "pending.7z"
-    pending.write_bytes(b"pending evidence")
-    record_acquisition(
+    record_test_acquisition(
         tmp_path,
         alice,
         acquisition_id=pending_acquisition_id,
         case_id=case_id,
-        archive=pending,
-        archive_sha256=hashlib.sha256(pending.read_bytes()).hexdigest(),
-        collector="screenshot",
+        payload=b"pending evidence",
         completed_utc="2026-09-04T14:00:00Z",
     )
     with pytest.raises(ToolkitError, match="requires a reason"):
@@ -393,16 +406,12 @@ def test_membership_ownership_and_record_status_tampering_is_detected(
     case_id = create_case(tmp_path, "Tamper detection")
     assign_case_owner(tmp_path, case_id, owner)
     acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
-    archive = tmp_path / "tamper.7z"
-    archive.write_bytes(b"tamper test evidence")
-    record_acquisition(
+    record_test_acquisition(
         tmp_path,
         alice,
         acquisition_id=acquisition_id,
         case_id=case_id,
-        archive=archive,
-        archive_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
-        collector="screenshot",
+        payload=b"tamper test evidence",
         completed_utc="2026-09-04T15:00:00Z",
     )
 
@@ -442,18 +451,16 @@ def test_record_acquisition_requires_live_catalogue_identifier(tmp_path: Path) -
     owner, _, _ = make_project(tmp_path)
     case_id = create_case(tmp_path, "Identifier binding")
     assign_case_owner(tmp_path, case_id, owner)
-    archive = tmp_path / "invented.7z"
-    archive.write_bytes(b"evidence")
     with pytest.raises(ToolkitError, match="not active in the catalogue"):
         record_acquisition(
             tmp_path,
             owner,
             acquisition_id="ACQ-999999",
             case_id=case_id,
-            archive=archive,
-            archive_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
             collector="screenshot",
             completed_utc="2026-09-04T16:00:00Z",
+            file_ids=["FILE-999999"],
+            record={"source": {"collector": "screenshot"}},
         )
 
 

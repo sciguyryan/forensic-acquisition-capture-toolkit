@@ -1,7 +1,8 @@
 """Manage the toolkit's dedicated evidence-signing keyring.
 
-The module prepares an isolated GnuPG home, creates and exports the evidence
-key, signs archives, and verifies key backups before they are released.
+The module prepares an isolated GnuPG home, creates and exports the project
+evidence key, signs deliberately exported objects, and verifies key backups
+before they are released.
 """
 
 from __future__ import annotations
@@ -192,8 +193,8 @@ def ensure_key(gnupg_home: Path, public_key: Path, fingerprint_file: Path) -> st
     return fpr
 
 
-def sign(gnupg_home: Path, archive: Path, signature: Path, fpr: str) -> None:
-    """Create a detached signature with the dedicated evidence key."""
+def sign(gnupg_home: Path, target: Path, signature: Path, fpr: str) -> None:
+    """Create a detached signature for an exported object with the project key."""
     env = prepare_gnupg(gnupg_home, interactive=True)
     result = run(
         [
@@ -206,7 +207,7 @@ def sign(gnupg_home: Path, archive: Path, signature: Path, fpr: str) -> None:
             "--detach-sign",
             "--output",
             str(signature),
-            str(archive),
+            str(target),
         ],
         env=env,
         check=False,
@@ -214,7 +215,7 @@ def sign(gnupg_home: Path, archive: Path, signature: Path, fpr: str) -> None:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()
         message = detail[-1] if detail else "unknown GnuPG error"
-        raise ToolkitError(f"Archive signing failed: {message}")
+        raise ToolkitError(f"Signing failed: {message}")
 
 
 def _write_export_checksums(directory: Path, names: list[str]) -> Path:

@@ -13,8 +13,8 @@ class Collector(Protocol[RequestT]):
     """Minimal contract implemented by every FACT collector.
 
     A collector captures source-specific material only.  It must not allocate
-    project identifiers, sign packages, seal archives, or decide whether a
-    project is valid.  Those responsibilities remain in reusable FACT core code.
+    project identifiers, sign packages, commit authority state, or decide
+    whether a project is valid.  Those responsibilities remain in reusable FACT core code.
     """
 
     name: str

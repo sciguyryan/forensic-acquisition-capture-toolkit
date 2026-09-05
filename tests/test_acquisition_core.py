@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -18,27 +17,6 @@ def test_workspace_creates_incomplete_marker_and_log(tmp_path: Path) -> None:
     assert workspace.incomplete_marker.is_file()
     workspace.note("INFO", "capture created")
     assert "capture created" in workspace.log_path.read_text(encoding="utf-8")
-
-
-def test_registry_records_sorted_relative_artefacts(tmp_path: Path) -> None:
-    """Artefacts are relative, deterministic, and preserve their evidential role."""
-
-    stage = tmp_path / "stage"
-    stage.mkdir()
-    first = stage / "z.txt"
-    second = stage / "a.png"
-    first.write_text("z", encoding="utf-8")
-    second.write_bytes(b"png")
-    registry = ArtefactRegistry(stage)
-    registry.register(first, role=ArtefactRole.SUPPORTING, media_type="text/plain")
-    registry.register(second, role=ArtefactRole.PRIMARY, media_type="image/png")
-    output = stage / "ARTEFACTS.json"
-    registry.write(output)
-
-    payload = json.loads(output.read_text(encoding="utf-8"))
-    assert [item["path"] for item in payload["artefacts"]] == ["a.png", "z.txt"]
-    assert payload["artefacts"][0]["role"] == "primary"
-    assert payload["artefacts"][0]["related_to"] is None
 
 
 def test_registry_rejects_outside_and_symlink_paths(tmp_path: Path) -> None:

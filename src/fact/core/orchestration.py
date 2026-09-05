@@ -1,70 +1,107 @@
-"""Run source-independent FACT acquisitions from capture through sealing.
+"""Run source-independent FACT acquisitions into the authoritative file catalogue.
 
-This module owns the common acquisition preparation that was historically tied
-to the YouTube path: workspace allocation, evidence-key preparation, operator
-binding, common records and final sealing.  A collector therefore receives a
-prepared :class:`~fact.core.acquisition.AcquisitionContext` and can concentrate
-solely on acquiring its source.
+Collectors own source capture only. The orchestration layer allocates the
+acquisition, supplies mutable staging, commits every intentionally retained file
+through the common file store, records acquisition provenance in the
+authenticated catalogue, and verifies the complete project before successful
+staging is discarded.
+
+A successful acquisition does not create a second sealed archive of the same
+bytes. Portable archives belong to project packaging/export. This keeps the
+live project authoritative in one place: the catalogue and its committed files.
 """
 
 from __future__ import annotations
 
-import json
 import shutil
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 from ..collectors.base import Collector
+from ..console import summary
 from ..errors import ToolkitError
-from ..identity import OperatorIdentity, export_public_key
-from ..keys import ensure_key
-from ..models import CaseInfo
+from ..identity import OperatorIdentity
+from ..models import CaseInfo, iso_utc
 from ..services.commands import CommandRunner
-from ..services.hashing import digest
 from .acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
 from .authority import record_acquisition, require_registered_operator
-from .catalogue import catalogue_path, fail_identifier, issue_identifier
+from .catalogue import catalogue_path, fail_identifier, issue_identifier, verify_chain
 from .files import FileCandidate, commit_files, relate_files
-from .records import initial_record_for_source, write_record
-from .sealing import seal_acquisition
+from .records import initial_record_for_source
 
 
-def _core_record_classification(logical_path: str) -> str:
-    """Classify collector-independent files retained by acquisition sealing."""
+def _retained_core_candidate(path: Path, stage: Path) -> FileCandidate | None:
+    """Describe a collector-independent retained file, if it is authoritative.
 
-    name = Path(logical_path).name
-    if name in {
-        "SHA256SUMS.txt",
-        "SHA512SUMS.txt",
-        "EVIDENCESET-SHA256.txt",
-        "FILELIST.txt",
-    }:
-        return "manifest"
-    if name in {"evidence-public-key.asc", "operator-public-key.asc"}:
-        return "verification_key"
-    if name == "ARTEFACTS.json":
-        return "artefact_registry"
-    if name == "acquisition.log":
-        return "transcript"
-    if name in {"CASE.json", "operator-identity.json", "TOOLKIT.json"}:
-        return "metadata"
-    if name in {"acquisition.txt", "VERIFICATION.txt"}:
-        return "record"
-    return "record"
+    Collector-independent acquisition staging is intentionally sparse. The
+    acquisition transcript is irreducible provenance and is therefore checked
+    in. INCOMPLETE is a staging lifecycle marker and never crosses the evidence
+    boundary. Other unregistered files are rejected instead of silently becoming
+    evidence merely because an implementation happened to leave them in staging.
+    """
 
-
-def _core_record_media_type(logical_path: str) -> str | None:
-    """Return a conservative media type for FACT-generated retained records."""
-
-    suffix = Path(logical_path).suffix.lower()
-    if suffix == ".json":
-        return "application/json"
-    if suffix in {".txt", ".log"}:
-        return "text/plain"
-    if suffix == ".asc":
-        return "application/pgp-keys"
+    relative = path.relative_to(stage).as_posix()
+    if relative == "INCOMPLETE":
+        return None
+    if relative == "acquisition.log":
+        return FileCandidate(
+            path=path,
+            logical_path=relative,
+            classification="transcript",
+            media_type="text/plain",
+            description="FACT acquisition lifecycle transcript",
+        )
     return None
+
+
+def _build_candidates(context: AcquisitionContext) -> list[FileCandidate]:
+    """Build the complete authoritative file batch for one acquisition.
+
+    Every registered collector artefact is retained. FACT-generated staging
+    content is admitted only through the explicit core allow-list above. Any
+    other regular file is an architectural error: silently sweeping it into the
+    catalogue would blur the boundary between evidential material and temporary
+    implementation state.
+    """
+
+    stage = context.workspace.stage
+    candidates: list[FileCandidate] = []
+    seen: set[str] = set()
+
+    for artefact in context.artefacts.items():
+        path = stage / artefact.path
+        candidates.append(
+            FileCandidate(
+                path=path,
+                logical_path=artefact.path,
+                classification=artefact.role.value,
+                media_type=artefact.media_type,
+                description=artefact.description,
+            )
+        )
+        seen.add(artefact.path)
+
+    for path in sorted(stage.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative = path.relative_to(stage).as_posix()
+        if relative in seen:
+            continue
+        candidate = _retained_core_candidate(path, stage)
+        if candidate is not None:
+            candidates.append(candidate)
+            seen.add(relative)
+            continue
+        if relative == "INCOMPLETE":
+            continue
+        raise ToolkitError(
+            "Acquisition staging contains an unregistered retained file: "
+            f"{relative}. Collectors must explicitly register retained material; "
+            "temporary working data must be removed before commitment."
+        )
+
+    return candidates
 
 
 def run_collector_acquisition(
@@ -76,16 +113,15 @@ def run_collector_acquisition(
     initial_source: dict[str, Any],
     initial_evidence: dict[str, Any] | None = None,
     commands: CommandRunner | None = None,
-) -> Path:
-    """Prepare, capture, and seal one acquisition using a registered collector.
+) -> str:
+    """Capture and commit one acquisition, returning its permanent identifier.
 
-    The catalogue owns sequential acquisition identifiers for project-backed
-    work. Once issued, an ``ACQ-######`` value is consumed permanently. Any
-    subsequent preparation, capture, sealing, or verification failure therefore
-    marks that identifier as failed while preserving the ``INCOMPLETE`` staging
-    tree whenever one was created. Once sealing succeeds, the identifier remains
-    active even if later catalogue authority recording fails, because FACT must
-    not relabel already-sealed evidence as a failed acquisition.
+    ``ACQ-######`` is consumed as soon as it is issued. Failed capture retains
+    its private staging tree for diagnosis but does not check that transient
+    material into the authoritative file catalogue. Successful capture commits
+    the complete retained batch, records its provenance and exact file
+    membership in the authenticated catalogue, verifies the resulting project,
+    and only then removes the now-redundant staging tree.
     """
 
     root = root.resolve()
@@ -98,13 +134,10 @@ def run_collector_acquisition(
     try:
         workspace = AcquisitionWorkspace.create(root, case.case_id, run_id)
     except Exception:
-        # Workspace creation may fail before there is any filesystem evidence of
-        # the attempt. The catalogue still records the consumed identifier so it
-        # can never later be reused for unrelated material.
         fail_identifier(root, run_id, "workspace creation failed")
         raise
 
-    sealed = False
+    committed = False
     try:
         context = AcquisitionContext(
             project_root=root,
@@ -115,118 +148,38 @@ def run_collector_acquisition(
             commands=commands or CommandRunner(),
         )
         workspace.note("INFO", f"Acquisition allocated: {run_id} in {case.case_id}")
-
-        pgp_dir = root / "pgp"
-        pgp_dir.mkdir(parents=True, exist_ok=True)
-        public_key = pgp_dir / "evidence-public-key.asc"
-        fingerprint_file = pgp_dir / "evidence-key-fingerprint.txt"
-        gnupg_home = pgp_dir / "keyring"
-        fingerprint = ensure_key(gnupg_home, public_key, fingerprint_file)
-
         workspace.note(
             "INFO",
             (
                 f"Operator identified as {identity.name!r} "
-                f"({identity.operator_id}); "
-                f"login username: {case.operator_username}"
+                f"({identity.operator_id}); login username: {case.operator_username}"
             ),
         )
 
         source = dict(initial_source)
         source.setdefault("collector", collector.name)
-        evidence = dict(initial_evidence or {})
-        evidence["key_fingerprint"] = fingerprint
         record = initial_record_for_source(case, run_id, source, {})
-        record.evidence.update(evidence)
-        write_record(workspace.stage, record)
-
-        # Public keys are evidence-package verification material. The
-        # corresponding private keys remain outside staging and must never be
-        # copied into evidence.
-        shutil.copy2(public_key, workspace.stage / "evidence-public-key.asc")
-        (workspace.stage / "operator-identity.json").write_text(
-            json.dumps(identity.public_dict(), indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        export_public_key(identity, workspace.stage / "operator-public-key.asc")
+        record.evidence.update(dict(initial_evidence or {}))
 
         result = collector.capture(context, request)
+        record.acquisition["completed_utc"] = (
+            record.acquisition.get("completed_utc") or iso_utc()
+        )
         record.source.update(result.source)
         record.source["collector"] = result.collector
         record.evidence.update(result.evidence)
         record.tools = dict(context.metadata.get("tools", {}))
         record.observations.extend(result.observations)
 
-        archive = seal_acquisition(
-            context=context,
-            result=result,
-            case=case,
-            identity=identity,
-            record=record,
-            public_key=public_key,
-            gnupg_home=gnupg_home,
-            key_fingerprint=fingerprint,
-        )
-        sealed = True
-
-        # Everything retained as evidential material is checked in as an
-        # individually addressable immutable file. The collector registry gives
-        # source-produced files richer classifications; sealing records and the
-        # sealed archive are retained too rather than becoming invisible package
-        # internals. This batch is all-or-nothing under normal failure handling.
-        registered = {item.path: item for item in context.artefacts.items()}
-        candidates: list[FileCandidate] = []
-        for path in sorted(workspace.stage.rglob("*")):
-            if not path.is_file() or path.is_symlink():
-                continue
-            relative = path.relative_to(workspace.stage).as_posix()
-            item = registered.get(relative)
-            candidates.append(
-                FileCandidate(
-                    path=path,
-                    logical_path=relative,
-                    classification=item.role.value
-                    if item
-                    else _core_record_classification(relative),
-                    media_type=item.media_type
-                    if item
-                    else _core_record_media_type(relative),
-                    description=item.description
-                    if item
-                    else "FACT-retained acquisition record",
-                )
-            )
-        for path, classification, description in (
-            (archive, "package", "Sealed acquisition archive"),
-            (Path(f"{archive}.sha256"), "manifest", "Archive SHA-256 digest"),
-            (Path(f"{archive}.sha512"), "manifest", "Archive SHA-512 digest"),
-            (Path(f"{archive}.asc"), "signature", "Evidence-key detached signature"),
-            (
-                Path(f"{archive}.operator.asc"),
-                "signature",
-                "Operator detached signature",
-            ),
-            (
-                Path(f"{archive}.verification.txt"),
-                "verification",
-                "Mandatory self-verification report",
-            ),
-        ):
-            candidates.append(
-                FileCandidate(
-                    path=path,
-                    logical_path=f"sealed/{path.name}",
-                    classification=classification,
-                    description=description,
-                )
-            )
+        workspace.note("INFO", "Committing intentionally retained acquisition files")
         committed_files = commit_files(
             root,
             case_id=case.case_id,
             acquisition_id=run_id,
             actor_id=identity.operator_id,
-            candidates=candidates,
+            candidates=_build_candidates(context),
         )
+        committed = True
         committed_by_path = {
             str(item["logical_path"]): str(item["file_id"]) for item in committed_files
         }
@@ -245,30 +198,52 @@ def run_collector_acquisition(
                 child_file_id=child_id,
                 relationship=artefact.relationship,
             )
-        workspace.note(
-            "INFO",
-            f"Individually committed {len(committed_files)} retained files for {run_id}",
-        )
 
+        file_ids = [str(item["file_id"]) for item in committed_files]
         status = record_acquisition(
             root,
             identity,
             acquisition_id=run_id,
             case_id=case.case_id,
-            archive=archive,
-            archive_sha256=digest(archive, "sha256"),
             collector=result.collector,
             completed_utc=str(record.acquisition["completed_utc"]),
+            file_ids=file_ids,
+            record=record.to_dict(),
         )
+        verified = verify_chain(root)
         workspace.note(
             "INFO",
-            f"Acquisition authority state recorded as {status}: {run_id}",
+            (
+                f"Acquisition authority state recorded as {status}: {run_id}; "
+                f"catalogue verified at {verified['event_count']} events"
+            ),
         )
-        return archive
+
+        # Successful staging is now duplicate working state. The authoritative
+        # copies live under FILE-###### storage and in the catalogue. Failed
+        # staging is intentionally retained by the exception path below.
+        shutil.rmtree(workspace.stage)
+        parent = workspace.stage.parent
+        if parent.exists() and not any(parent.iterdir()):
+            parent.rmdir()
+
+        summary(
+            "EVIDENCE ACQUISITION COMMITTED",
+            [
+                ("Case ID", case.case_id, "INFO"),
+                ("Acquisition ID", run_id, "INFO"),
+                ("Collector", result.collector, "INFO"),
+                ("Operator", identity.name, "INFO"),
+                ("Operator ID", identity.operator_id, "INFO"),
+                ("Committed files", str(len(committed_files)), "PASS"),
+                ("Authority state", status, "PASS" if status == "approved" else "INFO"),
+                ("Catalogue verification", "PASS", "PASS"),
+            ],
+            True,
+        )
+        return run_id
     except Exception as exc:
-        # The first exception is the evidentially useful failure. Catalogue
-        # bookkeeping must not conceal it if marking the identifier also fails.
-        if not sealed:
+        if not committed:
             with suppress(Exception):
                 fail_identifier(root, run_id, str(exc))
         raise

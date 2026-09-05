@@ -48,7 +48,7 @@ Operations:
   record ...                      Review pending/approved/rejected records
   catalogue ...                   Run catalogue operations
   package ...                     Package the selected project
-  verify ...                      Verify an evidence archive
+  verify [PATH]                   Verify a FACT project and committed files
   project init ...                Create a project using the normal FACT command
 
 Shell:

@@ -1,16 +1,16 @@
 """Generic acquisition lifecycle primitives shared by every FACT collector.
 
-Collectors are deliberately kept away from project allocation, sealing, signing,
-and verification.  This module owns the mutable staging workspace and the common
-records that describe what a collector produced.  Source-specific collectors
+Collectors are deliberately kept away from project allocation, authoritative
+file commitment, authority mutation, packaging, and final project verification.
+This module owns the mutable staging workspace and the common records that
+describe what a collector produced. Source-specific collectors
 receive an :class:`AcquisitionContext`, write only beneath its staging directory,
 and register every artefact they intentionally create.
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -125,24 +125,6 @@ class ArtefactRegistry:
 
         return [self._artefacts[key] for key in sorted(self._artefacts)]
 
-    def write(self, output: Path) -> None:
-        """Write the registry as machine-readable acquisition metadata."""
-
-        payload = {
-            "schema": "fact-artefact-registry/v1",
-            "artefacts": [
-                {
-                    **asdict(item),
-                    "role": item.role.value,
-                }
-                for item in self.items()
-            ],
-        }
-        output.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-
 
 @dataclass(slots=True)
 class AcquisitionWorkspace:
@@ -160,22 +142,21 @@ class AcquisitionWorkspace:
         """Create the common staging and logging structure for an acquisition."""
 
         root = root.resolve()
-        archive_dir = root / "archived"
-        log_dir = root / "logs"
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        log_dir.mkdir(parents=True, exist_ok=True)
+        staging_root = root / ".fact" / "staging" / "acquisitions"
+        staging_root.mkdir(parents=True, exist_ok=True)
+        staging_root.chmod(0o700)
 
-        stage = archive_dir / f".staging-{case_id}-{acquisition_id}"
-        stage.mkdir()
+        stage = staging_root / f".staging-{case_id}-{acquisition_id}"
+        stage.mkdir(mode=0o700)
         marker = stage / "INCOMPLETE"
         marker.write_text(
-            "Acquisition has not completed mandatory verification.\n",
+            "Acquisition has not completed authoritative file commitment and catalogue verification.\n",
             encoding="utf-8",
         )
         return cls(
             root=root,
             stage=stage,
-            log_path=log_dir / f"{case_id}-{acquisition_id}.log",
+            log_path=stage / "acquisition.log",
             incomplete_marker=marker,
         )
 

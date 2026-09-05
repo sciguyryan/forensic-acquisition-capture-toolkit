@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 
@@ -44,32 +43,6 @@ class ToolResult:
     returncode: int
     stdout: str
     stderr: str
-
-
-@dataclass(slots=True)
-class VerificationStage:
-    """Describe one verification check and its outcome."""
-
-    name: str
-    status: str
-    detail: str = ""
-
-
-@dataclass(slots=True)
-class VerificationSummary:
-    """Collect verification stages for an evidence archive."""
-
-    archive: Path
-    stages: list[VerificationStage] = field(default_factory=list)
-
-    @property
-    def passed(self) -> bool:
-        """Return ``True`` when no verification stage has failed."""
-        return all(stage.status != "FAIL" for stage in self.stages)
-
-    def add(self, name: str, status: str, detail: str = "") -> None:
-        """Append a verification stage to the summary."""
-        self.stages.append(VerificationStage(name=name, status=status, detail=detail))
 
 
 @dataclass(slots=True)

@@ -918,17 +918,27 @@ def record_acquisition(
     *,
     acquisition_id: str,
     case_id: str,
-    archive: Path,
-    archive_sha256: str,
     collector: str,
     completed_utc: str,
+    file_ids: list[str],
+    record: dict[str, object],
 ) -> str:
-    """Enter a sealed acquisition into project authority immediately.
+    """Enter a committed acquisition into project authority immediately.
+
+    The authoritative acquisition payload is the exact set of immutable files
+    already committed with ``acquisition_id``. The signed catalogue event binds
+    that membership to source, tool, observation and case provenance. No archive
+    digest is needed because there is no second acquisition archive in the live
+    project model.
 
     An owner's own acquisition is authoritative immediately. A contributor's
     acquisition is retained in exactly the same rolling history but begins in
     ``pending`` state until the responsible case owner approves or rejects it.
     """
+    if not file_ids:
+        raise ToolkitError("An acquisition must commit at least one retained file")
+    if len(file_ids) != len(set(file_ids)):
+        raise ToolkitError("Acquisition file membership contains duplicate file IDs")
     with _write_transaction(project_root) as connection:
         _require_authority_tables(connection)
         identifier = connection.execute(
@@ -957,15 +967,26 @@ def record_acquisition(
         ).fetchone()
         if owner is None:
             raise ToolkitError(f"Case has no recorded responsible owner: {case_id}")
+
+        rows = connection.execute(
+            "SELECT file_id FROM files WHERE acquisition_id = ? ORDER BY committed_sequence",
+            (acquisition_id,),
+        ).fetchall()
+        committed_ids = [str(row["file_id"]) for row in rows]
+        if committed_ids != file_ids:
+            raise ToolkitError(
+                "Acquisition file membership does not match its committed catalogue files"
+            )
+
         status = "approved" if owner["owner_id"] == actor.operator_id else "pending"
         key = _key_row(connection, actor.operator_id)
         data = {
             "case_id": case_id,
-            "archive_filename": archive.name,
-            "archive_sha256": archive_sha256,
             "collector": collector,
             "completed_utc": completed_utc,
             "status": status,
+            "file_ids": file_ids,
+            "record": record,
         }
         sequence = _append_signed(
             connection,
@@ -981,8 +1002,8 @@ def record_acquisition(
         connection.execute(
             "INSERT INTO record_authority("
             "object_type, object_id, scope_type, scope_id, submitted_by, status, "
-            "submitted_sequence, decided_by, decision_sequence, decision_reason, archive_sha256"
-            ") VALUES ('acquisition', ?, 'case', ?, ?, ?, ?, ?, ?, NULL, ?)",
+            "submitted_sequence, decided_by, decision_sequence, decision_reason"
+            ") VALUES ('acquisition', ?, 'case', ?, ?, ?, ?, ?, ?, NULL)",
             (
                 acquisition_id,
                 case_id,
@@ -991,7 +1012,6 @@ def record_acquisition(
                 sequence,
                 decided_by,
                 decision_sequence,
-                archive_sha256,
             ),
         )
         return status
@@ -1056,7 +1076,7 @@ def list_records(project_root: Path) -> list[dict[str, object]]:
         _require_authority_tables(connection)
         rows = connection.execute(
             "SELECT object_type, object_id, scope_id, submitted_by, status, submitted_sequence, "
-            "decided_by, decision_sequence, decision_reason, archive_sha256 "
+            "decided_by, decision_sequence, decision_reason "
             "FROM record_authority ORDER BY submitted_sequence"
         ).fetchall()
         return [dict(row) for row in rows]

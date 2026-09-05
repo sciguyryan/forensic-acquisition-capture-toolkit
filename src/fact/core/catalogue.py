@@ -17,7 +17,7 @@ from ..identity import verify_operator_payload
 from ..keys import fingerprint, prepare_gnupg, sign
 from ..services.commands import run
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 GENESIS_HASH = "0" * 64
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
@@ -76,7 +76,7 @@ def _state_digest(connection: sqlite3.Connection) -> str:
         ),
         "record_authority": (
             "SELECT object_type, object_id, scope_type, scope_id, submitted_by, status, "
-            "submitted_sequence, decided_by, decision_sequence, decision_reason, archive_sha256 "
+            "submitted_sequence, decided_by, decision_sequence, decision_reason "
             "FROM record_authority ORDER BY submitted_sequence, object_type, object_id"
         ),
         "notes": (
@@ -219,7 +219,6 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 decided_by TEXT,
                 decision_sequence INTEGER,
                 decision_reason TEXT,
-                archive_sha256 TEXT,
                 PRIMARY KEY(object_type, object_id),
                 FOREIGN KEY(submitted_by) REFERENCES operators(operator_id),
                 FOREIGN KEY(decided_by) REFERENCES operators(operator_id)
@@ -749,7 +748,6 @@ def _verify_authority_state(
                 "decided_by": actor_id if status == "approved" else None,
                 "decision_sequence": sequence if status == "approved" else None,
                 "decision_reason": None,
-                "archive_sha256": data.get("archive_sha256"),
             }
         elif event_type in {"RECORD_APPROVED", "RECORD_REJECTED"}:
             key = (str(row["object_type"]), str(row["object_id"]))
@@ -818,7 +816,7 @@ def _verify_authority_state(
                 (str(row["object_type"]), str(row["object_id"])): dict(row)
                 for row in connection.execute(
                     "SELECT object_type, object_id, scope_type, scope_id, submitted_by, status, "
-                    "submitted_sequence, decided_by, decision_sequence, decision_reason, archive_sha256 "
+                    "submitted_sequence, decided_by, decision_sequence, decision_reason "
                     "FROM record_authority"
                 ).fetchall()
             },
@@ -1060,6 +1058,53 @@ def _verify_file_sanctity(
         raise ToolkitError("File relationships do not match their audit history")
 
 
+def _verify_acquisition_membership(
+    connection: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> None:
+    """Verify each acquisition event binds exactly its committed file set.
+
+    This catalogue invariant replaces the historical EVIDENCESET and file-list
+    manifests. Acquisition membership is authenticated once in the rolling
+    history and independently cross-checked against the live file catalogue.
+    """
+
+    recorded: set[str] = set()
+    for row in rows:
+        if str(row["event_type"]) != "ACQUISITION_RECORDED":
+            continue
+        acquisition_id = str(row["object_id"])
+        if acquisition_id in recorded:
+            raise ToolkitError(
+                f"Acquisition was recorded more than once: {acquisition_id}"
+            )
+        recorded.add(acquisition_id)
+        details = json.loads(row["details_json"])
+        transaction = details.get("authority_transaction")
+        if not isinstance(transaction, dict) or not isinstance(
+            transaction.get("data"), dict
+        ):
+            raise ToolkitError(
+                f"Acquisition authority event is malformed: {acquisition_id}"
+            )
+        expected = [str(item) for item in transaction["data"].get("file_ids", [])]
+        if not expected or len(expected) != len(set(expected)):
+            raise ToolkitError(
+                f"Acquisition has invalid committed file membership: {acquisition_id}"
+            )
+        live = [
+            str(item["file_id"])
+            for item in connection.execute(
+                "SELECT file_id FROM files WHERE acquisition_id = ? "
+                "ORDER BY committed_sequence",
+                (acquisition_id,),
+            ).fetchall()
+        ]
+        if live != expected:
+            raise ToolkitError(
+                f"Acquisition file membership differs from signed history: {acquisition_id}"
+            )
+
+
 def verify_chain(
     project_root: Path, *, permitted_missing_file_ids: set[str] | None = None
 ) -> dict[str, object]:
@@ -1145,6 +1190,7 @@ def verify_chain(
             rows,
             permitted_missing_file_ids=permitted_missing_file_ids,
         )
+        _verify_acquisition_membership(connection, rows)
 
         for counter in connection.execute(
             "SELECT namespace, next_sequence FROM counters"
