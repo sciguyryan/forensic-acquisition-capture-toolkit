@@ -46,27 +46,15 @@ def _operator(operator_id: str, marker: str) -> OperatorIdentity:
 
 
 @pytest.fixture
-def confidential_project(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[Path, OperatorIdentity, OperatorIdentity, OperatorIdentity]:
+def confidential_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, OperatorIdentity, OperatorIdentity, OperatorIdentity]:
     def sign(operator_identity: OperatorIdentity, payload: bytes) -> str:
-        return (
-            f"SIG:{operator_identity.operator_id}:{hashlib.sha256(payload).hexdigest()}"
-        )
+        return f"SIG:{operator_identity.operator_id}:{hashlib.sha256(payload).hexdigest()}"
 
     monkeypatch.setattr(authority, "sign_operator_payload", sign)
     monkeypatch.setattr(authority, "verify_operator_payload", lambda *args: None)
     monkeypatch.setattr(catalogue, "verify_operator_payload", lambda *args: None)
-    monkeypatch.setattr(
-        notes,
-        "encrypt_for_project_keys",
-        lambda payload, keys: b"ENC:" + bytes(payload)[::-1],
-    )
-    monkeypatch.setattr(
-        notes,
-        "decrypt_confidential_payload",
-        lambda payload: bytes(payload).removeprefix(b"ENC:")[::-1],
-    )
+    monkeypatch.setattr(notes, "encrypt_for_project_keys", lambda payload, keys: b"ENC:" + bytes(payload)[::-1])
+    monkeypatch.setattr(notes, "decrypt_confidential_payload", lambda payload: bytes(payload).removeprefix(b"ENC:")[::-1])
 
     project = tmp_path / "project"
     owner = _operator("owner", "A")
@@ -103,9 +91,7 @@ class _GuardedConnection:
 
     def execute(self, sql: str, parameters: Any = ()) -> Any:
         assert not _contains_plaintext(sql), "confidential plaintext entered SQL text"
-        assert not _contains_plaintext(parameters), (
-            "confidential plaintext crossed the SQLite parameter boundary"
-        )
+        assert not _contains_plaintext(parameters), "confidential plaintext crossed the SQLite parameter boundary"
         return self._connection.execute(sql, parameters)
 
     def __getattr__(self, name: str) -> Any:
@@ -131,9 +117,7 @@ def _scan_files(root: Path) -> list[Path]:
 
 
 def test_confidential_plaintext_never_crosses_sqlite_parameters(
-    confidential_project: tuple[
-        Path, OperatorIdentity, OperatorIdentity, OperatorIdentity
-    ],
+    confidential_project: tuple[Path, OperatorIdentity, OperatorIdentity, OperatorIdentity],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project, owner, author, incoming = confidential_project
@@ -150,35 +134,21 @@ def test_confidential_plaintext_never_crosses_sqlite_parameters(
         lambda root: _guard_transaction(original_authority_transaction, root),
     )
 
-    note_id = create_note(
-        project, author, "Confidential", SENTINEL, visibility="confidential"
-    )
-    revise_note(
-        project, author, note_id, "Confidential", SENTINEL + " revised", "Correction"
-    )
-    propose_ownership_transfer(
-        project, owner, incoming.operator_id, "Responsibility change"
-    )
+    note_id = create_note(project, author, "Confidential", SENTINEL, visibility="confidential")
+    revise_note(project, author, note_id, "Confidential", SENTINEL + " revised", "Correction")
+    propose_ownership_transfer(project, owner, incoming.operator_id, "Responsibility change")
     accept_ownership_transfer(project, incoming)
 
 
 def test_confidential_plaintext_absent_from_project_and_package_files(
-    confidential_project: tuple[
-        Path, OperatorIdentity, OperatorIdentity, OperatorIdentity
-    ],
+    confidential_project: tuple[Path, OperatorIdentity, OperatorIdentity, OperatorIdentity],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project, owner, author, incoming = confidential_project
-    note_id = create_note(
-        project, author, "Confidential", SENTINEL, visibility="confidential"
-    )
-    revise_note(
-        project, author, note_id, "Confidential", SENTINEL + " revised", "Correction"
-    )
-    propose_ownership_transfer(
-        project, owner, incoming.operator_id, "Responsibility change"
-    )
+    note_id = create_note(project, author, "Confidential", SENTINEL, visibility="confidential")
+    revise_note(project, author, note_id, "Confidential", SENTINEL + " revised", "Correction")
+    propose_ownership_transfer(project, owner, incoming.operator_id, "Responsibility change")
     accept_ownership_transfer(project, incoming)
 
     assert _scan_files(project) == []
@@ -192,20 +162,8 @@ def test_confidential_plaintext_absent_from_project_and_package_files(
     # Packaging crypto is unrelated to note confidentiality and is isolated here.
     monkeypatch.setattr(packaging, "prepare_gnupg", lambda *args, **kwargs: {})
     monkeypatch.setattr(packaging, "fingerprint", lambda *args, **kwargs: "A" * 40)
-    monkeypatch.setattr(
-        packaging,
-        "_export_public_key",
-        lambda *args, **kwargs: (
-            "-----BEGIN PGP PUBLIC KEY BLOCK-----\nTEST\n-----END PGP PUBLIC KEY BLOCK-----\n"
-        ),
-    )
-    monkeypatch.setattr(
-        packaging,
-        "sign",
-        lambda home, payload, signature, fpr: signature.write_text(
-            "signature", encoding="ascii"
-        ),
-    )
+    monkeypatch.setattr(packaging, "_export_public_key", lambda *args, **kwargs: "-----BEGIN PGP PUBLIC KEY BLOCK-----\nTEST\n-----END PGP PUBLIC KEY BLOCK-----\n")
+    monkeypatch.setattr(packaging, "sign", lambda home, payload, signature, fpr: signature.write_text("signature", encoding="ascii"))
     monkeypatch.setattr(packaging, "_verify_signature", lambda *args, **kwargs: None)
     output = tmp_path / "confidential.fact.tar.gz"
     packaging.create_project_package(project, tmp_path, output)
@@ -222,9 +180,7 @@ def test_confidential_plaintext_absent_from_project_and_package_files(
 
 
 def test_confidential_plaintext_not_disclosed_by_errors_or_logs(
-    confidential_project: tuple[
-        Path, OperatorIdentity, OperatorIdentity, OperatorIdentity
-    ],
+    confidential_project: tuple[Path, OperatorIdentity, OperatorIdentity, OperatorIdentity],
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -236,9 +192,7 @@ def test_confidential_plaintext_not_disclosed_by_errors_or_logs(
 
     monkeypatch.setattr(notes, "encrypt_for_project_keys", fail_encryption)
     with caplog.at_level(logging.DEBUG), pytest.raises(ToolkitError) as excinfo:
-        create_note(
-            project, author, "Confidential", SENTINEL, visibility="confidential"
-        )
+        create_note(project, author, "Confidential", SENTINEL, visibility="confidential")
     assert SENTINEL not in str(excinfo.value)
     assert SENTINEL not in caplog.text
     assert _scan_files(project) == []
@@ -267,9 +221,7 @@ def test_gnupg_encryption_receives_plaintext_only_through_stdin(
         raise AssertionError(f"Unexpected GnuPG command: {argv}")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    ciphertext = identity.encrypt_for_project_keys(
-        SENTINEL_BYTES, ["PUBLIC KEY MATERIAL"]
-    )
+    ciphertext = identity.encrypt_for_project_keys(SENTINEL_BYTES, ["PUBLIC KEY MATERIAL"])
     assert ciphertext == b"CIPHERTEXT"
     assert not any(_contains_plaintext(argv) for argv, _ in calls)
     assert _scan_files(tmp_path) == []

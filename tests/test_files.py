@@ -27,9 +27,7 @@ def fake_signatures(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         authority,
         "sign_operator_payload",
-        lambda identity, payload: (
-            f"SIG:{identity.operator_id}:{hashlib.sha256(payload).hexdigest()}"
-        ),
+        lambda identity, payload: f"SIG:{identity.operator_id}:{hashlib.sha256(payload).hexdigest()}",
     )
     monkeypatch.setattr(authority, "verify_operator_payload", lambda *args: None)
     monkeypatch.setattr(catalogue, "verify_operator_payload", lambda *args: None)
@@ -44,9 +42,7 @@ def project(root: Path) -> tuple[OperatorIdentity, str, str]:
     return actor, case_id, acquisition_id
 
 
-def test_batch_checkin_assigns_permanent_ids_and_preserves_exact_bytes(
-    tmp_path: Path,
-) -> None:
+def test_batch_checkin_assigns_permanent_ids_and_preserves_exact_bytes(tmp_path: Path) -> None:
     actor, case_id, acquisition_id = project(tmp_path)
     source = tmp_path / "capture"
     source.mkdir()
@@ -61,9 +57,7 @@ def test_batch_checkin_assigns_permanent_ids_and_preserves_exact_bytes(
         acquisition_id=acquisition_id,
         actor_id=actor.operator_id,
         candidates=[
-            FileCandidate(
-                request, "network/request.txt", "network-request", "text/plain"
-            ),
+            FileCandidate(request, "network/request.txt", "network-request", "text/plain"),
             FileCandidate(response, "network/response.bin", "network-response"),
         ],
     )
@@ -98,9 +92,7 @@ def test_identical_bytes_are_distinct_evidential_checkins(tmp_path: Path) -> Non
     assert rows[0]["sha256"] == rows[1]["sha256"]
 
 
-def test_changed_or_missing_committed_file_is_a_sanctity_failure(
-    tmp_path: Path,
-) -> None:
+def test_changed_or_missing_committed_file_is_a_sanctity_failure(tmp_path: Path) -> None:
     actor, case_id, acquisition_id = project(tmp_path)
     source = tmp_path / "source.txt"
     source.write_text("immutable", encoding="utf-8")
@@ -139,9 +131,7 @@ def test_catalogue_file_metadata_tampering_is_detected(tmp_path: Path) -> None:
         verify_chain(tmp_path)
 
 
-def test_failed_batch_commits_nothing_and_does_not_consume_file_ids(
-    tmp_path: Path,
-) -> None:
+def test_failed_batch_commits_nothing_and_does_not_consume_file_ids(tmp_path: Path) -> None:
     actor, case_id, acquisition_id = project(tmp_path)
     source = tmp_path / "source.txt"
     source.write_text("evidence", encoding="utf-8")
@@ -182,9 +172,7 @@ def test_checkin_rejects_unsafe_inputs_and_inactive_context(tmp_path: Path) -> N
         )
 
 
-def test_presentation_changes_and_relationships_append_without_erasing_files(
-    tmp_path: Path,
-) -> None:
+def test_presentation_changes_and_relationships_append_without_erasing_files(tmp_path: Path) -> None:
     from fact.core.files import relate_files, set_file_presentation
 
     actor, case_id, acquisition_id = project(tmp_path)
@@ -227,6 +215,4 @@ def test_presentation_changes_and_relationships_append_without_erasing_files(
             relationship="derived-from",
         )
     with pytest.raises(ToolkitError, match="not supported"):
-        set_file_presentation(
-            tmp_path, str(rows[0]["file_id"]), state="deleted", reason="x"
-        )
+        set_file_presentation(tmp_path, str(rows[0]["file_id"]), state="deleted", reason="x")

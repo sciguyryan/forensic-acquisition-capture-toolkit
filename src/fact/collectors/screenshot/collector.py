@@ -90,6 +90,8 @@ class ScreenshotCollector:
             role=ArtefactRole.METADATA,
             media_type="application/json",
             description="Screenshot capture environment and backend metadata",
+            related_to=capture.path,
+            relationship="describes",
         )
 
         portal_version = capture.metadata.get("portal_interface_version")

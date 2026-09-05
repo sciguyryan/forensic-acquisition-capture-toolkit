@@ -91,6 +91,8 @@ def test_screenshot_collector_preserves_original_and_registers_metadata(
     assert result.evidence["pixel_width"] == 800
     artefacts = context.artefacts.items()
     assert [item.role.value for item in artefacts] == ["primary", "metadata"]
+    assert artefacts[1].related_to == artefacts[0].path
+    assert artefacts[1].relationship == "describes"
     metadata = json.loads(
         (context.workspace.stage / "metadata" / "screenshot-capture.json").read_text()
     )

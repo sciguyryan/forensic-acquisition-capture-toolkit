@@ -31,6 +31,9 @@ class ArtefactRole(StrEnum):
     ANNOTATION = "annotation"
     REDACTION_REQUEST = "redaction_request"
     PREVIEW = "preview"
+    SOURCE_METADATA = "source_metadata"
+    NETWORK = "network"
+    INSPECTION = "inspection"
 
 
 @dataclass(slots=True, frozen=True)
@@ -46,6 +49,8 @@ class Artefact:
     role: ArtefactRole
     media_type: str | None = None
     description: str | None = None
+    related_to: str | None = None
+    relationship: str | None = None
 
 
 class ArtefactRegistry:
@@ -62,6 +67,8 @@ class ArtefactRegistry:
         role: ArtefactRole,
         media_type: str | None = None,
         description: str | None = None,
+        related_to: Path | str | None = None,
+        relationship: str | None = None,
     ) -> Artefact:
         """Register an existing regular file beneath the staging root.
 
@@ -80,7 +87,24 @@ class ArtefactRegistry:
         if path.is_symlink() or not resolved.is_file():
             raise ValueError(f"Artefact must be an existing regular file: {path}")
         key = relative.as_posix()
-        artefact = Artefact(key, role, media_type, description)
+        related_key: str | None = None
+        if related_to is not None:
+            related_path = Path(related_to)
+            if related_path.is_absolute():
+                try:
+                    related_key = related_path.resolve().relative_to(self._staging_root).as_posix()
+                except ValueError as exc:
+                    raise ValueError("Related artefact is outside acquisition staging") from exc
+            else:
+                related_key = related_path.as_posix()
+            if not relationship or not relationship.strip():
+                raise ValueError("Related artefact requires a relationship classification")
+        elif relationship is not None:
+            raise ValueError("Artefact relationship requires a related artefact")
+        artefact = Artefact(
+            key, role, media_type, description, related_key,
+            relationship.strip() if relationship else None,
+        )
         self._artefacts[key] = artefact
         return artefact
 

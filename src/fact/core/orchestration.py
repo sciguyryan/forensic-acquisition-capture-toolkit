@@ -25,10 +25,42 @@ from ..services.hashing import digest
 from .acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
 from .authority import record_acquisition, require_registered_operator
 from .catalogue import catalogue_path, fail_identifier, issue_identifier
-from .files import FileCandidate, commit_files
+from .files import FileCandidate, commit_files, relate_files
 from .records import initial_record_for_source, write_record
 from .sealing import seal_acquisition
 
+
+
+def _core_record_classification(logical_path: str) -> str:
+    """Classify collector-independent files retained by acquisition sealing."""
+
+    name = Path(logical_path).name
+    if name in {"SHA256SUMS.txt", "SHA512SUMS.txt", "EVIDENCESET-SHA256.txt", "FILELIST.txt"}:
+        return "manifest"
+    if name in {"evidence-public-key.asc", "operator-public-key.asc"}:
+        return "verification_key"
+    if name == "ARTEFACTS.json":
+        return "artefact_registry"
+    if name == "acquisition.log":
+        return "transcript"
+    if name in {"CASE.json", "operator-identity.json", "TOOLKIT.json"}:
+        return "metadata"
+    if name in {"acquisition.txt", "VERIFICATION.txt"}:
+        return "record"
+    return "record"
+
+
+def _core_record_media_type(logical_path: str) -> str | None:
+    """Return a conservative media type for FACT-generated retained records."""
+
+    suffix = Path(logical_path).suffix.lower()
+    if suffix == ".json":
+        return "application/json"
+    if suffix in {".txt", ".log"}:
+        return "text/plain"
+    if suffix == ".asc":
+        return "application/pgp-keys"
+    return None
 
 def run_collector_acquisition(
     *,
@@ -148,9 +180,9 @@ def run_collector_acquisition(
                 FileCandidate(
                     path=path,
                     logical_path=relative,
-                    classification=item.role.value if item else "record",
-                    media_type=item.media_type if item else None,
-                    description=item.description if item else "FACT acquisition record",
+                    classification=item.role.value if item else _core_record_classification(relative),
+                    media_type=item.media_type if item else _core_record_media_type(relative),
+                    description=item.description if item else "FACT-retained acquisition record",
                 )
             )
         for path, classification, description in (
@@ -158,16 +190,8 @@ def run_collector_acquisition(
             (Path(f"{archive}.sha256"), "manifest", "Archive SHA-256 digest"),
             (Path(f"{archive}.sha512"), "manifest", "Archive SHA-512 digest"),
             (Path(f"{archive}.asc"), "signature", "Evidence-key detached signature"),
-            (
-                Path(f"{archive}.operator.asc"),
-                "signature",
-                "Operator detached signature",
-            ),
-            (
-                Path(f"{archive}.verification.txt"),
-                "verification",
-                "Mandatory self-verification report",
-            ),
+            (Path(f"{archive}.operator.asc"), "signature", "Operator detached signature"),
+            (Path(f"{archive}.verification.txt"), "verification", "Mandatory self-verification report"),
         ):
             candidates.append(
                 FileCandidate(
@@ -184,9 +208,27 @@ def run_collector_acquisition(
             actor_id=identity.operator_id,
             candidates=candidates,
         )
+        committed_by_path = {
+            str(item["logical_path"]): str(item["file_id"]) for item in committed_files
+        }
+        for artefact in context.artefacts.items():
+            if artefact.related_to is None or artefact.relationship is None:
+                continue
+            parent_id = committed_by_path.get(artefact.related_to)
+            child_id = committed_by_path.get(artefact.path)
+            if parent_id is None or child_id is None:
+                raise ToolkitError(
+                    "Registered artefact relationship was not committed with its files"
+                )
+            relate_files(
+                root,
+                parent_file_id=parent_id,
+                child_file_id=child_id,
+                relationship=artefact.relationship,
+            )
         workspace.note(
             "INFO",
-            f"Individually committed {len(committed_files)} files for {run_id}",
+            f"Individually committed {len(committed_files)} retained files for {run_id}",
         )
 
         status = record_acquisition(

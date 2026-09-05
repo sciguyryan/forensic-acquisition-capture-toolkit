@@ -272,7 +272,7 @@ class YouTubeCollector:
             if path.is_file():
                 context.artefacts.register(
                     path,
-                    role=ArtefactRole.SUPPORTING,
+                    role=ArtefactRole.NETWORK,
                     media_type=media_type,
                     description=description,
                 )
@@ -331,9 +331,11 @@ class YouTubeCollector:
             probe_path.write_text(probe.stdout, encoding="utf-8")
             context.artefacts.register(
                 probe_path,
-                role=ArtefactRole.METADATA,
+                role=ArtefactRole.INSPECTION,
                 media_type="application/json",
                 description="ffprobe media inspection",
+                related_to=media,
+                relationship="inspects",
             )
 
             if shutil.which("mediainfo"):
@@ -345,26 +347,83 @@ class YouTubeCollector:
                 media_info_path.write_text(media_info.stdout, encoding="utf-8")
                 context.artefacts.register(
                     media_info_path,
-                    role=ArtefactRole.METADATA,
+                    role=ArtefactRole.INSPECTION,
                     media_type="application/json",
                     description="MediaInfo media inspection",
+                    related_to=media,
+                    relationship="inspects",
                 )
 
     def _register_evidence_files(self, context: AcquisitionContext) -> None:
-        """Register yt-dlp outputs after capture so all emitted filenames are known."""
+        """Register every retained yt-dlp output with a meaningful classification.
+
+        yt-dlp may create many different source files depending on what the
+        publisher exposes. Only files that remain after successful capture are
+        retained. Temporary fragments and scratch files are not registered and
+        therefore never cross FACT's evidential check-in boundary.
+        """
 
         evidence = context.workspace.stage / "evidence"
-        primary_suffixes = {".mkv", ".mp4", ".webm"}
+        media_suffixes = {".mkv", ".mp4", ".webm", ".m4a", ".mp3", ".opus"}
+        image_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+        subtitle_suffixes = {".vtt", ".srt", ".ass", ".lrc", ".ttml"}
+        transient_suffixes = {".part", ".ytdl", ".tmp", ".temp"}
+        retained: list[Path] = []
         for path in sorted(evidence.iterdir()):
             if not path.is_file() or path.is_symlink():
                 continue
-            role = (
-                ArtefactRole.PRIMARY
-                if path.suffix.lower() in primary_suffixes
-                else ArtefactRole.SUPPORTING
-            )
+            if path.suffix.lower() in transient_suffixes or ".part-frag" in path.name.lower():
+                # Successful acquisition scratch is not evidential material. It
+                # must not be archived merely because the source tool happened
+                # to leave it in staging. Failed acquisitions retain their
+                # incomplete workspace under the separate failure policy.
+                path.unlink()
+                continue
+            retained.append(path)
+        primary_media = next(
+            (path for path in retained if path.suffix.lower() in media_suffixes),
+            None,
+        )
+        for path in retained:
+            suffix = path.suffix.lower()
+            name = path.name.lower()
+            related_to = primary_media if primary_media is not None and path != primary_media else None
+            relationship = "supports" if related_to is not None else None
+            if suffix in media_suffixes:
+                role = ArtefactRole.PRIMARY
+                media_type = None
+                description = "Original YouTube media retained by yt-dlp"
+            elif name.endswith(".info.json"):
+                role = ArtefactRole.SOURCE_METADATA
+                media_type = "application/json"
+                description = "YouTube source metadata retained by yt-dlp"
+                relationship = "describes" if related_to is not None else None
+            elif suffix in subtitle_suffixes or "live_chat" in name:
+                role = ArtefactRole.SUPPORTING
+                media_type = "text/vtt" if suffix == ".vtt" else None
+                description = "YouTube subtitle, caption, or live-chat material"
+            elif suffix in image_suffixes:
+                role = ArtefactRole.SUPPORTING
+                media_type = f"image/{'jpeg' if suffix in {'.jpg', '.jpeg'} else suffix[1:]}"
+                description = "YouTube thumbnail or source image"
+            elif suffix == ".description":
+                role = ArtefactRole.SOURCE_METADATA
+                media_type = "text/plain"
+                description = "YouTube description retained by yt-dlp"
+                relationship = "describes" if related_to is not None else None
+            elif suffix == ".url":
+                role = ArtefactRole.SOURCE_METADATA
+                media_type = "text/plain"
+                description = "YouTube source link retained by yt-dlp"
+            else:
+                role = ArtefactRole.SUPPORTING
+                media_type = None
+                description = "Retained YouTube collector output"
             context.artefacts.register(
                 path,
                 role=role,
-                description="YouTube collector output",
+                media_type=media_type,
+                description=description,
+                related_to=related_to,
+                relationship=relationship,
             )

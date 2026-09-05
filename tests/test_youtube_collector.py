@@ -37,6 +37,7 @@ class FakeCommands:
                 return ToolResult(list(argv), 1, "", "failed")
             output = Path(argv[argv.index("-o") + 1]).parent
             (output / "abc-title.mkv").write_bytes(b"media")
+            (output / "abc-title.mkv.part").write_bytes(b"temporary")
             (output / "abc-title.info.json").write_text(
                 json.dumps(
                     {
@@ -88,8 +89,18 @@ def test_capture_returns_source_metadata_and_registered_outputs(
     assert result.source["video_id"] == "abc"
     assert result.source["title"] == "Title"
     assert result.evidence["live_chat_status"] == "Skipped"
-    assert any(item.path.endswith(".mkv") for item in context.artefacts.items())
-    assert any("ffprobe" in item.path for item in context.artefacts.items())
+    artefacts = context.artefacts.items()
+    media = next(item for item in artefacts if item.path.endswith(".mkv"))
+    metadata = next(item for item in artefacts if item.path.endswith(".info.json"))
+    inspection = next(item for item in artefacts if "ffprobe" in item.path)
+    assert media.role.value == "primary"
+    assert metadata.role.value == "source_metadata"
+    assert metadata.related_to == media.path
+    assert metadata.relationship == "describes"
+    assert inspection.role.value == "inspection"
+    assert inspection.related_to == media.path
+    assert not (context.workspace.stage / "evidence" / "abc-title.mkv.part").exists()
+    assert not any(item.path.endswith(".part") for item in artefacts)
 
 
 def test_capture_stops_on_primary_failure(tmp_path: Path, monkeypatch) -> None:

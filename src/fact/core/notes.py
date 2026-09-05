@@ -113,20 +113,17 @@ def _read_revision_bytes(
     file_id: str,
 ) -> bytes:
     row = connection.execute(
-        "SELECT sha256, size_bytes, storage_path FROM files WHERE file_id = ?",
-        (file_id,),
+        "SELECT sha256, size_bytes, storage_path FROM files WHERE file_id = ?", (file_id,)
     ).fetchone()
     if row is None:
-        raise ToolkitError(
-            f"Note revision refers to an unknown committed file: {file_id}"
-        )
+        raise ToolkitError(f"Note revision refers to an unknown committed file: {file_id}")
     path = project_root / str(row["storage_path"])
     if path.is_symlink() or not path.is_file():
         raise ToolkitError(f"Committed note revision file is missing: {file_id}")
     stored = path.read_bytes()
-    if len(stored) != int(row["size_bytes"]) or hashlib.sha256(
-        stored
-    ).hexdigest() != str(row["sha256"]):
+    if len(stored) != int(row["size_bytes"]) or hashlib.sha256(stored).hexdigest() != str(
+        row["sha256"]
+    ):
         raise ToolkitError(f"Note revision file integrity check failed: {file_id}")
     return stored
 
@@ -163,9 +160,7 @@ def _link_note_file(
         revision_file_id,
         {"parent_file_id": subject_file_id, "relationship": "note-about"},
     )
-    sequence = connection.execute(
-        "SELECT MAX(event_sequence) FROM audit_events"
-    ).fetchone()[0]
+    sequence = connection.execute("SELECT MAX(event_sequence) FROM audit_events").fetchone()[0]
     connection.execute(
         "INSERT INTO file_relationships VALUES (?, ?, 'note-about', ?)",
         (subject_file_id, revision_file_id, sequence),
@@ -226,14 +221,7 @@ def create_note(
             "INSERT INTO notes(note_id, visibility, author_id, case_id, subject_file_id, "
             "created_sequence, latest_revision, package_disclosure) "
             "VALUES (?, ?, ?, ?, ?, ?, 1, 'withheld')",
-            (
-                note_id,
-                visibility,
-                actor.operator_id,
-                case_id,
-                subject_file_id,
-                sequence,
-            ),
+            (note_id, visibility, actor.operator_id, case_id, subject_file_id, sequence),
         )
         connection.execute(
             "INSERT INTO note_revisions(note_id, revision, file_id, revision_type, "
@@ -375,9 +363,7 @@ def revise_note(
             or str(live["author_id"]) != actor.operator_id
             or int(live["latest_revision"]) + 1 != revision
         ):
-            raise ToolkitError(
-                "Note authority or revision state changed while revision was prepared"
-            )
+            raise ToolkitError("Note authority or revision state changed while revision was prepared")
         revision_file_id = str(committed[0]["file_id"])
         key = _key_row(connection, actor.operator_id)
         sequence = _append_signed(
@@ -408,8 +394,7 @@ def revise_note(
             ),
         )
         connection.execute(
-            "UPDATE notes SET latest_revision = ? WHERE note_id = ?",
-            (revision, note_id),
+            "UPDATE notes SET latest_revision = ? WHERE note_id = ?", (revision, note_id)
         )
         _link_note_file(
             connection,
@@ -488,9 +473,7 @@ def reencrypt_confidential_notes_for_transfer(
     key = _key_row(connection, incoming_owner.operator_id)
     staged: list[tuple[sqlite3.Row, bytes, str]] = []
     for row in rows:
-        old_ciphertext = _read_revision_bytes(
-            connection, project_root, str(row["file_id"])
-        )
+        old_ciphertext = _read_revision_bytes(connection, project_root, str(row["file_id"]))
         plaintext = decrypt_confidential_payload(old_ciphertext)
         try:
             recipient_ids = tuple(
@@ -587,9 +570,7 @@ def reencrypt_confidential_notes_for_transfer(
                 subject_file_id=row["subject_file_id"],
                 revision_file_id=revision_file_id,
             )
-            new_hashes.append(
-                f"{row['note_id']}:{revision}:{revision_file_id}:{digest}"
-            )
+            new_hashes.append(f"{row['note_id']}:{revision}:{revision_file_id}:{digest}")
     except Exception:
         for directory in reversed(created_directories):
             shutil.rmtree(directory, ignore_errors=True)

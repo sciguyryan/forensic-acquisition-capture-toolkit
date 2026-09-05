@@ -59,11 +59,7 @@ def _sha256(path: Path) -> str:
 
 def _normalise_logical_path(value: str) -> str:
     logical_path = value.strip().replace("\\", "/")
-    if (
-        not logical_path
-        or logical_path.startswith("/")
-        or ".." in Path(logical_path).parts
-    ):
+    if not logical_path or logical_path.startswith("/") or ".." in Path(logical_path).parts:
         raise ToolkitError(f"Unsafe logical file path: {value}")
     return logical_path
 
@@ -73,9 +69,7 @@ def _allocate_file_identifier(connection) -> tuple[str, int]:
         "SELECT next_sequence FROM counters WHERE namespace = 'file'"
     ).fetchone()
     if row is None:
-        raise ToolkitError(
-            "FACT catalogue is missing the required 'file' identifier counter"
-        )
+        raise ToolkitError("FACT catalogue is missing the required 'file' identifier counter")
     sequence = int(row["next_sequence"])
     identifier = f"FILE-{sequence:06d}"
     issued_at = _utc_now()
@@ -99,16 +93,10 @@ def _allocate_file_identifier(connection) -> tuple[str, int]:
 
 
 def _scope_root(project_root: Path, case_id: str | None) -> Path:
-    return (
-        project_root / "files"
-        if case_id is None
-        else project_root / "cases" / case_id / "files"
-    )
+    return project_root / "files" if case_id is None else project_root / "cases" / case_id / "files"
 
 
-def _validate_scope(
-    connection, project_root: Path, case_id: str | None, acquisition_id: str | None
-) -> None:
+def _validate_scope(connection, project_root: Path, case_id: str | None, acquisition_id: str | None) -> None:
     if case_id is not None:
         case_root = project_root / "cases" / case_id
         if not case_root.is_dir():
@@ -152,15 +140,7 @@ def _commit_prepared(
     committed: list[dict[str, object]] = []
     destination_root = _scope_root(project_root, case_id)
     destination_root.mkdir(parents=True, mode=0o700, exist_ok=True)
-    for (
-        logical_path,
-        classification,
-        media_type,
-        description,
-        temporary,
-        sha256,
-        size,
-    ) in prepared:
+    for logical_path, classification, media_type, description, temporary, sha256, size in prepared:
         file_id, _ = _allocate_file_identifier(connection)
         suffix = Path(logical_path).name or "payload"
         destination_dir = destination_root / file_id
@@ -181,9 +161,7 @@ def _commit_prepared(
             "storage_path": storage_path,
         }
         _append_event(connection, "FILE_COMMITTED", "file", file_id, event_details)
-        sequence = connection.execute(
-            "SELECT MAX(event_sequence) FROM audit_events"
-        ).fetchone()[0]
+        sequence = connection.execute("SELECT MAX(event_sequence) FROM audit_events").fetchone()[0]
         connection.execute(
             "INSERT INTO files(file_id, case_id, acquisition_id, actor_id, logical_path, "
             "classification, media_type, description, sha256, size_bytes, storage_path, "
@@ -211,31 +189,23 @@ def _commit_prepared(
 def _prepare_path_candidates(
     project_root: Path, candidates: list[FileCandidate]
 ) -> tuple[Path, list[tuple[str, str, str | None, str | None, Path, str, int]]]:
-    transfer_root = (
-        project_root / ".fact" / "staging" / f"file-checkin-{uuid.uuid4().hex}"
-    )
+    transfer_root = project_root / ".fact" / "staging" / f"file-checkin-{uuid.uuid4().hex}"
     transfer_root.mkdir(parents=True, mode=0o700)
     seen_paths: set[str] = set()
     prepared: list[tuple[str, str, str | None, str | None, Path, str, int]] = []
     for index, candidate in enumerate(candidates, start=1):
         source = candidate.path.resolve()
         if candidate.path.is_symlink() or not source.is_file():
-            raise ToolkitError(
-                f"File check-in requires a regular file: {candidate.path}"
-            )
+            raise ToolkitError(f"File check-in requires a regular file: {candidate.path}")
         logical_path = _normalise_logical_path(candidate.logical_path)
         if logical_path in seen_paths:
-            raise ToolkitError(
-                f"Duplicate logical file path in check-in batch: {logical_path}"
-            )
+            raise ToolkitError(f"Duplicate logical file path in check-in batch: {logical_path}")
         seen_paths.add(logical_path)
         temporary = transfer_root / f"{index:08d}.payload"
         shutil.copyfile(source, temporary)
         source_hash = _sha256(source)
         if _sha256(temporary) != source_hash:
-            raise ToolkitError(
-                f"Prepared file failed byte-for-byte hash validation: {logical_path}"
-            )
+            raise ToolkitError(f"Prepared file failed byte-for-byte hash validation: {logical_path}")
         prepared.append(
             (
                 logical_path,
@@ -253,27 +223,21 @@ def _prepare_path_candidates(
 def _prepare_payload_candidates(
     project_root: Path, candidates: list[FilePayloadCandidate]
 ) -> tuple[Path, list[tuple[str, str, str | None, str | None, Path, str, int]]]:
-    transfer_root = (
-        project_root / ".fact" / "staging" / f"payload-checkin-{uuid.uuid4().hex}"
-    )
+    transfer_root = project_root / ".fact" / "staging" / f"payload-checkin-{uuid.uuid4().hex}"
     transfer_root.mkdir(parents=True, mode=0o700)
     seen_paths: set[str] = set()
     prepared: list[tuple[str, str, str | None, str | None, Path, str, int]] = []
     for index, candidate in enumerate(candidates, start=1):
         logical_path = _normalise_logical_path(candidate.logical_path)
         if logical_path in seen_paths:
-            raise ToolkitError(
-                f"Duplicate logical file path in check-in batch: {logical_path}"
-            )
+            raise ToolkitError(f"Duplicate logical file path in check-in batch: {logical_path}")
         seen_paths.add(logical_path)
         temporary = transfer_root / f"{index:08d}.payload"
         temporary.write_bytes(candidate.payload)
         temporary.chmod(0o600)
         digest = hashlib.sha256(candidate.payload).hexdigest()
         if _sha256(temporary) != digest:
-            raise ToolkitError(
-                f"Prepared payload failed byte-for-byte hash validation: {logical_path}"
-            )
+            raise ToolkitError(f"Prepared payload failed byte-for-byte hash validation: {logical_path}")
         prepared.append(
             (
                 logical_path,
@@ -388,9 +352,7 @@ def commit_payload_files(
         raise
 
 
-def list_files(
-    project_root: Path, *, case_id: str | None = None
-) -> list[dict[str, object]]:
+def list_files(project_root: Path, *, case_id: str | None = None) -> list[dict[str, object]]:
     """Return committed file metadata without reading or altering payload bytes."""
 
     from .catalogue import _connect
@@ -432,15 +394,10 @@ def set_file_presentation(
             "FILE_PRESENTATION_CHANGED",
             "file",
             file_id,
-            {
-                "from": str(row["presentation_state"]),
-                "to": state,
-                "reason": reason.strip(),
-            },
+            {"from": str(row["presentation_state"]), "to": state, "reason": reason.strip()},
         )
         connection.execute(
-            "UPDATE files SET presentation_state = ? WHERE file_id = ?",
-            (state, file_id),
+            "UPDATE files SET presentation_state = ? WHERE file_id = ?", (state, file_id)
         )
 
 
@@ -474,9 +431,7 @@ def relate_files(
             child_file_id,
             {"parent_file_id": parent_file_id, "relationship": relationship.strip()},
         )
-        sequence = connection.execute(
-            "SELECT MAX(event_sequence) FROM audit_events"
-        ).fetchone()[0]
+        sequence = connection.execute("SELECT MAX(event_sequence) FROM audit_events").fetchone()[0]
         connection.execute(
             "INSERT INTO file_relationships VALUES (?, ?, ?, ?)",
             (parent_file_id, child_file_id, relationship.strip(), sequence),

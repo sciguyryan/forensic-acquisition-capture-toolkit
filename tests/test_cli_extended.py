@@ -523,24 +523,16 @@ def test_catalogue_verify_paths_and_checkpoint_requirement(
     )
 
 
-def test_note_cli_dispatches_create_read_revise_list_and_disclosure(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_note_cli_dispatches_create_read_revise_list_and_disclosure(tmp_path: Path, monkeypatch) -> None:
     """Exercise the operator-facing note command family without real cryptography."""
     project = tmp_path / "project"
     project.mkdir()
     calls = []
     monkeypatch.setattr(cli, "discover_project_root", lambda root: project)
     monkeypatch.setattr(cli, "require_project_authority", lambda root: None)
-    monkeypatch.setattr(
-        cli, "_active_project_identity", lambda root, operator_id: IDENTITY
-    )
+    monkeypatch.setattr(cli, "_active_project_identity", lambda root, operator_id: IDENTITY)
     monkeypatch.setattr(cli, "log", lambda *args: calls.append(("log", args)))
-    monkeypatch.setattr(
-        cli,
-        "create_note",
-        lambda *args, **kwargs: calls.append(("create", args, kwargs)) or "NOTE-000001",
-    )
+    monkeypatch.setattr(cli, "create_note", lambda *args, **kwargs: calls.append(("create", args, kwargs)) or "NOTE-000001")
     monkeypatch.setattr(
         cli,
         "list_notes",
@@ -566,36 +558,14 @@ def test_note_cli_dispatches_create_read_revise_list_and_disclosure(
             "body": "Body",
         },
     )
-    monkeypatch.setattr(
-        cli, "revise_note", lambda *args, **kwargs: calls.append(("revise", args)) or 3
-    )
-    monkeypatch.setattr(
-        cli, "set_note_disclosure", lambda *args: calls.append(("disclose", args))
-    )
+    monkeypatch.setattr(cli, "revise_note", lambda *args, **kwargs: calls.append(("revise", args)) or 3)
+    monkeypatch.setattr(cli, "set_note_disclosure", lambda *args: calls.append(("disclose", args)))
 
     base = ["--root", str(project), "--operator-id", "jane", "note"]
-    assert (
-        cli.main([*base, "create", "--title", "T", "--body", "B", "--confidential"])
-        == 0
-    )
+    assert cli.main([*base, "create", "--title", "T", "--body", "B", "--confidential"]) == 0
     assert cli.main([*base, "list"]) == 0
     assert cli.main([*base, "read", "NOTE-000001", "--revision", "2"]) == 0
-    assert (
-        cli.main(
-            [
-                *base,
-                "revise",
-                "NOTE-000001",
-                "--title",
-                "T2",
-                "--body",
-                "B2",
-                "--reason",
-                "clarify",
-            ]
-        )
-        == 0
-    )
+    assert cli.main([*base, "revise", "NOTE-000001", "--title", "T2", "--body", "B2", "--reason", "clarify"]) == 0
     assert cli.main([*base, "disclose", "NOTE-000001", "include"]) == 0
     assert any(item[0] == "create" for item in calls)
     assert any(item[0] == "revise" for item in calls)

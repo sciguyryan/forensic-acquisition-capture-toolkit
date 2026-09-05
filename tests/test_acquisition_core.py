@@ -38,6 +38,7 @@ def test_registry_records_sorted_relative_artefacts(tmp_path: Path) -> None:
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert [item["path"] for item in payload["artefacts"]] == ["a.png", "z.txt"]
     assert payload["artefacts"][0]["role"] == "primary"
+    assert payload["artefacts"][0]["related_to"] is None
 
 
 def test_registry_rejects_outside_and_symlink_paths(tmp_path: Path) -> None:
@@ -73,3 +74,29 @@ def test_collector_registry_is_explicit_and_deterministic() -> None:
         registry.register("youtube", object())
     with pytest.raises(KeyError, match="Unknown FACT collector"):
         registry.get("missing")
+
+
+def test_registry_records_explicit_file_relationships(tmp_path: Path) -> None:
+    """Retained collector files can describe relationships before check-in."""
+
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    original = stage / "original.png"
+    metadata = stage / "capture.json"
+    original.write_bytes(b"image")
+    metadata.write_text("{}", encoding="utf-8")
+    registry = ArtefactRegistry(stage)
+    registry.register(original, role=ArtefactRole.PRIMARY)
+    item = registry.register(
+        metadata,
+        role=ArtefactRole.METADATA,
+        related_to=original,
+        relationship="describes",
+    )
+    assert item.related_to == "original.png"
+    assert item.relationship == "describes"
+
+    with pytest.raises(ValueError, match="requires a relationship"):
+        registry.register(metadata, role=ArtefactRole.METADATA, related_to=original)
+    with pytest.raises(ValueError, match="requires a related artefact"):
+        registry.register(metadata, role=ArtefactRole.METADATA, relationship="describes")

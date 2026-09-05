@@ -93,9 +93,7 @@ def _revision_file(root: Path, note_id: str, revision: int = 1) -> tuple[str, Pa
     return str(file_id), root / str(storage_path)
 
 
-def test_project_note_revisions_are_ordinary_immutable_project_files(
-    tmp_path: Path,
-) -> None:
+def test_project_note_revisions_are_ordinary_immutable_project_files(tmp_path: Path) -> None:
     owner, alice, _ = project(tmp_path)
     note_id = create_note(tmp_path, alice, "Observation", "First", visibility="project")
     assert note_id == "NOTE-000001"
@@ -104,9 +102,7 @@ def test_project_note_revisions_are_ordinary_immutable_project_files(
     assert first_path.parent.parent == tmp_path / "files"
     assert read_note(tmp_path, owner, note_id)["body"] == "First"
 
-    assert (
-        revise_note(tmp_path, alice, note_id, "Observation", "Second", "Clarified") == 2
-    )
+    assert revise_note(tmp_path, alice, note_id, "Observation", "Second", "Clarified") == 2
     second_file_id, second_path = _revision_file(tmp_path, note_id, 2)
     assert second_file_id == "FILE-000002"
     assert second_path != first_path
@@ -117,9 +113,7 @@ def test_project_note_revisions_are_ordinary_immutable_project_files(
     verify_chain(tmp_path)
 
 
-def test_confidential_note_file_contains_ciphertext_not_plaintext(
-    tmp_path: Path,
-) -> None:
+def test_confidential_note_file_contains_ciphertext_not_plaintext(tmp_path: Path) -> None:
     owner, alice, bob = project(tmp_path)
     note_id = create_note(
         tmp_path, alice, "Privileged", "Never plaintext", visibility="confidential"
@@ -143,9 +137,7 @@ def test_confidential_note_file_contains_ciphertext_not_plaintext(
         read_note(tmp_path, bob, note_id)
 
 
-def test_case_and_file_associated_note_uses_case_file_store_and_relationship(
-    tmp_path: Path,
-) -> None:
+def test_case_and_file_associated_note_uses_case_file_store_and_relationship(tmp_path: Path) -> None:
     _, alice, _ = project(tmp_path)
     case_id = create_case(tmp_path)
     acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
@@ -184,9 +176,7 @@ def test_case_and_file_associated_note_uses_case_file_store_and_relationship(
     verify_chain(tmp_path)
 
 
-def test_only_author_revises_and_owner_controls_package_disclosure(
-    tmp_path: Path,
-) -> None:
+def test_only_author_revises_and_owner_controls_package_disclosure(tmp_path: Path) -> None:
     owner, alice, bob = project(tmp_path)
     note_id = create_note(tmp_path, alice, "A", "B")
     with pytest.raises(ToolkitError, match="Only the note author"):
@@ -197,9 +187,7 @@ def test_only_author_revises_and_owner_controls_package_disclosure(
     assert list_notes(tmp_path)[0]["package_disclosure"] == "include"
 
 
-def test_package_disclosure_selects_files_without_erasing_catalogue_history(
-    tmp_path: Path,
-) -> None:
+def test_package_disclosure_selects_files_without_erasing_catalogue_history(tmp_path: Path) -> None:
     owner, alice, _ = project(tmp_path)
     withheld = create_note(tmp_path, alice, "Hidden", "Do not disclose")
     included = create_note(tmp_path, owner, "Included", "Disclose this")
@@ -215,11 +203,12 @@ def test_package_disclosure_selects_files_without_erasing_catalogue_history(
     assert {item["note_id"] for item in selected} == {withheld}
     connection = sqlite3.connect(snapshot)
     try:
-        assert (
-            connection.execute("SELECT COUNT(*) FROM note_revisions").fetchone()[0] == 2
-        )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM note_revisions"
+        ).fetchone()[0] == 2
     finally:
         connection.close()
+
 
 
 def test_project_package_omits_only_withheld_note_files(
@@ -266,18 +255,13 @@ def test_project_package_omits_only_withheld_note_files(
     assert descriptor["withheld_note_file_ids"] == [withheld_file_id]
     assert included_file_id not in descriptor["withheld_note_file_ids"]
 
-
 def test_project_transfer_failure_leaves_owner_and_file_lineage_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     owner, alice, bob = project(tmp_path)
-    note_id = create_note(
-        tmp_path, bob, "Secret", "Sensitive", visibility="confidential"
-    )
+    note_id = create_note(tmp_path, bob, "Secret", "Sensitive", visibility="confidential")
     original_file_id, original_path = _revision_file(tmp_path, note_id)
-    transfer_id = propose_ownership_transfer(
-        tmp_path, owner, alice.operator_id, "Rotation"
-    )
+    transfer_id = propose_ownership_transfer(tmp_path, owner, alice.operator_id, "Rotation")
 
     def fail_encryption(payload: bytes, keys: list[str]) -> bytes:
         raise ToolkitError("synthetic encryption failure")
@@ -291,8 +275,7 @@ def test_project_transfer_failure_leaves_owner_and_file_lineage_unchanged(
             "SELECT owner_id FROM ownership WHERE scope_type = 'project'"
         ).fetchone()[0]
         transfer_state = connection.execute(
-            "SELECT state FROM ownership_transfers WHERE transfer_id = ?",
-            (transfer_id,),
+            "SELECT state FROM ownership_transfers WHERE transfer_id = ?", (transfer_id,)
         ).fetchone()[0]
         revisions = connection.execute(
             "SELECT revision, file_id FROM note_revisions WHERE note_id = ?", (note_id,)
@@ -305,17 +288,11 @@ def test_project_transfer_failure_leaves_owner_and_file_lineage_unchanged(
     assert original_path.is_file()
 
 
-def test_successful_project_transfer_appends_cryptographic_revision_file(
-    tmp_path: Path,
-) -> None:
+def test_successful_project_transfer_appends_cryptographic_revision_file(tmp_path: Path) -> None:
     owner, alice, bob = project(tmp_path)
-    note_id = create_note(
-        tmp_path, bob, "Secret", "Sensitive", visibility="confidential"
-    )
+    note_id = create_note(tmp_path, bob, "Secret", "Sensitive", visibility="confidential")
     first_file_id, first_path = _revision_file(tmp_path, note_id)
-    transfer_id = propose_ownership_transfer(
-        tmp_path, owner, alice.operator_id, "Rotation"
-    )
+    transfer_id = propose_ownership_transfer(tmp_path, owner, alice.operator_id, "Rotation")
     assert accept_ownership_transfer(tmp_path, alice) == transfer_id
 
     connection = sqlite3.connect(catalogue_path(tmp_path))
@@ -370,16 +347,12 @@ def test_note_validation_fails_closed(tmp_path: Path) -> None:
         read_note(tmp_path, alice, note_id, revision=99)
 
 
-def test_note_pointer_disclosure_and_file_pointer_tampering_are_detected(
-    tmp_path: Path,
-) -> None:
+def test_note_pointer_disclosure_and_file_pointer_tampering_are_detected(tmp_path: Path) -> None:
     owner, alice, _ = project(tmp_path)
     note_id = create_note(tmp_path, alice, "Retained", "One")
     revise_note(tmp_path, alice, note_id, "Retained", "Two", "Update")
     connection = sqlite3.connect(catalogue_path(tmp_path))
-    connection.execute(
-        "UPDATE notes SET latest_revision = 1 WHERE note_id = ?", (note_id,)
-    )
+    connection.execute("UPDATE notes SET latest_revision = 1 WHERE note_id = ?", (note_id,))
     connection.commit()
     connection.close()
     with pytest.raises(ToolkitError, match="revision pointer"):
@@ -423,9 +396,7 @@ def test_note_file_byte_tampering_and_removal_are_detected(tmp_path: Path) -> No
         verify_chain(tmp_path)
 
 
-def test_cross_case_subject_file_is_rejected_without_committing_note_file(
-    tmp_path: Path,
-) -> None:
+def test_cross_case_subject_file_is_rejected_without_committing_note_file(tmp_path: Path) -> None:
     _, alice, _ = project(tmp_path)
     first_case = create_case(tmp_path)
     second_case = create_case(tmp_path)
