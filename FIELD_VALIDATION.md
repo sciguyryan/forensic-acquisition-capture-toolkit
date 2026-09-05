@@ -1,6 +1,6 @@
-# FACT v2.9.0 field validation
+# FACT v2.10.0 field validation
 
-This release adds retained project notes and confidential-note handling on top of FACT's project identity, authority and tamper-detection foundation. Field validation should concentrate on note retention and revision history, confidential-note access and persistence boundaries, ownership-transfer re-encryption, package disclosure, catalogue sanctity checks, and regression of the existing authority, acquisition and packaging behaviour.
+This release establishes individually committed files as FACT's atomic evidential objects and strengthens catalogue verification around immutable file identity, storage paths, sizes and hashes. Field validation should concentrate on file check-in, all-or-nothing multi-file commits, missing or altered payload detection, never-reused file identifiers, richer collector-retained evidence, and regression of the existing authority, acquisition, note and packaging behaviour.
 
 ## Fresh environment
 
@@ -170,3 +170,13 @@ The release tree should not contain generated `*.egg-info/`, `coverage.xml`, `.c
 4. Inject or simulate a failure during confidential-note re-encryption. Confirm the ownership transfer remains pending, the old owner remains authoritative, and all live confidential ciphertext remains in its pre-transfer state.
 5. Package the project without changing note disclosure and confirm note payloads are absent from the package catalogue snapshot while note metadata and payload hashes remain. Explicitly include a confidential note and confirm the package still contains ciphertext rather than plaintext.
 6. Remove or alter a committed note/revision in a disposable test project and confirm `fact catalogue verify` reports a sanctity violation rather than repairing or deleting history.
+
+## Everything-as-a-file checks
+
+After creating a disposable project, case and successful acquisition, inspect `cases/CASE-000001/files/`. Every retained acquisition file should have its own `FILE-######` directory and immutable payload copy. The catalogue `files` table should contain the same file IDs, logical paths, sizes and SHA-256 values.
+
+Run `fact --root /path/to/project catalogue verify`. Verification must pass before tampering. Change one committed payload byte and run verification again. FACT must report that the committed file bytes changed. Restore the original test project rather than asking FACT to accept the changed bytes. In a second disposable project, remove one committed payload and confirm verification reports a missing committed file.
+
+Where the collector captures network material, confirm request, response, header, body, metadata or diagnostic files that the collector intentionally retained are independently checked in rather than represented only as opaque acquisition metadata.
+
+A failed multi-file check-in must not leave a partial set represented as committed. File identifiers already committed in successful history must never be reused.

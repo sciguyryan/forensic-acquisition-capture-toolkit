@@ -193,3 +193,12 @@ The architecture is designed for the following near-term collectors:
 - web-page capture.
 
 Screenshot capture is now implemented through a reusable capability/backend boundary. `ScreenshotCollector` owns evidential semantics, `LinuxScreenshotCapability` owns Linux backend policy, and `XdgDesktopPortalBackend` owns the concrete D-Bus portal interaction. Detailed behaviour is documented in `SCREENSHOT_CAPTURE.md`.
+
+
+## Everything-as-a-file evidence model
+
+The canonical evidential unit is now the individually committed file. Acquisitions are provenance-bearing events and artefacts are logical classifications or relationships around files. They are not opaque containers that replace file identity. See `EVERYTHING_AS_A_FILE.md` for the normative model and worked examples.
+
+This architecture favours a richer evidence tree. A source collector should preserve useful request, response, metadata, transcript and diagnostic material as files when those bytes form part of what FACT observed. Each committed file is independently hashed and represented in the rolling catalogue history.
+
+The governing mutation rule is **no change left behind**. Existing authoritative bytes are never edited to express a new fact. New bytes become new files; new meaning becomes a relationship or state transition; and presentation filters never erase committed history.

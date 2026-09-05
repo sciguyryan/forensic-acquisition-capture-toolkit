@@ -39,3 +39,17 @@ This document records accepted future work that has not yet been implemented. It
 - Keep requested/proposed redactions distinct from destructively flattened redacted derivatives.
 - Build a minimal self-contained HTML/SVG review application around the existing review-layer foundation.
 - On project closure, generate a self-contained static HTML media browser for project evidence, derivatives, provenance, review layers, and other appropriate retained records.
+
+
+## Encrypted artefacts
+
+- Converge confidential notes and encrypted artefacts onto the ordinary immutable file/check-in machinery, with special classification and access policy rather than a separate evidence store.
+- Design authenticated streaming or chunk encryption for large artefacts so owner-only confidentiality remains practical without whole-file memory requirements.
+- Treat ownership transfer as an all-or-nothing transition across every affected encrypted note revision and encrypted artefact. Decrypt, re-encrypt, validate and stage the complete set before committing any new ownership state.
+- Never permit a non-owner to export an encrypted artefact in decrypted form. Ordinary exports may exclude it or retain only its encrypted committed representation according to disclosure policy.
+- Preserve every historical encrypted representation and hash. Re-encryption creates a new immutable representation rather than rewriting the old one.
+
+## File-store hardening
+
+- Add a durable crash-recovery journal for the narrow filesystem/SQLite commit boundary so abrupt process or machine failure can be diagnosed and recovered conservatively without silently adopting unexplained files.
+- Extend file relationships and presentation-state verification as derivation, review, retraction and filtered export workflows are implemented.

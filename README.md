@@ -134,6 +134,12 @@ fact acquire youtube URL --acquisition-comment "Purpose"
 
 Detailed module boundaries, collector responsibilities and artefact-registry rules are documented in `docs/ARCHITECTURE.md`.
 
+## Everything as a file
+
+FACT treats every retained byte-bearing evidential object as an individually checked-in file. Primary media, screenshots, network request and response material, metadata, transcripts, manifests, verification reports and other retained context receive independent immutable file identities and hashes. Acquisitions organise and explain those files rather than replacing them as the atomic evidential objects.
+
+Once committed, file bytes and hashes are never rewritten. Later corrections, derivations, retractions and presentation decisions create new records or state transitions while preserving the original history. This is the project's **no change left behind** rule. See `docs/EVERYTHING_AS_A_FILE.md` for the data model, examples, verification behaviour and the planned convergence of notes and encrypted artefacts onto the same machinery.
+
 ## Evidence staging
 
 FACT uses a staging area while an acquisition is in progress.
@@ -325,7 +331,7 @@ See the repository's licence information for the terms under which FACT is distr
 
 ## Projects and catalogue
 
-FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case and acquisition identifiers, records lifecycle and authority events in a SHA-256 hash chain, retains project operator identities and public verification material, tracks contributor membership and ownership, and supports signed checkpoints for independent verification.
+FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case, acquisition, note and file identifiers, records lifecycle and authority events in a SHA-256 hash chain, retains project operator identities and public verification material, tracks contributor membership and ownership, and supports signed checkpoints for independent verification.
 
 The project owner is the human authority represented by this ledger. The SQLite catalogue is not intended to make a writable project impossible to alter; it is intended to make unauthorised modification detectable. Signed authority transactions and state reconstruction prevent changes to operator identity, ownership, membership or approval status from being silently accepted merely because somebody has edited the database.
 

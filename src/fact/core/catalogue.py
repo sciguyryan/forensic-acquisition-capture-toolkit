@@ -17,7 +17,7 @@ from ..identity import verify_operator_payload
 from ..keys import fingerprint, prepare_gnupg, sign
 from ..services.commands import run
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 GENESIS_HASH = "0" * 64
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
@@ -86,6 +86,11 @@ def _state_digest(connection: sqlite3.Connection) -> str:
         "note_revisions": (
             "SELECT note_id, revision, payload_sha256, created_sequence, revised_by, reason "
             "FROM note_revisions ORDER BY note_id, revision"
+        ),
+        "files": (
+            "SELECT file_id, case_id, acquisition_id, actor_id, logical_path, classification, "
+            "media_type, description, sha256, size_bytes, storage_path, committed_sequence, "
+            "presentation_state FROM files ORDER BY committed_sequence, file_id"
         ),
     }
     serialised: dict[str, list[dict[str, object]]] = {}
@@ -219,6 +224,32 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 FOREIGN KEY(submitted_by) REFERENCES operators(operator_id),
                 FOREIGN KEY(decided_by) REFERENCES operators(operator_id)
             );
+            CREATE TABLE files (
+                file_id TEXT PRIMARY KEY,
+                case_id TEXT NOT NULL,
+                acquisition_id TEXT,
+                actor_id TEXT NOT NULL,
+                logical_path TEXT NOT NULL,
+                classification TEXT NOT NULL,
+                media_type TEXT,
+                description TEXT,
+                sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+                size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+                storage_path TEXT NOT NULL UNIQUE,
+                committed_sequence INTEGER NOT NULL UNIQUE,
+                presentation_state TEXT NOT NULL DEFAULT 'presented'
+                    CHECK(presentation_state IN ('presented', 'retracted', 'superseded')),
+                FOREIGN KEY(actor_id) REFERENCES operators(operator_id)
+            );
+            CREATE TABLE file_relationships (
+                parent_file_id TEXT NOT NULL,
+                child_file_id TEXT NOT NULL,
+                relationship TEXT NOT NULL,
+                created_sequence INTEGER NOT NULL,
+                PRIMARY KEY(parent_file_id, child_file_id, relationship),
+                FOREIGN KEY(parent_file_id) REFERENCES files(file_id),
+                FOREIGN KEY(child_file_id) REFERENCES files(file_id)
+            );
             CREATE TABLE notes (
                 note_id TEXT PRIMARY KEY,
                 visibility TEXT NOT NULL CHECK(visibility IN ('project', 'confidential')),
@@ -259,6 +290,7 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
         connection.execute("INSERT INTO counters VALUES ('case', 1)")
         connection.execute("INSERT INTO counters VALUES ('acquisition', 1)")
         connection.execute("INSERT INTO counters VALUES ('note', 1)")
+        connection.execute("INSERT INTO counters VALUES ('file', 1)")
     finally:
         connection.close()
     path.chmod(0o600)
@@ -351,7 +383,12 @@ def issue_identifier(project_root: Path, namespace: str, prefix: str) -> str:
     Missing counters therefore indicate an incompatible or damaged catalogue,
     not a migration opportunity. FACT fails closed rather than rewriting it.
     """
-    known_prefixes = {"case": "CASE", "acquisition": "ACQ", "note": "NOTE"}
+    known_prefixes = {
+        "case": "CASE",
+        "acquisition": "ACQ",
+        "note": "NOTE",
+        "file": "FILE",
+    }
     if namespace not in known_prefixes or known_prefixes[namespace] != prefix:
         raise ToolkitError(f"Unknown identifier namespace: {namespace}")
     with _write_transaction(project_root) as connection:
@@ -820,6 +857,7 @@ def _verify_note_sanctity(
         if row["event_type"] not in {
             "NOTE_CREATED",
             "NOTE_REVISED",
+            "NOTE_REENCRYPTED",
             "NOTE_DISCLOSURE_CHANGED",
         }:
             continue
@@ -892,6 +930,96 @@ def _verify_note_sanctity(
                 f"Note payload integrity check failed: {row['note_id']} "
                 f"revision {row['revision']}"
             )
+
+
+def _verify_file_sanctity(
+    connection: sqlite3.Connection, project_root: Path, rows: list[sqlite3.Row]
+) -> None:
+    """Verify every committed file still exists with exactly its committed bytes."""
+    committed_events: dict[str, dict[str, object]] = {}
+    presentation: dict[str, str] = {}
+    relationships: set[tuple[str, str, str, int]] = set()
+    for row in rows:
+        event_type = str(row["event_type"])
+        file_id = str(row["object_id"])
+        details = json.loads(row["details_json"])
+        if event_type == "FILE_COMMITTED":
+            committed_events[file_id] = details
+            presentation[file_id] = "presented"
+        elif event_type == "FILE_PRESENTATION_CHANGED":
+            if file_id not in presentation:
+                raise ToolkitError(
+                    f"File presentation change precedes check-in: {file_id}"
+                )
+            if details.get("from") != presentation[file_id]:
+                raise ToolkitError(
+                    f"File presentation history is inconsistent: {file_id}"
+                )
+            presentation[file_id] = str(details["to"])
+        elif event_type == "FILE_RELATIONSHIP_ADDED":
+            relationships.add(
+                (
+                    str(details["parent_file_id"]),
+                    file_id,
+                    str(details["relationship"]),
+                    int(row["event_sequence"]),
+                )
+            )
+    file_rows = connection.execute(
+        "SELECT * FROM files ORDER BY committed_sequence, file_id"
+    ).fetchall()
+    if len(file_rows) != len(committed_events):
+        raise ToolkitError("Committed file catalogue does not match its audit history")
+    for row in file_rows:
+        file_id = str(row["file_id"])
+        details = committed_events.get(file_id)
+        if details is None:
+            raise ToolkitError(f"Committed file has no audit event: {file_id}")
+        expected = {
+            "case_id": str(row["case_id"]),
+            "acquisition_id": row["acquisition_id"],
+            "actor_id": str(row["actor_id"]),
+            "logical_path": str(row["logical_path"]),
+            "classification": str(row["classification"]),
+            "media_type": row["media_type"],
+            "sha256": str(row["sha256"]),
+            "size_bytes": int(row["size_bytes"]),
+            "storage_path": str(row["storage_path"]),
+        }
+        if details != expected:
+            raise ToolkitError(
+                f"Committed file metadata differs from audit history: {file_id}"
+            )
+        if str(row["presentation_state"]) != presentation[file_id]:
+            raise ToolkitError(
+                f"File presentation state differs from audit history: {file_id}"
+            )
+        path = project_root / str(row["storage_path"])
+        if path.is_symlink() or not path.is_file():
+            raise ToolkitError(
+                f"Committed file is missing from the authoritative tree: {file_id}"
+            )
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != str(row["sha256"]) or path.stat().st_size != int(
+            row["size_bytes"]
+        ):
+            raise ToolkitError(f"Committed file bytes have changed: {file_id}")
+    live_relationships = {
+        (
+            str(row["parent_file_id"]),
+            str(row["child_file_id"]),
+            str(row["relationship"]),
+            int(row["created_sequence"]),
+        )
+        for row in connection.execute(
+            "SELECT parent_file_id, child_file_id, relationship, created_sequence FROM file_relationships"
+        ).fetchall()
+    }
+    if live_relationships != relationships:
+        raise ToolkitError("File relationships do not match their audit history")
 
 
 def verify_chain(project_root: Path) -> dict[str, object]:
@@ -967,6 +1095,7 @@ def verify_chain(project_root: Path) -> dict[str, object]:
 
         _verify_authority_state(connection, rows)
         _verify_note_sanctity(connection, rows)
+        _verify_file_sanctity(connection, project_root, rows)
 
         for counter in connection.execute(
             "SELECT namespace, next_sequence FROM counters"

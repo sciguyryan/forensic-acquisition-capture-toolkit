@@ -213,6 +213,15 @@ def test_successful_project_transfer_cycles_confidential_ciphertext_once_in_tran
         connection.close()
     assert owner_id == alice.operator_id
     assert "confidential_revision_count" in event["details_json"]
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    try:
+        revisions = connection.execute(
+            "SELECT revision, payload_sha256 FROM note_revisions ORDER BY revision"
+        ).fetchall()
+    finally:
+        connection.close()
+    assert [row[0] for row in revisions] == [1, 2]
+    assert all(row[1] for row in revisions)
 
 
 def test_missing_committed_note_is_a_sanctity_violation(tmp_path: Path) -> None:

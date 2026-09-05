@@ -771,7 +771,7 @@ def accept_ownership_transfer(
             from .notes import reencrypt_confidential_notes_for_transfer
 
             confidential_transition = reencrypt_confidential_notes_for_transfer(
-                connection, project_root, actor.operator_id
+                connection, project_root, actor
             )
         sequence = _append_signed(
             connection,

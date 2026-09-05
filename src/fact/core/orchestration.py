@@ -25,6 +25,7 @@ from ..services.hashing import digest
 from .acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
 from .authority import record_acquisition, require_registered_operator
 from .catalogue import catalogue_path, fail_identifier, issue_identifier
+from .files import FileCandidate, commit_files
 from .records import initial_record_for_source, write_record
 from .sealing import seal_acquisition
 
@@ -130,6 +131,64 @@ def run_collector_acquisition(
             key_fingerprint=fingerprint,
         )
         sealed = True
+
+        # Everything retained as evidential material is checked in as an
+        # individually addressable immutable file. The collector registry gives
+        # source-produced files richer classifications; sealing records and the
+        # sealed archive are retained too rather than becoming invisible package
+        # internals. This batch is all-or-nothing under normal failure handling.
+        registered = {item.path: item for item in context.artefacts.items()}
+        candidates: list[FileCandidate] = []
+        for path in sorted(workspace.stage.rglob("*")):
+            if not path.is_file() or path.is_symlink():
+                continue
+            relative = path.relative_to(workspace.stage).as_posix()
+            item = registered.get(relative)
+            candidates.append(
+                FileCandidate(
+                    path=path,
+                    logical_path=relative,
+                    classification=item.role.value if item else "record",
+                    media_type=item.media_type if item else None,
+                    description=item.description if item else "FACT acquisition record",
+                )
+            )
+        for path, classification, description in (
+            (archive, "package", "Sealed acquisition archive"),
+            (Path(f"{archive}.sha256"), "manifest", "Archive SHA-256 digest"),
+            (Path(f"{archive}.sha512"), "manifest", "Archive SHA-512 digest"),
+            (Path(f"{archive}.asc"), "signature", "Evidence-key detached signature"),
+            (
+                Path(f"{archive}.operator.asc"),
+                "signature",
+                "Operator detached signature",
+            ),
+            (
+                Path(f"{archive}.verification.txt"),
+                "verification",
+                "Mandatory self-verification report",
+            ),
+        ):
+            candidates.append(
+                FileCandidate(
+                    path=path,
+                    logical_path=f"sealed/{path.name}",
+                    classification=classification,
+                    description=description,
+                )
+            )
+        committed_files = commit_files(
+            root,
+            case_id=case.case_id,
+            acquisition_id=run_id,
+            actor_id=identity.operator_id,
+            candidates=candidates,
+        )
+        workspace.note(
+            "INFO",
+            f"Individually committed {len(committed_files)} files for {run_id}",
+        )
+
         status = record_acquisition(
             root,
             identity,

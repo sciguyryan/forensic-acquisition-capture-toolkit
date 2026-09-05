@@ -311,25 +311,24 @@ def set_note_disclosure(
 def reencrypt_confidential_notes_for_transfer(
     connection: sqlite3.Connection,
     project_root: Path,
-    incoming_owner_id: str,
+    incoming_owner: OperatorIdentity,
 ) -> dict[str, object]:
-    """Stage and activate confidential-note ciphertext for a new project owner.
+    """Append new immutable ciphertext revisions for an incoming project owner.
 
-    Plaintext is held only in bounded process-memory values. SQLite receives
-    old or replacement ciphertext only. The caller owns the surrounding
-    transaction, so any exception rolls back both activation and ownership.
+    Re-encryption never rewrites historical ciphertext. Each confidential note's
+    current revision is decrypted in process memory and encrypted for the note
+    author and incoming owner. The replacement is appended as a new revision
+    inside the caller's ownership-transfer transaction. Any failure rolls back
+    every new revision and leaves ownership unchanged.
     """
     rows = connection.execute(
         "SELECT r.note_id, r.revision, r.payload, r.payload_sha256, n.author_id "
         "FROM note_revisions r JOIN notes n ON n.note_id = r.note_id "
-        "WHERE n.visibility = 'confidential' ORDER BY r.note_id, r.revision"
+        "WHERE n.visibility = 'confidential' AND r.revision = n.latest_revision "
+        "ORDER BY r.note_id"
     ).fetchall()
-    connection.execute(
-        "CREATE TEMP TABLE confidential_note_transfer_stage ("
-        "note_id TEXT NOT NULL, revision INTEGER NOT NULL, payload BLOB NOT NULL, "
-        "payload_sha256 TEXT NOT NULL, PRIMARY KEY(note_id, revision))"
-    )
     new_hashes: list[str] = []
+    key = _key_row(connection, incoming_owner.operator_id)
     for row in rows:
         if row["payload"] is None:
             raise ToolkitError(
@@ -343,20 +342,21 @@ def reencrypt_confidential_notes_for_transfer(
         plaintext = decrypt_confidential_payload(old_ciphertext)
         try:
             recipient_ids = tuple(
-                dict.fromkeys((str(row["author_id"]), incoming_owner_id))
+                dict.fromkeys((str(row["author_id"]), incoming_owner.operator_id))
             )
-            public_keys = [
-                str(
-                    connection.execute(
-                        "SELECT public_key FROM operator_keys WHERE operator_id = ? AND state = 'active'",
-                        (operator_id,),
-                    ).fetchone()[0]
-                )
-                for operator_id in recipient_ids
-            ]
+            public_keys = []
+            for operator_id in recipient_ids:
+                public_key_row = connection.execute(
+                    "SELECT public_key FROM operator_keys "
+                    "WHERE operator_id = ? AND state = 'active'",
+                    (operator_id,),
+                ).fetchone()
+                if public_key_row is None:
+                    raise ToolkitError(
+                        f"No active encryption key is retained for operator: {operator_id}"
+                    )
+                public_keys.append(str(public_key_row[0]))
             replacement = encrypt_for_project_keys(plaintext, public_keys)
-            # Acceptance is performed by the incoming owner, so their local
-            # secret key must be able to recover every staged replacement.
             if decrypt_confidential_payload(replacement) != plaintext:
                 raise ToolkitError(
                     "Replacement confidential-note ciphertext failed verification"
@@ -364,30 +364,38 @@ def reencrypt_confidential_notes_for_transfer(
         finally:
             plaintext = b""
         digest = hashlib.sha256(replacement).hexdigest()
-        connection.execute(
-            "INSERT INTO confidential_note_transfer_stage VALUES (?, ?, ?, ?)",
-            (row["note_id"], row["revision"], replacement, digest),
+        revision = int(row["revision"]) + 1
+        reason = "Cryptographic re-encryption following project ownership transfer"
+        sequence = _append_signed(
+            connection,
+            actor=incoming_owner,
+            event_type="NOTE_REENCRYPTED",
+            object_type="note",
+            object_id=str(row["note_id"]),
+            data={
+                "revision": revision,
+                "payload_sha256": digest,
+                "reason": reason,
+            },
+            verification_key=str(key["public_key"]),
         )
-        new_hashes.append(f"{row['note_id']}:{row['revision']}:{digest}")
-    staged = int(
         connection.execute(
-            "SELECT COUNT(*) FROM confidential_note_transfer_stage"
-        ).fetchone()[0]
-    )
-    if staged != len(rows):
-        raise ToolkitError("Confidential-note transfer staging cardinality mismatch")
-    connection.execute(
-        "UPDATE note_revisions SET payload = ("
-        "SELECT s.payload FROM confidential_note_transfer_stage s "
-        "WHERE s.note_id = note_revisions.note_id AND s.revision = note_revisions.revision), "
-        "payload_sha256 = (SELECT s.payload_sha256 FROM confidential_note_transfer_stage s "
-        "WHERE s.note_id = note_revisions.note_id AND s.revision = note_revisions.revision) "
-        "WHERE EXISTS (SELECT 1 FROM confidential_note_transfer_stage s "
-        "WHERE s.note_id = note_revisions.note_id AND s.revision = note_revisions.revision)"
-    )
-    changed = int(connection.execute("SELECT changes()").fetchone()[0])
-    if changed != len(rows):
-        raise ToolkitError("Confidential-note transfer activation cardinality mismatch")
+            "INSERT INTO note_revisions VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                row["note_id"],
+                revision,
+                replacement,
+                digest,
+                sequence,
+                incoming_owner.operator_id,
+                reason,
+            ),
+        )
+        connection.execute(
+            "UPDATE notes SET latest_revision = ? WHERE note_id = ?",
+            (revision, row["note_id"]),
+        )
+        new_hashes.append(f"{row['note_id']}:{revision}:{digest}")
     aggregate = hashlib.sha256("\n".join(new_hashes).encode("ascii")).hexdigest()
     return {
         "confidential_revision_count": len(rows),

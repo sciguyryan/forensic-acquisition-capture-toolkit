@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.10.0 - File Foundations
+
+- Established individually committed files as FACT's atomic evidential objects, with never-reused `FILE-######` identifiers, SHA-256 hashes, provenance, classifications and stable storage paths.
+- Added all-or-nothing ordinary file check-in batches with private preparation staging and byte-for-byte validation before catalogue commitment.
+- Added file sanctity verification so missing or changed committed bytes fail catalogue verification instead of being silently accepted.
+- Added append-only file relationships and presentation-state transitions so retraction or supersession does not erase historical existence.
+- Integrated successful acquisitions with individual check-in of collector output, generated acquisition records, the sealed package and its retained verification sidecars.
+- Bumped the current unreleased project schema boundary to version 4. No compatibility migration is provided for earlier development schemas.
+- Changed confidential-note ownership cycling to append a new immutable encrypted revision instead of rewriting historical ciphertext.
+- Documented the everything-as-a-file and no-change-left-behind architecture, including network evidence, note revision convergence, filtered presentation and the future encrypted-artefact model.
+
 ## 2.9.0 - Notes and Confidentiality
 
 - Added retained project and confidential notes with never-reused note identifiers and append-only revision history.

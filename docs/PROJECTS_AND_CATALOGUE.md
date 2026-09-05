@@ -2,7 +2,7 @@
 
 ## Purpose
 
-FACT organises work as projects containing cases and, subsequently, acquisitions. Project state is separated from acquired evidence. Human-readable project and case metadata use TOML, while transactional identifier allocation and audit history use SQLite.
+FACT organises work as projects containing cases, acquisitions and individually committed files. The catalogue records the identity, provenance, relationships and integrity metadata of those files while the immutable payload bytes remain in the project file tree. Human-readable project and case metadata use TOML, while transactional identifier allocation and audit history use SQLite.
 
 The catalogue is designed to make casual or accidental rewriting of project history detectable. It is not claimed to make a fully compromised host trustworthy.
 
@@ -14,13 +14,17 @@ PROJECT.toml
     catalogue.sqlite
     catalogue-checkpoint.json
     catalogue-checkpoint.json.asc
+files/
 cases/
     CASE-000001/
         CASE.toml
         acquisitions/
+        files/
+            FILE-000001/
+                captured-name.ext
 ```
 
-`PROJECT.toml` contains stable, human-readable project metadata. `.fact/catalogue.sqlite` contains operational project state and the cryptographic audit journal. Case directories contain human-readable case records and future acquisition directories.
+`PROJECT.toml` contains stable, human-readable project metadata. `.fact/catalogue.sqlite` contains operational project state and the cryptographic audit journal. Case directories contain human-readable case records and the immutable payload store for case-scoped files. Each `FILE-######` directory corresponds to one permanent check-in identity. The top-level `files/` store is reserved for project-scoped file material. See `EVERYTHING_AS_A_FILE.md` for the normative evidence model.
 
 The `.fact` directory and catalogue are created with owner-only permissions where the host filesystem supports POSIX permissions.
 
@@ -30,7 +34,7 @@ Once FACT issues an identifier, that identifier is permanently consumed within t
 
 Retiring or deleting the object associated with an identifier must never make the identifier available again. Failed later work must likewise not rewind the counter. Gaps in the sequence are therefore legitimate and meaningful.
 
-Case identifiers use six decimal digits, for example `CASE-000001`.
+Case and acquisition identifiers use six decimal digits, for example `CASE-000001` and `ACQ-000001`. Notes and individually committed files use the same monotonic pattern, for example `NOTE-000001` and `FILE-000001`.
 
 Allocation uses a SQLite `BEGIN IMMEDIATE` transaction. This serialises concurrent writers before the current sequence is read and advanced, preventing two FACT processes from being issued the same identifier.
 

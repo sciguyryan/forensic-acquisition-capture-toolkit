@@ -21,7 +21,7 @@ from .catalogue import CATALOGUE_DIR, PROJECT_NAME, list_identifiers
 
 _SELECTED_CASE_NAME = "selected-case"
 
-CURRENT_PROJECT_SCHEMA_VERSION = 3
+CURRENT_PROJECT_SCHEMA_VERSION = 4
 
 
 def _require_current_project(project_root: Path) -> None:
