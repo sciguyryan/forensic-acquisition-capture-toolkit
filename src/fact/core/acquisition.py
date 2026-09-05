@@ -92,17 +92,29 @@ class ArtefactRegistry:
             related_path = Path(related_to)
             if related_path.is_absolute():
                 try:
-                    related_key = related_path.resolve().relative_to(self._staging_root).as_posix()
+                    related_key = (
+                        related_path.resolve()
+                        .relative_to(self._staging_root)
+                        .as_posix()
+                    )
                 except ValueError as exc:
-                    raise ValueError("Related artefact is outside acquisition staging") from exc
+                    raise ValueError(
+                        "Related artefact is outside acquisition staging"
+                    ) from exc
             else:
                 related_key = related_path.as_posix()
             if not relationship or not relationship.strip():
-                raise ValueError("Related artefact requires a relationship classification")
+                raise ValueError(
+                    "Related artefact requires a relationship classification"
+                )
         elif relationship is not None:
             raise ValueError("Artefact relationship requires a related artefact")
         artefact = Artefact(
-            key, role, media_type, description, related_key,
+            key,
+            role,
+            media_type,
+            description,
+            related_key,
             relationship.strip() if relationship else None,
         )
         self._artefacts[key] = artefact

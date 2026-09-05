@@ -399,9 +399,11 @@ def _import_encryption_fingerprints(
     for line in listing.stdout.splitlines():
         fields = line.split(":")
         if fields[0] in {"pub", "sub"}:
-            pending_encrypt = (
-                "e" in fields[11].lower() and fields[1] not in {"r", "e", "d"}
-            )
+            pending_encrypt = "e" in fields[11].lower() and fields[1] not in {
+                "r",
+                "e",
+                "d",
+            }
         elif fields[0] == "fpr" and pending_encrypt:
             fingerprints.append(fields[9])
             pending_encrypt = False
@@ -446,9 +448,7 @@ def encrypt_for_project_keys(payload: bytes, public_keys: list[str]) -> bytes:
         ]
         for fingerprint_value in fingerprints:
             command.extend(["--recipient", fingerprint_value + "!"])
-        encrypted = subprocess.run(
-            command, env=env, input=payload, capture_output=True
-        )
+        encrypted = subprocess.run(command, env=env, input=payload, capture_output=True)
         if encrypted.returncode != 0 or not encrypted.stdout:
             raise ToolkitError("Confidential-note encryption failed")
         return encrypted.stdout

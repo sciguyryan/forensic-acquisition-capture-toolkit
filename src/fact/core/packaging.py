@@ -229,7 +229,9 @@ def _apply_note_disclosure(
             try:
                 payload.relative_to(package_root)
             except ValueError as exc:
-                raise ToolkitError("Withheld note file has an unsafe storage path") from exc
+                raise ToolkitError(
+                    "Withheld note file has an unsafe storage path"
+                ) from exc
             if payload.exists():
                 if payload.is_symlink() or not payload.is_file():
                     raise ToolkitError(f"Invalid withheld note payload path: {payload}")
@@ -532,7 +534,13 @@ def create_project_package(
                 "catalogue_checkpoint_status": checkpoint_status,
                 "signing_key_fingerprint": fpr,
                 "state_timestamp": verified["last_event_at"],
-                "included_roots": [PROJECT_NAME, CATALOGUE_DIR, "files", "cases", "archived"],
+                "included_roots": [
+                    PROJECT_NAME,
+                    CATALOGUE_DIR,
+                    "files",
+                    "cases",
+                    "archived",
+                ],
                 "withheld_note_file_ids": [
                     item["file_id"] for item in withheld_note_files
                 ],

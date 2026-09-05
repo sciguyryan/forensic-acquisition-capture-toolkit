@@ -372,7 +372,10 @@ class YouTubeCollector:
         for path in sorted(evidence.iterdir()):
             if not path.is_file() or path.is_symlink():
                 continue
-            if path.suffix.lower() in transient_suffixes or ".part-frag" in path.name.lower():
+            if (
+                path.suffix.lower() in transient_suffixes
+                or ".part-frag" in path.name.lower()
+            ):
                 # Successful acquisition scratch is not evidential material. It
                 # must not be archived merely because the source tool happened
                 # to leave it in staging. Failed acquisitions retain their
@@ -387,7 +390,11 @@ class YouTubeCollector:
         for path in retained:
             suffix = path.suffix.lower()
             name = path.name.lower()
-            related_to = primary_media if primary_media is not None and path != primary_media else None
+            related_to = (
+                primary_media
+                if primary_media is not None and path != primary_media
+                else None
+            )
             relationship = "supports" if related_to is not None else None
             if suffix in media_suffixes:
                 role = ArtefactRole.PRIMARY
@@ -404,7 +411,9 @@ class YouTubeCollector:
                 description = "YouTube subtitle, caption, or live-chat material"
             elif suffix in image_suffixes:
                 role = ArtefactRole.SUPPORTING
-                media_type = f"image/{'jpeg' if suffix in {'.jpg', '.jpeg'} else suffix[1:]}"
+                media_type = (
+                    f"image/{'jpeg' if suffix in {'.jpg', '.jpeg'} else suffix[1:]}"
+                )
                 description = "YouTube thumbnail or source image"
             elif suffix == ".description":
                 role = ArtefactRole.SOURCE_METADATA

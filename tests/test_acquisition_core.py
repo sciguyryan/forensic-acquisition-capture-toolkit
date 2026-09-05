@@ -99,4 +99,6 @@ def test_registry_records_explicit_file_relationships(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="requires a relationship"):
         registry.register(metadata, role=ArtefactRole.METADATA, related_to=original)
     with pytest.raises(ValueError, match="requires a related artefact"):
-        registry.register(metadata, role=ArtefactRole.METADATA, relationship="describes")
+        registry.register(
+            metadata, role=ArtefactRole.METADATA, relationship="describes"
+        )

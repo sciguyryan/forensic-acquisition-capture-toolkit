@@ -30,12 +30,16 @@ from .records import initial_record_for_source, write_record
 from .sealing import seal_acquisition
 
 
-
 def _core_record_classification(logical_path: str) -> str:
     """Classify collector-independent files retained by acquisition sealing."""
 
     name = Path(logical_path).name
-    if name in {"SHA256SUMS.txt", "SHA512SUMS.txt", "EVIDENCESET-SHA256.txt", "FILELIST.txt"}:
+    if name in {
+        "SHA256SUMS.txt",
+        "SHA512SUMS.txt",
+        "EVIDENCESET-SHA256.txt",
+        "FILELIST.txt",
+    }:
         return "manifest"
     if name in {"evidence-public-key.asc", "operator-public-key.asc"}:
         return "verification_key"
@@ -61,6 +65,7 @@ def _core_record_media_type(logical_path: str) -> str | None:
     if suffix == ".asc":
         return "application/pgp-keys"
     return None
+
 
 def run_collector_acquisition(
     *,
@@ -180,9 +185,15 @@ def run_collector_acquisition(
                 FileCandidate(
                     path=path,
                     logical_path=relative,
-                    classification=item.role.value if item else _core_record_classification(relative),
-                    media_type=item.media_type if item else _core_record_media_type(relative),
-                    description=item.description if item else "FACT-retained acquisition record",
+                    classification=item.role.value
+                    if item
+                    else _core_record_classification(relative),
+                    media_type=item.media_type
+                    if item
+                    else _core_record_media_type(relative),
+                    description=item.description
+                    if item
+                    else "FACT-retained acquisition record",
                 )
             )
         for path, classification, description in (
@@ -190,8 +201,16 @@ def run_collector_acquisition(
             (Path(f"{archive}.sha256"), "manifest", "Archive SHA-256 digest"),
             (Path(f"{archive}.sha512"), "manifest", "Archive SHA-512 digest"),
             (Path(f"{archive}.asc"), "signature", "Evidence-key detached signature"),
-            (Path(f"{archive}.operator.asc"), "signature", "Operator detached signature"),
-            (Path(f"{archive}.verification.txt"), "verification", "Mandatory self-verification report"),
+            (
+                Path(f"{archive}.operator.asc"),
+                "signature",
+                "Operator detached signature",
+            ),
+            (
+                Path(f"{archive}.verification.txt"),
+                "verification",
+                "Mandatory self-verification report",
+            ),
         ):
             candidates.append(
                 FileCandidate(

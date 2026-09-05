@@ -386,7 +386,12 @@ def issue_identifier(project_root: Path, namespace: str, prefix: str) -> str:
     Missing counters therefore indicate an incompatible or damaged catalogue,
     not a migration opportunity. FACT fails closed rather than rewriting it.
     """
-    known_prefixes = {"case": "CASE", "acquisition": "ACQ", "note": "NOTE", "file": "FILE"}
+    known_prefixes = {
+        "case": "CASE",
+        "acquisition": "ACQ",
+        "note": "NOTE",
+        "file": "FILE",
+    }
     if namespace not in known_prefixes or known_prefixes[namespace] != prefix:
         raise ToolkitError(f"Unknown identifier namespace: {namespace}")
     with _write_transaction(project_root) as connection:
@@ -835,8 +840,9 @@ def _verify_authority_state(
         )
 
 
-
-def _verify_note_sanctity(connection: sqlite3.Connection, rows: list[sqlite3.Row]) -> None:
+def _verify_note_sanctity(
+    connection: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> None:
     """Verify immutable note identities and their file-backed revision lineage."""
     tables = {
         str(row[0])
@@ -890,7 +896,9 @@ def _verify_note_sanctity(connection: sqlite3.Connection, rows: list[sqlite3.Row
         ).fetchall()
     }
     if set(live_notes) != set(created):
-        raise ToolkitError("Committed note tree does not match its signed creation history")
+        raise ToolkitError(
+            "Committed note tree does not match its signed creation history"
+        )
 
     live_revisions = {
         (str(row["note_id"]), int(row["revision"])): dict(row)
@@ -900,7 +908,9 @@ def _verify_note_sanctity(connection: sqlite3.Connection, rows: list[sqlite3.Row
         ).fetchall()
     }
     if set(live_revisions) != set(revision_events):
-        raise ToolkitError("Committed note revision tree does not match its signed history")
+        raise ToolkitError(
+            "Committed note revision tree does not match its signed history"
+        )
 
     for note_id, data in created.items():
         live = live_notes[note_id]
@@ -908,9 +918,13 @@ def _verify_note_sanctity(connection: sqlite3.Connection, rows: list[sqlite3.Row
             if live[field] != data.get(field):
                 raise ToolkitError(f"Committed note metadata was altered: {note_id}")
         if int(live["latest_revision"]) != latest[note_id]:
-            raise ToolkitError(f"Committed note revision pointer was altered: {note_id}")
+            raise ToolkitError(
+                f"Committed note revision pointer was altered: {note_id}"
+            )
         if str(live["package_disclosure"]) != disclosure[note_id]:
-            raise ToolkitError(f"Committed note disclosure state was altered: {note_id}")
+            raise ToolkitError(
+                f"Committed note disclosure state was altered: {note_id}"
+            )
 
     file_rows = {
         str(row["file_id"]): dict(row)
@@ -922,20 +936,30 @@ def _verify_note_sanctity(connection: sqlite3.Connection, rows: list[sqlite3.Row
         data = revision_events[key]
         file_id = str(live["file_id"])
         if file_id != str(data.get("file_id")):
-            raise ToolkitError(f"Committed note revision file pointer was altered: {key[0]}")
+            raise ToolkitError(
+                f"Committed note revision file pointer was altered: {key[0]}"
+            )
         if str(live["revision_type"]) != str(data.get("revision_type")):
             raise ToolkitError(f"Committed note revision type was altered: {key[0]}")
         file_row = file_rows.get(file_id)
         if file_row is None:
-            raise ToolkitError(f"Committed note revision file is missing from catalogue: {file_id}")
+            raise ToolkitError(
+                f"Committed note revision file is missing from catalogue: {file_id}"
+            )
         if str(file_row["sha256"]) != str(data.get("payload_sha256")):
-            raise ToolkitError(f"Note revision hash differs from its signed history: {file_id}")
+            raise ToolkitError(
+                f"Note revision hash differs from its signed history: {file_id}"
+            )
         visibility = str(live_notes[key[0]]["visibility"])
         expected_classification = (
-            "confidential-note-revision" if visibility == "confidential" else "note-revision"
+            "confidential-note-revision"
+            if visibility == "confidential"
+            else "note-revision"
         )
         if str(file_row["classification"]) != expected_classification:
-            raise ToolkitError(f"Note revision file classification was altered: {file_id}")
+            raise ToolkitError(
+                f"Note revision file classification was altered: {file_id}"
+            )
 
 
 def _verify_file_sanctity(
@@ -959,9 +983,13 @@ def _verify_file_sanctity(
             presentation[file_id] = "presented"
         elif event_type == "FILE_PRESENTATION_CHANGED":
             if file_id not in presentation:
-                raise ToolkitError(f"File presentation change precedes check-in: {file_id}")
+                raise ToolkitError(
+                    f"File presentation change precedes check-in: {file_id}"
+                )
             if details.get("from") != presentation[file_id]:
-                raise ToolkitError(f"File presentation history is inconsistent: {file_id}")
+                raise ToolkitError(
+                    f"File presentation history is inconsistent: {file_id}"
+                )
             presentation[file_id] = str(details["to"])
         elif event_type == "FILE_RELATIONSHIP_ADDED":
             relationships.add(
@@ -994,14 +1022,20 @@ def _verify_file_sanctity(
             "storage_path": str(row["storage_path"]),
         }
         if details != expected:
-            raise ToolkitError(f"Committed file metadata differs from audit history: {file_id}")
+            raise ToolkitError(
+                f"Committed file metadata differs from audit history: {file_id}"
+            )
         if str(row["presentation_state"]) != presentation[file_id]:
-            raise ToolkitError(f"File presentation state differs from audit history: {file_id}")
+            raise ToolkitError(
+                f"File presentation state differs from audit history: {file_id}"
+            )
         path = project_root / str(row["storage_path"])
         if path.is_symlink() or not path.is_file():
             if file_id in permitted_missing_file_ids:
                 continue
-            raise ToolkitError(f"Committed file is missing from the authoritative tree: {file_id}")
+            raise ToolkitError(
+                f"Committed file is missing from the authoritative tree: {file_id}"
+            )
         digest = hashlib.sha256()
         with path.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):

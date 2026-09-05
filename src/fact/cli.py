@@ -450,7 +450,6 @@ def _command_help(topic: Sequence[str]) -> int:
     return 0
 
 
-
 def _note_body(args: argparse.Namespace) -> str:
     """Read note text from one explicit CLI source."""
     if args.body is not None and args.body_file is not None:
@@ -689,15 +688,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 log("PASS", f"Note retained: {note_id}")
                 return 0
             if args.note_command == "read":
-                item = read_note(project_root, actor, args.note_id, revision=args.revision)
-                print(f"{item['note_id']} revision {item['revision']} [{item['visibility']}]")
-                if item['title']:
-                    print(item['title'])
-                print(item['body'])
+                item = read_note(
+                    project_root, actor, args.note_id, revision=args.revision
+                )
+                print(
+                    f"{item['note_id']} revision {item['revision']} [{item['visibility']}]"
+                )
+                if item["title"]:
+                    print(item["title"])
+                print(item["body"])
                 return 0
             if args.note_command == "revise":
                 revision = revise_note(
-                    project_root, actor, args.note_id, args.title, _note_body(args), args.reason
+                    project_root,
+                    actor,
+                    args.note_id,
+                    args.title,
+                    _note_body(args),
+                    args.reason,
                 )
                 log("PASS", f"Note revised: {args.note_id} revision {revision}")
                 return 0
