@@ -33,15 +33,13 @@ PROJECT.toml
     catalogue.sqlite
     catalogue-checkpoint.json          # when present
     catalogue-checkpoint.json.asc      # when present
+files/
+    FILE-######/...                    # project-scoped committed files
 cases/
-    ...
-archived/
-    *.7z
-    *.7z.sha256
-    *.7z.sha512
-    *.7z.asc
-    *.7z.operator.asc
-    *.7z.verification.txt
+    CASE-######/
+        CASE.toml
+        files/
+            FILE-######/...            # case-scoped committed files
 FACT-PACKAGE/
     PACKAGE.json
     MANIFEST.sha256
@@ -49,9 +47,9 @@ FACT-PACKAGE/
     evidence-key-fingerprint.txt
 ```
 
-The `.fact/catalogue.sqlite` member is produced through SQLite's backup API so that the package receives a transactionally consistent database snapshot.
+The `.fact/catalogue.sqlite` member is produced through SQLite's backup API so that the package receives a transactionally consistent database snapshot. Acquisition staging under `.fact/staging/` is not included. Failed acquisition working state remains project-local diagnostic material, not authoritative package evidence.
 
-The `archived/` member is also allow-listed conservatively. FACT includes only complete top-level sealed acquisition bundles and their expected checksum, signature and verification sidecars. Mutable `.staging-*` acquisition trees are not included. If a `.7z` archive is present without the complete sealing sidecar set, project packaging refuses to proceed rather than silently exporting a partial bundle.
+FACT no longer includes per-acquisition `.7z` bundles or their checksum/signature sidecars. Successful acquisitions are already represented by their individually committed `FILE-######` payloads and authenticated acquisition records, so embedding a second archive of the same bytes would duplicate rather than strengthen the authoritative record.
 
 The allow-list prevents unrelated working files, prior package outputs, caches, local configuration and private keyrings from being swept into an evidential package merely because they are present below the project directory.
 
@@ -59,7 +57,7 @@ Private keys are never included by the project packager.
 
 ## Symbolic links
 
-The current project package format rejects symbolic links anywhere in included case or acquisition material.
+The current project package format rejects symbolic links anywhere in included authoritative file or case material.
 
 This is a conservative first-version rule. It prevents links from ambiguously referring to material outside the package and avoids extraction-time path substitution. If a future acquisition source needs to preserve a symbolic link as evidence, FACT should represent that link explicitly as acquisition metadata rather than silently dereferencing it during project packaging.
 

@@ -341,6 +341,12 @@ def establish_project_genesis(
             raise ToolkitError("Project authority has already been established")
         data = _identity_data(owner, public_key)
         data["ownership_scope"] = "project"
+        data["export_policy"] = {
+            "ordinary_export": "members",
+            "ciphertext_export": "members",
+            "confidential_plaintext_export": "authority",
+            "broad_scope_export": "owner",
+        }
         sequence = _append_signed(
             connection,
             actor=owner,
@@ -387,6 +393,12 @@ def establish_project_genesis(
         connection.execute(
             "INSERT INTO ownership VALUES ('project', ?, ?, ?)",
             (project_id, owner.operator_id, sequence),
+        )
+        connection.execute(
+            "INSERT INTO export_policy(policy_id, ordinary_export, ciphertext_export, "
+            "confidential_plaintext_export, broad_scope_export, updated_sequence) "
+            "VALUES ('project', 'members', 'members', 'authority', 'owner', ?)",
+            (sequence,),
         )
         connection.execute(
             "INSERT OR REPLACE INTO metadata(key, value) VALUES ('authority_state', 'active')"

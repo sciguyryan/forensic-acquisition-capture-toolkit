@@ -25,6 +25,7 @@ from ..identity import OperatorIdentity
 from ..models import CaseInfo, iso_utc
 from ..services.commands import CommandRunner
 from .acquisition import AcquisitionContext, AcquisitionWorkspace, ArtefactRegistry
+from .artefacts import create_acquisition_artefacts
 from .authority import record_acquisition, require_registered_operator
 from .catalogue import catalogue_path, fail_identifier, issue_identifier, verify_chain
 from .files import FileCandidate, commit_files, relate_files
@@ -197,6 +198,25 @@ def run_collector_acquisition(
                 parent_file_id=parent_id,
                 child_file_id=child_id,
                 relationship=artefact.relationship,
+            )
+
+        artefacts = create_acquisition_artefacts(
+            root,
+            case_id=case.case_id,
+            acquisition_id=run_id,
+            entries=[
+                {
+                    "file_id": committed_by_path[item.path],
+                    "role": item.role.value,
+                    "description": item.description,
+                }
+                for item in context.artefacts.items()
+            ],
+        )
+        if artefacts:
+            workspace.note(
+                "INFO",
+                f"Assigned {len(artefacts)} immutable ART identifiers to retained collector artefacts",
             )
 
         file_ids = [str(item["file_id"]) for item in committed_files]

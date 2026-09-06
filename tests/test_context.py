@@ -109,9 +109,12 @@ def test_discovery_rejects_project_from_different_schema(tmp_path: Path) -> None
     """Do not reinterpret an active project created under another trust model."""
     initialise_project(tmp_path, "P-OLD", "Older project")
     project_file = tmp_path / "PROJECT.toml"
+    project_text = project_file.read_text(encoding="utf-8")
+    assert "schema_version = 7" in project_text
+    assert 'fact_version = "2.14.0"' in project_text
     project_file.write_text(
         project_file.read_text(encoding="utf-8").replace(
-            "schema_version = 6", "schema_version = 1"
+            "schema_version = 7", "schema_version = 1"
         ),
         encoding="utf-8",
     )

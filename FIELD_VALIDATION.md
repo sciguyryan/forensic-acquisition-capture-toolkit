@@ -1,6 +1,53 @@
-# FACT v2.11.0 field validation
+# FACT v2.14.0 field validation
 
-This release completes the first note convergence onto FACT's everything-as-a-file architecture. Field validation should concentrate on immutable file-backed note revisions, project versus case storage scope, confidential ciphertext persistence, note-to-file relationships, ownership-transfer re-encryption, filtered package disclosure, catalogue sanctity checks, and regression of the existing authority, acquisition and packaging behaviour.
+This release adds authenticated export/disclosure history, project export policy, confidential-authority transfer, immutable artefact identities, scoped verification and multi-format verification reports on top of the everything-as-a-file catalogue architecture. Field validation should concentrate on export-to-history correspondence, exact file matching, verification scope, policy enforcement, confidential-note authority changes and regression of acquisition, packaging and whole-project integrity.
+
+## Collector convergence checks
+
+### YouTube retained-file boundary
+
+1. Run a successful disposable YouTube acquisition with a source that exposes several kinds of material, such as media, source metadata, a thumbnail and captions where available.
+2. Inspect the acquisition's committed `FILE-######` entries. Confirm each retained source item and each retained FACT acquisition record has its own file identity.
+3. Confirm the primary media is classified `primary`, yt-dlp `.info.json` material is `source_metadata`, HTTP capture material is `network`, and ffprobe/MediaInfo reports are `inspection`.
+4. Confirm descriptive and inspection files that have a primary media target carry explicit file relationships rather than relying only on matching filenames.
+5. Confirm successful acquisition state contains no yt-dlp `.part`, `.ytdl`, `.tmp`, `.temp` or fragment scratch files. Such transient working material must not receive `FILE-######` identities. Successful `.fact/staging/acquisitions/` state should be removed after commitment and verification.
+
+### Screenshot/image retained-file boundary
+
+1. Capture a disposable screenshot through the supported image acquisition path.
+2. Confirm the exact original image bytes are committed as a `primary` file and `screenshot-capture.json` is committed separately as `metadata`.
+3. Confirm the metadata file has a `describes` relationship to the original image file.
+4. Verify the catalogue, then alter a committed screenshot byte and confirm verification detects the changed file. Restore the disposable project or repeat with a fresh capture before further testing.
+5. Confirm no annotation or redaction file is invented by acquisition. Those remain later review-layer work built on the immutable original.
+
+
+## Sealing and integrity convergence checks
+
+1. Create a disposable successful acquisition and inspect the project root. Confirm no `archived/CASE-....7z` acquisition package or acquisition hash/signature sidecars are created.
+2. Confirm there is no retained `EVIDENCESET-SHA256.txt`, `FILELIST.txt`, `SHA256SUMS.txt`, `SHA512SUMS.txt`, `CASE_RECORD.json`, `CASE_RECORD.md`, `TOOLKIT.json`, `VERIFICATION.txt`, `operator-identity.json` or copied acquisition public-key file unless a collector independently and explicitly retained a file with a different evidential purpose.
+3. Inspect `.fact/catalogue.sqlite`. The `ACQUISITION_RECORDED` authority transaction must contain the exact ordered `file_ids` list for the acquisition and the structured source/tool/observation record.
+4. Compare that list with `files.acquisition_id = ACQ-######`. They must agree exactly. Directly alter the signed event or the live file association in a disposable copy and confirm verification rejects the mismatch.
+5. Confirm `acquisition.log` is checked in once as a `transcript` file and there is no second successful `logs/` copy.
+6. Confirm the successful `.fact/staging/acquisitions/.staging-...` directory is removed only after catalogue verification succeeds.
+7. Force a collector failure or leave an unregistered scratch file in staging. FACT must refuse successful commitment, retain the `INCOMPLETE` staging tree for diagnosis, and not assign `FILE-######` identities to that unauthoritative material.
+8. Run `fact --root /path/to/project verify project` and `fact --root /path/to/project catalogue verify`. Both should validate the authoritative project model rather than requiring an acquisition archive.
+
+
+
+## Export, authority and verification checks
+
+1. Authenticate as the project owner and run `fact export policy show`. Confirm the policy is read from authenticated project state. Change one policy value with `fact export policy set`, verify the project, and confirm the policy change remains visible. In a disposable database copy, edit the policy row directly and confirm verification fails.
+2. Perform a native directory export of a file, artefact, acquisition and case. Confirm each attempt receives a distinct never-reused `EXPORT-######` and that the completed event records the actor, scope, policy sequence, view, source file identities, output paths and digests.
+3. Inspect `FACT-EXPORT.json`. Confirm it describes the exported representation but is not checked back into the project's `FILE-######` store. Generate a verification report and confirm the report likewise remains external unless deliberately admitted by a separate future check-in workflow.
+4. Run `fact verify export /path/to/export`. Confirm it identifies the exact `EXPORT-######`, validates the descriptor and output hashes, and maps the export back to the committed source file identities. Add, alter or remove an exported file in a disposable copy and confirm export verification fails.
+5. Copy one committed payload outside the project and run `fact verify file /path/to/copy`. Confirm every matching `FILE-######` is reported. If two independent file identities contain identical bytes, both must appear. Alter the copy and confirm it reports no correspondence rather than blessing the altered bytes.
+6. Run `fact verify artefact ART-######`, `fact verify acquisition ACQ-######`, `fact verify case CASE-######`, `fact verify id FILE-######`, and `fact verify project`. Confirm narrow structural verification states that unrelated sibling payloads were not rehashed, while project verification is exhaustive.
+7. Produce text, HTML, JSON and PDF reports with `--report`, `--output` and `--detailed`. Confirm each carries the same result/status semantics, identifies its verification scope and limitations, and does not create a project file identity.
+8. Authenticate as a non-owner active member. Exercise ordinary and broad-scope export under both permissive and owner-only policies. Confirm policy enforcement is fail-closed and a denied operator cannot obtain a successful export merely by selecting a narrower CLI path.
+9. Create a confidential note. Confirm ordinary export emits its committed ciphertext. Confirm plaintext export requires the current project owner or current confidential authority holder according to policy and is recorded as a derived export output rather than byte-identical evidence.
+10. As project owner, propose a `TRANSFER-######` for the confidential note to another active member. Confirm the outgoing authority holder cannot accept it. Have the nominated incoming member accept it and verify that immutable creator attribution is unchanged, a new cryptographic note revision is committed, current authority changes only after successful re-encryption, and the former authority holder can no longer decrypt through FACT.
+11. Repeat with rejection and owner cancellation. Confirm the proposal and outcome remain in authenticated history. Attempt a generic encrypted file/artefact authority transfer and confirm FACT refuses it until the generic encrypted-payload cryptographic transition is implemented rather than pretending authority moved.
+12. For a tar export protected to a recipient key, confirm the encrypted envelope's digest corresponds to the recorded export. `fact verify export` may establish exact envelope correspondence without decryption, but must clearly state that the internal plaintext representation was not independently inspected.
 
 ## Fresh environment
 
@@ -113,13 +160,13 @@ PROJECT-ID / CASE-000001> auth CONTRIBUTOR-ID
 PROJECT-ID / CASE-000001> acquire screenshot --acquisition-comment "Pending contributor acquisition"
 ```
 
-The acquisition should seal through the normal acquisition path and then appear in:
+The acquisition should commit its retained files, record the authenticated acquisition event, pass full project verification and then appear in:
 
 ```text
 record list
 ```
 
-with status `pending` because the contributor is not the responsible case owner. The archive, original acquisition timestamp, operator attribution and cryptographic provenance must already be fixed and must not change when the owner later decides the record.
+with status `pending` because the contributor is not the responsible case owner. The committed file set, original acquisition timestamp, operator attribution and provenance must already be fixed and must not change when the owner later decides the record.
 
 As the responsible owner, approve the acquisition:
 
@@ -151,13 +198,13 @@ Run catalogue verification again. FACT must reject the altered state because rec
 
 Restore the valid backup before testing another tamper scenario. Do not treat a successful direct SQL write as a FACT-supported mutation.
 
-Also modify a copied evidence archive or other digest-bound evidence file and confirm its normal evidence verification fails. These tests demonstrate the intended security property: FACT cannot prevent a sufficiently privileged user from writing different bytes, but unauthorised modification should not silently verify as legitimate project history.
+Also modify one committed `FILE-######` payload and confirm `fact verify project` or `fact catalogue verify` fails. These tests demonstrate the intended security property: FACT cannot prevent a sufficiently privileged user from writing different bytes, but unauthorised modification must not silently verify as legitimate project history.
 
 ## Regression checks
 
-Run representative owner and contributor screenshot acquisitions and one representative YouTube acquisition. Confirm successful evidence still follows the accepted sealing, detached-signature and self-verification process.
+Run representative owner and contributor screenshot acquisitions and one representative YouTube acquisition. Confirm each successful acquisition leaves only individually committed retained files plus authenticated catalogue state. There must be no per-acquisition `.7z`, `EVIDENCESET-SHA256.txt`, `FILELIST.txt`, internal SHA-256/SHA-512 manifest, archive checksum sidecar, detached acquisition signature or acquisition verification report.
 
-Create a project package and confirm catalogue verification occurs before export. Confirm the package retains the catalogue and sealed acquisition bundles while excluding private signing keys, passphrases, local GnuPG agent state, mutable staging directories and other operational material that does not belong in an evidential package.
+Create a project package and confirm catalogue verification occurs before export. Confirm the package retains `PROJECT.toml`, the catalogue snapshot, project/case committed file trees and package-specific verification metadata while excluding private signing keys, passphrases, local GnuPG agent state, acquisition staging and any legacy `archived/` directory that happens to exist.
 
 The release tree should not contain generated `*.egg-info/`, `coverage.xml`, `.coverage`, `__pycache__/`, `.pytest_cache/` or other development output.
 

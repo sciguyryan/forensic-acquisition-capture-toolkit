@@ -83,11 +83,22 @@ def _project_owner_id(connection: sqlite3.Connection) -> str:
     return str(row["owner_id"])
 
 
-def _recipient_keys(project_root: Path, author_id: str, owner_id: str) -> list[str]:
+def _recipient_keys(project_root: Path, authority_id: str, owner_id: str) -> list[str]:
     return [
         registered_operator_public_key(project_root, operator_id)
-        for operator_id in dict.fromkeys((author_id, owner_id))
+        for operator_id in dict.fromkeys((authority_id, owner_id))
     ]
+
+
+def _confidential_authority_id(connection: sqlite3.Connection, note_id: str) -> str:
+    row = connection.execute(
+        "SELECT authority_id FROM confidential_authority "
+        "WHERE object_type = 'note' AND object_id = ?",
+        (note_id,),
+    ).fetchone()
+    if row is None:
+        raise ToolkitError(f"Confidential note has no current authority: {note_id}")
+    return str(row["authority_id"])
 
 
 def _revision_candidate(
@@ -219,6 +230,9 @@ def create_note(
                 "file_id": revision_file_id,
                 "payload_sha256": digest,
                 "package_disclosure": "withheld",
+                "confidential_authority_id": actor.operator_id
+                if visibility == "confidential"
+                else None,
             },
             verification_key=str(key["public_key"]),
         )
@@ -240,6 +254,12 @@ def create_note(
             "created_sequence, revised_by, reason) VALUES (?, 1, ?, 'content', ?, ?, NULL)",
             (note_id, revision_file_id, sequence, actor.operator_id),
         )
+        if visibility == "confidential":
+            connection.execute(
+                "INSERT INTO confidential_authority(object_type, object_id, creator_id, "
+                "authority_id, effective_sequence) VALUES ('note', ?, ?, ?, ?)",
+                (note_id, actor.operator_id, actor.operator_id, sequence),
+            )
         _link_note_file(
             connection,
             subject_file_id=subject_file_id,
@@ -293,9 +313,10 @@ def read_note(
             raise ToolkitError(f"Unknown FACT note: {note_id}")
         if note["visibility"] == "confidential":
             owner_id = _project_owner_id(connection)
-            if actor.operator_id not in {str(note["author_id"]), owner_id}:
+            authority_id = _confidential_authority_id(connection, note_id)
+            if actor.operator_id not in {authority_id, owner_id}:
                 raise ToolkitError(
-                    "Confidential note is restricted to its author and current project owner"
+                    "Confidential note is restricted to its current authority and project owner"
                 )
         selected = revision or int(note["latest_revision"])
         row = connection.execute(
@@ -347,9 +368,16 @@ def revise_note(
         ).fetchone()
         if note is None:
             raise ToolkitError(f"Unknown FACT note: {note_id}")
-        if str(note["author_id"]) != actor.operator_id:
-            raise ToolkitError("Only the note author may revise a retained note")
         visibility = str(note["visibility"])
+        if visibility == "confidential":
+            owner_id = _project_owner_id(connection)
+            authority_id = _confidential_authority_id(connection, note_id)
+            if actor.operator_id not in {authority_id, owner_id}:
+                raise ToolkitError(
+                    "Only the current confidential authority or project owner may revise this note"
+                )
+        elif str(note["author_id"]) != actor.operator_id:
+            raise ToolkitError("Only the note author may revise a retained note")
         case_id = note["case_id"]
         subject_file_id = note["subject_file_id"]
         revision = int(note["latest_revision"]) + 1
@@ -359,8 +387,13 @@ def revise_note(
     raw = _payload(title.strip(), body)
     if visibility == "confidential":
         owner_id = str(current_owner(project_root)["owner_id"])
+        lookup = _connect(project_root)
+        try:
+            authority_id = _confidential_authority_id(lookup, note_id)
+        finally:
+            lookup.close()
         stored = encrypt_for_project_keys(
-            raw, _recipient_keys(project_root, actor.operator_id, owner_id)
+            raw, _recipient_keys(project_root, authority_id, owner_id)
         )
     else:
         stored = raw
@@ -370,14 +403,19 @@ def revise_note(
         live = connection.execute(
             "SELECT * FROM notes WHERE note_id = ?", (note_id,)
         ).fetchone()
-        if (
-            live is None
-            or str(live["author_id"]) != actor.operator_id
-            or int(live["latest_revision"]) + 1 != revision
-        ):
+        if live is None or int(live["latest_revision"]) + 1 != revision:
             raise ToolkitError(
                 "Note authority or revision state changed while revision was prepared"
             )
+        if str(live["visibility"]) == "confidential":
+            owner_id = _project_owner_id(connection)
+            authority_id = _confidential_authority_id(connection, note_id)
+            if actor.operator_id not in {authority_id, owner_id}:
+                raise ToolkitError(
+                    "Confidential note authority changed while revision was prepared"
+                )
+        elif str(live["author_id"]) != actor.operator_id:
+            raise ToolkitError("Note authorship changed while revision was prepared")
         revision_file_id = str(committed[0]["file_id"])
         key = _key_row(connection, actor.operator_id)
         sequence = _append_signed(
@@ -481,7 +519,9 @@ def reencrypt_confidential_notes_for_transfer(
 
     rows = connection.execute(
         "SELECT r.note_id, r.revision, r.file_id, n.author_id, n.case_id, "
-        "n.subject_file_id FROM note_revisions r JOIN notes n ON n.note_id = r.note_id "
+        "n.subject_file_id, ca.authority_id FROM note_revisions r "
+        "JOIN notes n ON n.note_id = r.note_id "
+        "JOIN confidential_authority ca ON ca.object_type = 'note' AND ca.object_id = n.note_id "
         "WHERE n.visibility = 'confidential' AND r.revision = n.latest_revision "
         "ORDER BY r.note_id"
     ).fetchall()
@@ -494,7 +534,7 @@ def reencrypt_confidential_notes_for_transfer(
         plaintext = decrypt_confidential_payload(old_ciphertext)
         try:
             recipient_ids = tuple(
-                dict.fromkeys((str(row["author_id"]), incoming_owner.operator_id))
+                dict.fromkeys((str(row["authority_id"]), incoming_owner.operator_id))
             )
             public_keys = []
             for operator_id in recipient_ids:
@@ -575,6 +615,161 @@ def reencrypt_confidential_notes_for_transfer(
                     revision_file_id,
                     sequence,
                     incoming_owner.operator_id,
+                    reason,
+                ),
+            )
+            connection.execute(
+                "UPDATE notes SET latest_revision = ? WHERE note_id = ?",
+                (revision, row["note_id"]),
+            )
+            _link_note_file(
+                connection,
+                subject_file_id=row["subject_file_id"],
+                revision_file_id=revision_file_id,
+            )
+            new_hashes.append(
+                f"{row['note_id']}:{revision}:{revision_file_id}:{digest}"
+            )
+    except Exception:
+        for directory in reversed(created_directories):
+            shutil.rmtree(directory, ignore_errors=True)
+        raise
+    finally:
+        for transfer_root in transfer_roots:
+            shutil.rmtree(transfer_root, ignore_errors=True)
+
+    aggregate = hashlib.sha256("\n".join(new_hashes).encode("ascii")).hexdigest()
+    return {
+        "confidential_revision_count": len(rows),
+        "confidential_ciphertext_digest": aggregate,
+        "_created_file_directories": created_directories,
+    }
+
+
+def reencrypt_confidential_notes_for_authority_transfer(
+    connection: sqlite3.Connection,
+    project_root: Path,
+    incoming_authority: OperatorIdentity,
+    note_ids: list[str],
+    project_owner_id: str,
+) -> dict[str, object]:
+    """Re-encrypt selected confidential notes to new authority plus project owner.
+
+    The caller owns the surrounding SQLite transaction. Every replacement is
+    prepared and cryptographically round-trip checked before any authoritative
+    note pointer is advanced. Historical ciphertext remains committed.
+    """
+
+    if not note_ids:
+        return {
+            "confidential_revision_count": 0,
+            "confidential_ciphertext_digest": hashlib.sha256(b"").hexdigest(),
+            "_created_file_directories": [],
+        }
+    placeholders = ",".join("?" for _ in note_ids)
+    rows = connection.execute(
+        "SELECT r.note_id, r.revision, r.file_id, n.case_id, n.subject_file_id, "
+        "ca.authority_id FROM note_revisions r "
+        "JOIN notes n ON n.note_id = r.note_id "
+        "JOIN confidential_authority ca ON ca.object_type = 'note' AND ca.object_id = n.note_id "
+        f"WHERE n.visibility = 'confidential' AND r.revision = n.latest_revision "
+        f"AND n.note_id IN ({placeholders}) ORDER BY n.note_id",
+        tuple(note_ids),
+    ).fetchall()
+    if {str(row["note_id"]) for row in rows} != set(note_ids):
+        raise ToolkitError(
+            "Authority transfer contains an unknown or non-confidential note"
+        )
+
+    key = _key_row(connection, incoming_authority.operator_id)
+    staged: list[tuple[sqlite3.Row, bytes, str]] = []
+    for row in rows:
+        old_ciphertext = _read_revision_bytes(
+            connection, project_root, str(row["file_id"])
+        )
+        plaintext = decrypt_confidential_payload(old_ciphertext)
+        try:
+            recipient_ids = tuple(
+                dict.fromkeys((incoming_authority.operator_id, project_owner_id))
+            )
+            public_keys = []
+            for operator_id in recipient_ids:
+                public_key_row = connection.execute(
+                    "SELECT public_key FROM operator_keys "
+                    "WHERE operator_id = ? AND state = 'active'",
+                    (operator_id,),
+                ).fetchone()
+                if public_key_row is None:
+                    raise ToolkitError(
+                        f"No active encryption key is retained for operator: {operator_id}"
+                    )
+                public_keys.append(str(public_key_row[0]))
+            replacement = encrypt_for_project_keys(plaintext, public_keys)
+            if decrypt_confidential_payload(replacement) != plaintext:
+                raise ToolkitError(
+                    "Replacement confidential-note ciphertext failed verification"
+                )
+        finally:
+            plaintext = b""
+        staged.append((row, replacement, hashlib.sha256(replacement).hexdigest()))
+
+    created_directories: list[Path] = []
+    transfer_roots: list[Path] = []
+    prepared_revisions = []
+    new_hashes: list[str] = []
+    try:
+        for row, replacement, digest in staged:
+            revision = int(row["revision"]) + 1
+            transfer_root, prepared = _prepare_payload_candidates(
+                project_root,
+                [
+                    _revision_candidate(
+                        str(row["note_id"]), revision, replacement, "confidential"
+                    )
+                ],
+            )
+            transfer_roots.append(transfer_root)
+            prepared_revisions.append((row, digest, revision, prepared))
+
+        for row, digest, revision, prepared in prepared_revisions:
+            committed, created = _commit_prepared(
+                connection,
+                project_root,
+                case_id=row["case_id"],
+                acquisition_id=None,
+                actor_id=incoming_authority.operator_id,
+                prepared=prepared,
+            )
+            created_directories.extend(created)
+            revision_file_id = str(committed[0]["file_id"])
+            reason = (
+                "Cryptographic re-encryption following confidential authority transfer"
+            )
+            sequence = _append_signed(
+                connection,
+                actor=incoming_authority,
+                event_type="NOTE_REENCRYPTED",
+                object_type="note",
+                object_id=str(row["note_id"]),
+                data={
+                    "revision": revision,
+                    "revision_type": "cryptographic",
+                    "file_id": revision_file_id,
+                    "payload_sha256": digest,
+                    "reason": reason,
+                },
+                verification_key=str(key["public_key"]),
+            )
+            connection.execute(
+                "INSERT INTO note_revisions(note_id, revision, file_id, revision_type, "
+                "created_sequence, revised_by, reason) "
+                "VALUES (?, ?, ?, 'cryptographic', ?, ?, ?)",
+                (
+                    row["note_id"],
+                    revision,
+                    revision_file_id,
+                    sequence,
+                    incoming_authority.operator_id,
                     reason,
                 ),
             )

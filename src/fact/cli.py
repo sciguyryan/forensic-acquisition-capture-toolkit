@@ -39,6 +39,13 @@ from .core.catalogue import (
     verify_checkpoint,
     write_checkpoint,
 )
+from .core.confidential_authority import (
+    accept_confidential_authority_transfer,
+    cancel_confidential_authority_transfer,
+    list_confidential_authority_transfers,
+    propose_confidential_authority_transfer,
+    reject_confidential_authority_transfer,
+)
 from .core.context import (
     choose_case_interactively,
     clear_selected_case,
@@ -48,6 +55,8 @@ from .core.context import (
     selected_case_path,
     set_selected_case,
 )
+from .core.export_policy import get_export_policy, set_export_policy
+from .core.exports import create_export, list_exports
 from .core.notes import (
     create_note,
     list_notes,
@@ -61,6 +70,15 @@ from .core.project import (
     create_owned_case,
     initialise_owned_project,
     retire_case,
+)
+from .core.reporting import REPORT_FORMATS, render_report, write_report
+from .core.verification import (
+    verify_export as verify_external_export,
+)
+from .core.verification import (
+    verify_external_file,
+    verify_id,
+    verify_structural,
 )
 from .errors import ToolkitError
 from .identity import export_public_key_text, interactive_identity, validate_identity
@@ -136,13 +154,106 @@ def parser() -> argparse.ArgumentParser:
     )
 
     verify_parser = subcommands.add_parser("verify")
-    verify_parser.add_argument(
-        "path",
-        type=Path,
-        nargs="?",
-        default=Path.cwd(),
-        help="Project path or a path beneath the project; defaults to the current directory",
+    verify_commands = verify_parser.add_subparsers(dest="verify_command", required=True)
+
+    def add_report_options(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--report",
+            nargs="?",
+            const="html",
+            choices=sorted(REPORT_FORMATS),
+            help="Produce a verification report; defaults to HTML when no format is named",
+        )
+        command.add_argument(
+            "--output", type=Path, help="Verification report destination"
+        )
+        command.add_argument(
+            "--detailed",
+            action="store_true",
+            help="Include full verification scope, findings and structured detail",
+        )
+
+    verify_file = verify_commands.add_parser("file")
+    verify_file.add_argument("file", type=Path)
+    add_report_options(verify_file)
+    verify_artefact = verify_commands.add_parser("artefact")
+    verify_artefact.add_argument("artefact_id")
+    add_report_options(verify_artefact)
+    verify_acquisition = verify_commands.add_parser("acquisition")
+    verify_acquisition.add_argument("acquisition_id")
+    add_report_options(verify_acquisition)
+    verify_case = verify_commands.add_parser("case")
+    verify_case.add_argument("case_id")
+    add_report_options(verify_case)
+    verify_project = verify_commands.add_parser("project")
+    add_report_options(verify_project)
+    verify_export = verify_commands.add_parser("export")
+    verify_export.add_argument("export_path", type=Path)
+    add_report_options(verify_export)
+    verify_identifier = verify_commands.add_parser("id")
+    verify_identifier.add_argument("identifier")
+    add_report_options(verify_identifier)
+
+    export_parser = subcommands.add_parser("export")
+    export_commands = export_parser.add_subparsers(dest="export_command", required=True)
+
+    def add_export_options(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--view", choices=["full", "presented"], default="presented"
+        )
+        command.add_argument("--representation", choices=["native"], default="native")
+        command.add_argument(
+            "--format", choices=["directory", "tar"], default="directory"
+        )
+        command.add_argument("--output", type=Path)
+        command.add_argument("--decrypt-confidential", action="store_true")
+        command.add_argument("--encrypt-to", action="append", default=[])
+        command.add_argument("--toolkit-root", type=Path)
+        command.add_argument("--force", action="store_true")
+
+    for export_type, argument in (
+        ("file", "file_id"),
+        ("artefact", "artefact_id"),
+        ("acquisition", "acquisition_id"),
+        ("case", "case_id"),
+    ):
+        command = export_commands.add_parser(export_type)
+        command.add_argument(argument)
+        add_export_options(command)
+    export_project = export_commands.add_parser("project")
+    add_export_options(export_project)
+    export_selection = export_commands.add_parser("selection")
+    export_selection.add_argument("identifiers", nargs="+")
+    add_export_options(export_selection)
+    export_commands.add_parser("list")
+
+    export_policy = export_commands.add_parser("policy")
+    policy_commands = export_policy.add_subparsers(dest="policy_command", required=True)
+    policy_commands.add_parser("show")
+    policy_set = policy_commands.add_parser("set")
+    policy_set.add_argument("--ordinary", choices=["owner", "members"])
+    policy_set.add_argument("--ciphertext", choices=["owner", "members"])
+    policy_set.add_argument("--confidential-plaintext", choices=["owner", "authority"])
+    policy_set.add_argument("--broad-scope", choices=["owner", "members"])
+
+    confidential_parser = subcommands.add_parser("confidential-authority")
+    confidential_commands = confidential_parser.add_subparsers(
+        dest="confidential_command", required=True
     )
+    confidential_commands.add_parser("list")
+    confidential_propose = confidential_commands.add_parser("propose")
+    confidential_propose.add_argument("from_operator_id")
+    confidential_propose.add_argument("to_operator_id")
+    confidential_propose.add_argument("objects", nargs="+")
+    confidential_propose.add_argument("--reason", required=True)
+    confidential_accept = confidential_commands.add_parser("accept")
+    confidential_accept.add_argument("transfer_id")
+    confidential_reject = confidential_commands.add_parser("reject")
+    confidential_reject.add_argument("transfer_id")
+    confidential_reject.add_argument("--reason", required=True)
+    confidential_cancel = confidential_commands.add_parser("cancel")
+    confidential_cancel.add_argument("transfer_id")
+    confidential_cancel.add_argument("--reason", required=True)
 
     subcommands.add_parser("keygen")
 
@@ -403,16 +514,70 @@ def _acquire(args: argparse.Namespace) -> int:
     )
 
 
-def _verify(args: argparse.Namespace) -> int:
-    """Verify the authoritative project catalogue and every committed file."""
-
-    project_root = discover_project_root(args.path)
-    result = verify_chain(project_root)
-    log(
-        "PASS",
-        f"FACT project verified: {result['event_count']} events, chain {result['chain_head']}",
+def _default_report_path(result: dict[str, object], format_name: str) -> Path:
+    target = (
+        str(result.get("target", "verification")).replace("/", "_").replace("\\", "_")
     )
-    return 0
+    suffix = {"text": ".txt", "html": ".html", "json": ".json", "pdf": ".pdf"}[
+        format_name
+    ]
+    return Path.cwd() / f"FACT-verification-{target}{suffix}"
+
+
+def _emit_verification_result(
+    args: argparse.Namespace, result: dict[str, object]
+) -> int:
+    status = str(result.get("status", "verified"))
+    report_format = getattr(args, "report", None)
+    detailed = bool(getattr(args, "detailed", False))
+    output_arg = getattr(args, "output", None)
+    if report_format:
+        output = output_arg or _default_report_path(result, report_format)
+        path = write_report(
+            result, format_name=report_format, output=output, detailed=detailed
+        )
+        log(
+            "PASS" if status == "verified" else "WARN",
+            f"Verification report written: {path}",
+        )
+    elif output_arg:
+        raise ToolkitError("--output requires --report")
+    summary_text = str(result.get("summary", "Verification completed"))
+    log("PASS" if status == "verified" else "WARN", summary_text)
+    if detailed and not report_format:
+        print(
+            render_report(result, format_name="text", detailed=True).decode("utf-8"),
+            end="",
+        )
+    return 0 if status == "verified" else 1
+
+
+def _verify(args: argparse.Namespace) -> int:
+    """Dispatch explicit correspondence or structural verification semantics."""
+
+    project_root = discover_project_root(
+        getattr(args, "root", getattr(args, "path", Path.cwd()))
+    )
+    verify_command = getattr(args, "verify_command", None)
+    if verify_command is None:
+        legacy = verify_chain(project_root)
+        log(
+            "PASS",
+            f"FACT project verified: {legacy['event_count']} events, chain {legacy['chain_head']}",
+        )
+        return 0
+    if verify_command == "file":
+        result = verify_external_file(project_root, args.file)
+    elif verify_command == "export":
+        result = verify_external_export(project_root, args.export_path)
+    elif verify_command == "id":
+        result = verify_id(project_root, args.identifier)
+    elif verify_command == "project":
+        result = verify_structural(project_root, "project")
+    else:
+        identifier = getattr(args, f"{verify_command}_id")
+        result = verify_structural(project_root, verify_command, identifier)
+    return _emit_verification_result(args, result)
 
 
 def _keygen(args: argparse.Namespace) -> int:
@@ -477,6 +642,126 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _acquire(args)
         if args.command == "verify":
             return _verify(args)
+        if args.command == "export":
+            project_root = discover_project_root(args.root)
+            require_project_authority(project_root)
+            if args.export_command == "list":
+                for item in list_exports(project_root):
+                    print(
+                        f"{item['export_id']}\t{item['state']}\t{item['scope_type']}\t"
+                        f"actor={item['actor_id']}\tsequence={item['created_sequence']}"
+                    )
+                return 0
+            if args.export_command == "policy":
+                if args.policy_command == "show":
+                    policy = get_export_policy(project_root)
+                    for field in (
+                        "ordinary_export",
+                        "ciphertext_export",
+                        "confidential_plaintext_export",
+                        "broad_scope_export",
+                        "updated_sequence",
+                    ):
+                        print(f"{field}={policy[field]}")
+                    return 0
+                actor = _active_project_identity(project_root, args.operator_id)
+                changes = {
+                    key: value
+                    for key, value in {
+                        "ordinary_export": args.ordinary,
+                        "ciphertext_export": args.ciphertext,
+                        "confidential_plaintext_export": args.confidential_plaintext,
+                        "broad_scope_export": args.broad_scope,
+                    }.items()
+                    if value is not None
+                }
+                if not changes:
+                    raise ToolkitError(
+                        "Export policy set requires at least one policy option"
+                    )
+                policy = set_export_policy(project_root, actor, **changes)
+                log(
+                    "PASS",
+                    f"Export policy updated at event {policy['updated_sequence']}",
+                )
+                return 0
+            actor = _active_project_identity(project_root, args.operator_id)
+            scope_type = args.export_command
+            scope_id = None
+            selection_ids = None
+            if scope_type == "file":
+                scope_id = args.file_id
+            elif scope_type == "artefact":
+                scope_id = args.artefact_id
+            elif scope_type == "acquisition":
+                scope_id = args.acquisition_id
+            elif scope_type == "case":
+                scope_id = args.case_id
+            elif scope_type == "selection":
+                selection_ids = args.identifiers
+            outputs = create_export(
+                project_root,
+                actor,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                selection_ids=selection_ids,
+                view_mode=args.view,
+                representation=args.representation,
+                output_format=args.format,
+                output=args.output,
+                decrypt_confidential=args.decrypt_confidential,
+                encrypt_to=args.encrypt_to,
+                toolkit_root=args.toolkit_root,
+                force=args.force,
+            )
+            log(
+                "PASS",
+                f"Export recorded: {outputs['export_id']} ({outputs['file_count']} file(s)) -> {outputs['output']}",
+            )
+            if outputs.get("encrypted"):
+                log("PASS", f"Encrypted export envelope: {outputs['encrypted']}")
+            return 0
+        if args.command == "confidential-authority":
+            project_root = discover_project_root(args.root)
+            require_project_authority(project_root)
+            if args.confidential_command == "list":
+                for item in list_confidential_authority_transfers(project_root):
+                    print(
+                        f"{item['transfer_id']}\t{item['state']}\t"
+                        f"{item['from_operator_id']}->{item['to_operator_id']}\t"
+                        f"objects={len(item['scope'])}"
+                    )
+                return 0
+            actor = _active_project_identity(project_root, args.operator_id)
+            if args.confidential_command == "propose":
+                transfer_id = propose_confidential_authority_transfer(
+                    project_root,
+                    actor,
+                    from_operator_id=args.from_operator_id,
+                    to_operator_id=args.to_operator_id,
+                    objects=args.objects,
+                    reason=args.reason,
+                )
+                log("PASS", f"Confidential authority transfer proposed: {transfer_id}")
+                return 0
+            if args.confidential_command == "accept":
+                transfer_id = accept_confidential_authority_transfer(
+                    project_root, actor, args.transfer_id
+                )
+                log("PASS", f"Confidential authority transfer accepted: {transfer_id}")
+                return 0
+            if args.confidential_command == "reject":
+                transfer_id = reject_confidential_authority_transfer(
+                    project_root, actor, args.transfer_id, args.reason
+                )
+                log("PASS", f"Confidential authority transfer rejected: {transfer_id}")
+                return 0
+            if args.confidential_command == "cancel":
+                transfer_id = cancel_confidential_authority_transfer(
+                    project_root, actor, args.transfer_id, args.reason
+                )
+                log("PASS", f"Confidential authority transfer cancelled: {transfer_id}")
+                return 0
         if args.command == "keygen":
             return _keygen(args)
         if args.command == "export-keypair":

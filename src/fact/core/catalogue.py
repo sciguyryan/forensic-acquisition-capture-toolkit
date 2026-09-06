@@ -17,7 +17,7 @@ from ..identity import verify_operator_payload
 from ..keys import fingerprint, prepare_gnupg, sign
 from ..services.commands import run
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 GENESIS_HASH = "0" * 64
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
@@ -91,6 +91,36 @@ def _state_digest(connection: sqlite3.Connection) -> str:
             "SELECT file_id, case_id, acquisition_id, actor_id, logical_path, classification, "
             "media_type, description, sha256, size_bytes, storage_path, committed_sequence, "
             "presentation_state FROM files ORDER BY committed_sequence, file_id"
+        ),
+        "artefacts": (
+            "SELECT artefact_id, case_id, acquisition_id, role, description, created_sequence, "
+            "presentation_state FROM artefacts ORDER BY created_sequence, artefact_id"
+        ),
+        "artefact_files": (
+            "SELECT artefact_id, file_id, member_role, created_sequence FROM artefact_files "
+            "ORDER BY created_sequence, artefact_id, file_id"
+        ),
+        "export_policy": (
+            "SELECT policy_id, ordinary_export, ciphertext_export, confidential_plaintext_export, "
+            "broad_scope_export, updated_sequence FROM export_policy ORDER BY policy_id"
+        ),
+        "confidential_authority": (
+            "SELECT object_type, object_id, creator_id, authority_id, effective_sequence "
+            "FROM confidential_authority ORDER BY object_type, object_id"
+        ),
+        "confidential_authority_transfers": (
+            "SELECT transfer_id, from_operator_id, to_operator_id, scope_json, state, reason, "
+            "proposed_sequence, resolved_sequence FROM confidential_authority_transfers "
+            "ORDER BY proposed_sequence, transfer_id"
+        ),
+        "exports": (
+            "SELECT export_id, actor_id, scope_type, scope_id, view_mode, representation, "
+            "output_format, output_sha256, manifest_sha256, state, policy_sequence, "
+            "created_sequence, completed_sequence FROM exports ORDER BY created_sequence, export_id"
+        ),
+        "export_items": (
+            "SELECT export_id, file_id, output_path, source_sha256, output_sha256, mode "
+            "FROM export_items ORDER BY export_id, output_path, file_id"
         ),
     }
     serialised: dict[str, list[dict[str, object]]] = {}
@@ -275,6 +305,83 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 FOREIGN KEY(file_id) REFERENCES files(file_id),
                 FOREIGN KEY(revised_by) REFERENCES operators(operator_id)
             );
+            CREATE TABLE artefacts (
+                artefact_id TEXT PRIMARY KEY,
+                case_id TEXT,
+                acquisition_id TEXT,
+                role TEXT NOT NULL,
+                description TEXT,
+                created_sequence INTEGER NOT NULL UNIQUE,
+                presentation_state TEXT NOT NULL DEFAULT 'presented'
+                    CHECK(presentation_state IN ('presented', 'retracted', 'superseded'))
+            );
+            CREATE TABLE artefact_files (
+                artefact_id TEXT NOT NULL,
+                file_id TEXT NOT NULL,
+                member_role TEXT NOT NULL DEFAULT 'member',
+                created_sequence INTEGER NOT NULL,
+                PRIMARY KEY(artefact_id, file_id),
+                FOREIGN KEY(artefact_id) REFERENCES artefacts(artefact_id),
+                FOREIGN KEY(file_id) REFERENCES files(file_id)
+            );
+            CREATE TABLE export_policy (
+                policy_id TEXT PRIMARY KEY CHECK(policy_id = 'project'),
+                ordinary_export TEXT NOT NULL CHECK(ordinary_export IN ('owner', 'members')),
+                ciphertext_export TEXT NOT NULL CHECK(ciphertext_export IN ('owner', 'members')),
+                confidential_plaintext_export TEXT NOT NULL
+                    CHECK(confidential_plaintext_export IN ('owner', 'authority')),
+                broad_scope_export TEXT NOT NULL CHECK(broad_scope_export IN ('owner', 'members')),
+                updated_sequence INTEGER NOT NULL
+            );
+            CREATE TABLE confidential_authority (
+                object_type TEXT NOT NULL CHECK(object_type IN ('file', 'note', 'artefact')),
+                object_id TEXT NOT NULL,
+                creator_id TEXT NOT NULL,
+                authority_id TEXT NOT NULL,
+                effective_sequence INTEGER NOT NULL,
+                PRIMARY KEY(object_type, object_id),
+                FOREIGN KEY(creator_id) REFERENCES operators(operator_id),
+                FOREIGN KEY(authority_id) REFERENCES operators(operator_id)
+            );
+            CREATE TABLE confidential_authority_transfers (
+                transfer_id TEXT PRIMARY KEY,
+                from_operator_id TEXT NOT NULL,
+                to_operator_id TEXT NOT NULL,
+                scope_json TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('pending', 'accepted', 'rejected', 'cancelled')),
+                reason TEXT NOT NULL,
+                proposed_sequence INTEGER NOT NULL,
+                resolved_sequence INTEGER,
+                FOREIGN KEY(from_operator_id) REFERENCES operators(operator_id),
+                FOREIGN KEY(to_operator_id) REFERENCES operators(operator_id)
+            );
+            CREATE TABLE exports (
+                export_id TEXT PRIMARY KEY,
+                actor_id TEXT NOT NULL,
+                scope_type TEXT NOT NULL CHECK(scope_type IN ('file', 'artefact', 'acquisition', 'case', 'project', 'selection')),
+                scope_id TEXT,
+                view_mode TEXT NOT NULL CHECK(view_mode IN ('full', 'presented')),
+                representation TEXT NOT NULL,
+                output_format TEXT NOT NULL,
+                output_sha256 TEXT,
+                manifest_sha256 TEXT,
+                state TEXT NOT NULL CHECK(state IN ('preparing', 'completed', 'failed', 'cancelled')),
+                policy_sequence INTEGER NOT NULL,
+                created_sequence INTEGER NOT NULL,
+                completed_sequence INTEGER,
+                FOREIGN KEY(actor_id) REFERENCES operators(operator_id)
+            );
+            CREATE TABLE export_items (
+                export_id TEXT NOT NULL,
+                file_id TEXT NOT NULL,
+                output_path TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL CHECK(length(source_sha256) = 64),
+                output_sha256 TEXT NOT NULL CHECK(length(output_sha256) = 64),
+                mode TEXT NOT NULL CHECK(mode IN ('native', 'derived')),
+                PRIMARY KEY(export_id, output_path),
+                FOREIGN KEY(export_id) REFERENCES exports(export_id),
+                FOREIGN KEY(file_id) REFERENCES files(file_id)
+            );
             """
         )
         connection.execute(
@@ -293,6 +400,9 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
         connection.execute("INSERT INTO counters VALUES ('acquisition', 1)")
         connection.execute("INSERT INTO counters VALUES ('note', 1)")
         connection.execute("INSERT INTO counters VALUES ('file', 1)")
+        connection.execute("INSERT INTO counters VALUES ('artefact', 1)")
+        connection.execute("INSERT INTO counters VALUES ('export', 1)")
+        connection.execute("INSERT INTO counters VALUES ('authority_transfer', 1)")
     finally:
         connection.close()
     path.chmod(0o600)
@@ -390,6 +500,9 @@ def issue_identifier(project_root: Path, namespace: str, prefix: str) -> str:
         "acquisition": "ACQ",
         "note": "NOTE",
         "file": "FILE",
+        "artefact": "ART",
+        "export": "EXPORT",
+        "authority_transfer": "TRANSFER",
     }
     if namespace not in known_prefixes or known_prefixes[namespace] != prefix:
         raise ToolkitError(f"Unknown identifier namespace: {namespace}")
@@ -966,9 +1079,11 @@ def _verify_file_sanctity(
     rows: list[sqlite3.Row],
     *,
     permitted_missing_file_ids: set[str] | None = None,
-) -> None:
+    file_ids_to_hash: set[str] | None = None,
+) -> int:
     """Verify every committed file still exists with exactly its committed bytes."""
     permitted_missing_file_ids = permitted_missing_file_ids or set()
+    hashed_count = 0
     committed_events: dict[str, dict[str, object]] = {}
     presentation: dict[str, str] = {}
     relationships: set[tuple[str, str, str, int]] = set()
@@ -1027,6 +1142,8 @@ def _verify_file_sanctity(
             raise ToolkitError(
                 f"File presentation state differs from audit history: {file_id}"
             )
+        if file_ids_to_hash is not None and file_id not in file_ids_to_hash:
+            continue
         path = project_root / str(row["storage_path"])
         if path.is_symlink() or not path.is_file():
             if file_id in permitted_missing_file_ids:
@@ -1042,6 +1159,7 @@ def _verify_file_sanctity(
             row["size_bytes"]
         ):
             raise ToolkitError(f"Committed file bytes have changed: {file_id}")
+        hashed_count += 1
     live_relationships = {
         (
             str(row["parent_file_id"]),
@@ -1056,6 +1174,7 @@ def _verify_file_sanctity(
     }
     if live_relationships != relationships:
         raise ToolkitError("File relationships do not match their audit history")
+    return hashed_count
 
 
 def _verify_acquisition_membership(
@@ -1106,7 +1225,10 @@ def _verify_acquisition_membership(
 
 
 def verify_chain(
-    project_root: Path, *, permitted_missing_file_ids: set[str] | None = None
+    project_root: Path,
+    *,
+    permitted_missing_file_ids: set[str] | None = None,
+    file_ids_to_hash: set[str] | None = None,
 ) -> dict[str, object]:
     """Verify the complete audit chain and current-state consistency.
 
@@ -1184,13 +1306,17 @@ def verify_chain(
 
         _verify_authority_state(connection, rows)
         _verify_note_sanctity(connection, rows)
-        _verify_file_sanctity(
+        hashed_file_count = _verify_file_sanctity(
             connection,
             project_root,
             rows,
             permitted_missing_file_ids=permitted_missing_file_ids,
+            file_ids_to_hash=file_ids_to_hash,
         )
         _verify_acquisition_membership(connection, rows)
+        from .integrity_state import verify_extended_state
+
+        verify_extended_state(connection, rows)
 
         for counter in connection.execute(
             "SELECT namespace, next_sequence FROM counters"
@@ -1215,6 +1341,7 @@ def verify_chain(
             "chain_head": previous,
             "state_digest": _state_digest(connection),
             "last_event_at": str(rows[-1]["occurred_at"]) if rows else None,
+            "hashed_file_count": hashed_file_count,
         }
     finally:
         connection.close()

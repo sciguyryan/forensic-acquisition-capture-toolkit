@@ -20,7 +20,7 @@ Once issued, an identifier is permanently consumed. Retirement, failed acquisiti
 
 Current-generation FACT projects initialise every supported identifier namespace when the catalogue is created. A missing required namespace is treated as an incompatible or damaged catalogue and FACT fails closed rather than rewriting it in place.
 
-A failed project acquisition records the issued acquisition identifier as `failed`. Where a staging tree was created, the `INCOMPLETE` marker remains so the failed attempt is not confused with sealed evidence.
+A failed project acquisition records the issued acquisition identifier as `failed`. Where a staging tree was created, the `INCOMPLETE` marker remains so the failed attempt is not confused with committed evidence.
 
 Acquisition through the current FACT command-line workflow is project based and uses catalogue-owned identifiers. Source collectors do not allocate independent evidence identifiers outside that project authority.
 

@@ -17,11 +17,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..errors import ToolkitError
-from .catalogue import CATALOGUE_DIR, PROJECT_NAME, list_identifiers
+from .catalogue import (
+    CATALOGUE_DIR,
+    PROJECT_NAME,
+    SCHEMA_VERSION,
+    list_identifiers,
+)
 
 _SELECTED_CASE_NAME = "selected-case"
-
-CURRENT_PROJECT_SCHEMA_VERSION = 6
 
 
 def _require_current_project(project_root: Path) -> None:
@@ -34,7 +37,7 @@ def _require_current_project(project_root: Path) -> None:
             f"Unable to read FACT project record: {project_file}"
         ) from exc
     schema = data.get("schema_version")
-    if schema != CURRENT_PROJECT_SCHEMA_VERSION:
+    if schema != SCHEMA_VERSION:
         raise ToolkitError(
             "This project belongs to a different FACT project schema and must be "
             "handled with the FACT version under which it was created; active "

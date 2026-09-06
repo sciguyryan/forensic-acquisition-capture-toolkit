@@ -2,9 +2,9 @@
 
 **Forensic Acquisition & Capture Toolkit**
 
-FACT is a source-agnostic digital evidence acquisition toolkit for collecting, preserving, sealing, and independently verifying online and digital material while maintaining provenance and evidential integrity.
+FACT is a source-agnostic digital evidence acquisition toolkit for collecting, preserving and independently verifying online and digital material while maintaining provenance and evidential integrity.
 
-FACT is designed around a simple principle: acquisition should preserve what was obtained, document how it was obtained, and provide the information necessary for another party to verify the resulting evidence package independently.
+FACT is designed around a simple principle: acquisition should preserve what was obtained, document how it was obtained, and provide the information necessary for another party to verify the resulting project evidence independently.
 
 The toolkit is intended to support multiple acquisition sources and evidence types. YouTube is the first supported acquisition source, inherited from the original YouTube Forensics project.
 
@@ -21,11 +21,11 @@ Support for a source should not be inferred merely because FACT is designed to a
 FACT is built around several core forensic principles:
 
 - **Preserve acquired material.** Original acquired media and other source artefacts should not be unnecessarily transformed or modified.
-- **Record provenance.** An evidence package should describe what was acquired, when it was acquired, how it was acquired, and which tools participated in the process.
+- **Record provenance.** The project record should describe what was acquired, when it was acquired, how it was acquired, and which tools participated in the process.
 - **Preserve acquisition records.** Relevant command execution, output, errors, metadata and supporting information should be retained where appropriate.
 - **Separate evidence from interpretation.** Acquired material and observable source data should remain distinguishable from subsequently generated documentation, analysis or conclusions.
-- **Fail conservatively.** An incomplete or unsuccessful acquisition must not be presented as successfully sealed evidence.
-- **Make integrity verifiable.** Evidence packages should contain cryptographic manifests and associated integrity information.
+- **Fail conservatively.** An incomplete or unsuccessful acquisition must not be presented as successfully committed evidence.
+- **Make integrity verifiable.** Committed files and authenticated catalogue state should retain the integrity information required for verification.
 - **Bind evidence to its operator.** Operator identity and signing material should provide an auditable relationship between an acquisition and the person responsible for it.
 - **Verify independently.** Verification should not depend upon trusting the originating machine or its normal cryptographic environment.
 - **Retain useful failure state.** Failed acquisition staging data should remain available where doing so assists investigation, diagnosis or recovery.
@@ -46,29 +46,25 @@ Acquisition
   v
 Staging
   |
-  +--> Acquired artefacts
+  +--> Retained source files
   +--> Source metadata
-  +--> Acquisition records
-  +--> Operator information
+  +--> Acquisition transcript
+  +--> Operator context
   |
   v
-Manifest
+Immutable file check-in
   |
   v
-Evidence package
-  |
-  +--> Cryptographic hashes
-  +--> Toolkit signature
-  +--> Operator signature
+Authenticated acquisition record
   |
   v
-Independent verification
+Project verification
   |
   v
-Sealed evidence
+Committed project state
 ```
 
-An acquisition is not considered successfully sealed merely because source material was downloaded. Collection, packaging, integrity protection and verification are separate stages.
+An acquisition is not considered successful merely because source material was downloaded. Retention, immutable check-in, authenticated recording and verification are separate stages. Packaging and export operate later on verified project state rather than forming part of acquisition commitment.
 
 ## Acquisition sources
 
@@ -88,11 +84,12 @@ Depending on the source and available material, acquisition can include:
 - subtitles or captions;
 - live chat where available;
 - acquisition command transcripts;
-- tool information;
-- evidence manifests; and
-- cryptographic integrity and signature material.
+- tool and inspection information; and
+- retained source or network capture material where available.
 
 Original downloaded media is preserved without transcoding.
+
+Every retained YouTube output crosses the same ordinary file check-in boundary as other FACT evidence. Media, source metadata, subtitles/captions, thumbnails, retained source links, network capture material, command transcripts and inspection reports are individually classified and committed as `FILE-######` objects when present. Explicit relationships connect descriptive and inspection records to their retained primary media. Temporary download fragments and scratch files are working state, not evidence: they are removed after successful capture and do not receive file identifiers merely because an acquisition tool created them.
 
 Some source acquisition is inherently best-effort. For example, material that is unavailable at acquisition time cannot be reconstructed by FACT. Such conditions should be recorded rather than silently treated as successful acquisition.
 
@@ -122,7 +119,7 @@ Additional source types will be introduced as FACT's generic acquisition archite
 
 ### Collector architecture
 
-FACT now uses an explicit collector boundary. Source-specific collectors receive a generic acquisition context and register the artefacts they intentionally produce; project management, staging state, evidence-set manifests, signing, sealing and mandatory verification remain source-independent core responsibilities.
+FACT now uses an explicit collector boundary. Source-specific collectors receive a generic acquisition context and register the files they intentionally retain; project management, staging policy, immutable file check-in, authenticated acquisition records, relationships and final project verification remain source-independent core responsibilities.
 
 The canonical Python package and command are both `fact`. Legacy package and console aliases are not part of the current codebase.
 
@@ -136,61 +133,56 @@ Detailed module boundaries, collector responsibilities and artefact-registry rul
 
 ## Everything as a file
 
-FACT treats every retained byte-bearing evidential object as an individually checked-in file. Primary media, screenshots, network request and response material, metadata, transcripts, manifests, verification reports and retained note revisions receive independent immutable file identities and hashes. Acquisitions, notes and later artefact groupings organise and explain those files rather than replacing them as the atomic evidential objects.
+FACT treats every retained byte-bearing evidential object as an individually checked-in file. Primary media, screenshots, network request and response material, source metadata, retained diagnostics, acquisition transcripts and retained note revisions receive independent immutable file identities and hashes. Acquisitions, notes and later artefact groupings organise and explain those files rather than replacing them as the atomic evidential objects.
 
 Once committed, file bytes and hashes are never rewritten. Later corrections, derivations, cryptographic re-encryption, retractions and presentation decisions create new files, records or state transitions while preserving the original history. This is the project's **no change left behind** rule. See `docs/EVERYTHING_AS_A_FILE.md` for the data model, examples and verification behaviour.
 
 ## Evidence staging
 
-FACT uses a staging area while an acquisition is in progress.
+FACT uses private project-local staging under `.fact/staging/acquisitions/` while an acquisition is in progress.
 
-An `INCOMPLETE` marker identifies evidence that has not successfully completed the acquisition and sealing process. This prevents partially acquired material from being confused with completed evidence.
+An `INCOMPLETE` marker identifies a staging tree that has not successfully completed authoritative file commitment and catalogue verification. Staging files are not evidence merely because FACT or an external acquisition tool touched them. Only intentionally retained material crosses the check-in boundary and receives a `FILE-######` identity.
 
-If acquisition fails, staging material is retained rather than automatically destroyed. This can preserve useful forensic and diagnostic information about what occurred before the failure.
+If acquisition fails, the staging tree is retained for diagnosis and recovery, but remains explicitly unauthoritative. On success, registered collector artefacts and the acquisition transcript are checked in through the ordinary immutable file store, the authenticated acquisition event binds the exact committed file set and provenance, the project catalogue is verified, and the now-duplicate staging tree is removed.
 
-Successful acquisition proceeds through finalisation and evidence-package creation.
+FACT no longer creates a second per-acquisition evidence archive. Portable archival representations belong to project packaging and the general export subsystem.
 
 ## Retained notes
 
-FACT projects can retain attributable notes as part of the project record. Every note revision is an ordinary immutable `FILE-######` object. Project-visible notes are stored as canonical note files and can be read by active authenticated project members. Confidential note revision files contain ciphertext only and are readable through FACT only by their author and the current project owner. SQLite retains note lineage, authority and file references rather than a mutable note-body BLOB.
+FACT projects can retain attributable notes as part of the project record. Every note revision is an ordinary immutable `FILE-######` object. Project-visible notes are stored as canonical note files and can be read by active authenticated project members. Confidential note revision files contain ciphertext only. Their immutable creator attribution is separate from current confidential authority: the current confidential authority holder and the current project owner may read them through FACT. SQLite retains note lineage, authority and file references rather than a mutable note-body BLOB.
 
-Notes are withheld from external project packages by default. Withholding omits their committed revision-file bytes from the filtered package view while retaining their identities and hashes in catalogue history. The project owner may explicitly include selected notes; confidential notes remain encrypted even when included. Project ownership transfer appends new cryptographic revision files for confidential notes before the authority change is allowed to commit. See `docs/NOTES.md` for examples and the security and failure model.
+Notes are withheld from external project packages by default. Withholding omits their committed revision-file bytes from the filtered package view while retaining their identities and hashes in catalogue history. The project owner may explicitly include selected notes; confidential notes remain encrypted even when included. Project ownership transfer and accepted confidential-authority transfer append new cryptographic revision files before the authority change is allowed to commit. See `docs/NOTES.md` for examples and the security and failure model.
 
 ## Evidence packages
 
-FACT packages completed acquisitions into self-contained evidence archives.
+FACT does not create a standalone archive for every acquisition. The live project itself is the authoritative record: the authenticated catalogue plus individually committed `FILE-######` payloads.
 
-An evidence package is intended to contain sufficient information to establish:
-
-- the acquired material;
-- relevant source information;
-- acquisition provenance;
-- the tools and commands involved;
-- the responsible operator;
-- the relationship between packaged files through cryptographic manifests; and
-- the integrity and authenticity information required for subsequent verification.
-
-The archive itself is cryptographically hashed and signed after creation.
-
-Generated records should not be confused with independently acquired evidence. FACT should make that distinction clear wherever generated documentation, summaries or other derived material are introduced.
+When a portable representation is required, project packaging creates a canonical self-contained package from verified project state. Package-time manifests, human-readable descriptors, public verification material, outer checksums and signatures are transport and verification representations of the authoritative project. They are not recursively checked back into the project merely because packaging generated them.
 
 ### Project packages
 
-FACT can package the current state of a project into a canonical project archive. Project packaging verifies the tamper-evident catalogue before export, embeds the catalogue event count and chain head as an external rollback anchor, writes an internal SHA-256 manifest, creates a detached OpenPGP signature and archive checksum, and verifies the generated package before reporting success.
+FACT can package the current state of a project into a canonical project archive. Project packaging verifies the tamper-evident catalogue and every committed file before export, embeds the catalogue event count and chain head as an external rollback anchor, writes an internal package SHA-256 manifest, creates a detached OpenPGP signature and archive checksum, and verifies the generated package before reporting success.
 
-The canonical package remains unencrypted so its evidential identity is independent of its recipients. Optional OpenPGP encryption creates a separate encrypted envelope without replacing the signed canonical package. Private signing keys and local operational secrets are never included.
+The canonical package remains unencrypted so its package identity is independent of its recipients. Optional OpenPGP encryption creates a separate encrypted envelope without replacing the signed canonical package. Private signing keys and local operational secrets are never included.
 
 Detailed package-format, encryption and recovery documentation is provided in `docs/PROJECT_PACKAGES.md`.
 
+
+## Export policy and confidential authority
+
+Each project carries an authenticated export policy. The policy separately controls ordinary export, ciphertext export, confidential plaintext export and broad case/project export. Policy changes are owner-authorised append-only events, so a later `EXPORT-######` can be evaluated against the policy that was actually in force when it occurred.
+
+Confidential authorship and confidential authority are deliberately different concepts. Creator attribution never changes. Current confidential authority may move only through an authenticated `TRANSFER-######`: the project owner proposes the exact scope, the nominated incoming active member accepts or rejects it, and the historical decision remains in the chain. For confidential notes, acceptance performs and validates the required immutable re-encryption before authority changes. Generic encrypted file/artefact cryptographic transfer remains intentionally unsupported until FACT has a defined generic encrypted-payload format.
+
+This distinction also governs export. Project policy may permit ordinary operators to export ordinary material or ciphertext, but confidential plaintext requires the current project owner or the object's current confidential authority holder according to policy. Export permission does not imply decryption permission.
+
 ## Cryptographic integrity
 
-FACT uses cryptographic hashes and OpenPGP signatures to protect completed evidence packages.
+FACT's live integrity model is catalogue-centred. Every committed file has its own SHA-256 digest and immutable metadata, and those file-commit events participate in the authenticated rolling catalogue history. Each recorded acquisition additionally binds the exact ordered set of committed `FILE-######` identifiers to its source, tool, operator and observation provenance.
 
-The signing model distinguishes between toolkit signing material and operator identity.
+The former per-acquisition `EVIDENCESET-SHA256.txt`, `FILELIST.txt`, `SHA256SUMS.txt`, `SHA512SUMS.txt`, archive checksum sidecars and detached acquisition-archive signatures are no longer part of the live project model. Maintaining parallel inventories and duplicate integrity layers would create additional representations that could drift from the authoritative catalogue without strengthening the underlying chain of custody.
 
-This allows an evidence package to demonstrate both that it was produced through the FACT sealing process and that an identified operator cryptographically authorised the acquisition.
-
-Private signing keys are not evidence artefacts and must not be included in distributable source packages or evidence intended for third parties.
+Signed catalogue authority transactions, signed checkpoints and signed portable project packages still serve distinct authentication and external-anchor purposes. Private signing keys are not evidence artefacts and must not be included in ordinary project packages or general exports.
 
 ## Operator identity
 
@@ -202,17 +194,31 @@ Authority-changing catalogue events are individually signed and also enter the e
 
 Signing credentials should be protected appropriately for the environment in which FACT is deployed.
 
-## Independent verification
+## Export and independent verification
 
-Verification is a first-class part of FACT rather than an optional afterthought.
+Verification is a first-class part of FACT rather than an optional afterthought. The command family makes the claim being tested explicit:
 
-The verifier checks the structure and integrity of an evidence package and validates its cryptographic signatures.
+```bash
+fact verify file /path/to/external/file
+fact verify artefact ART-000001
+fact verify acquisition ACQ-000001
+fact verify case CASE-000001
+fact verify project
+fact verify export /path/to/export
+fact verify id FILE-000001
+```
 
-Signature verification is performed using an isolated temporary GnuPG environment rather than implicitly trusting the user's ordinary keyring.
+`verify file` is correspondence verification. It hashes an external file, reports every matching committed `FILE-######` identity, and validates the authenticated project state supporting those matches. Identical bytes may legitimately map to several file identities because independent captures have independent provenance.
 
-Archive extraction and inspection are also treated defensively. Unsafe archive paths, traversal attempts and inappropriate symbolic links must not be trusted simply because an archive carries a recognised FACT structure.
+Structural verification starts with an authoritative FACT object. It verifies the selected object's descendant file payloads and the authenticated catalogue path that gives the object meaning. `verify project` remains exhaustive and rehashes every committed file. A narrower case, acquisition or artefact verification does not claim that unrelated sibling payloads were rehashed.
 
-The objective is that a recipient can verify a FACT evidence package independently of the machine on which the acquisition was originally performed.
+FACT exports selected authoritative material through `fact export`. Every export attempt receives a never-reused `EXPORT-######` and is recorded in authenticated history. A completed export binds its actor, scope, project export policy, selected `FILE-######` identities, representation, view, output paths and digests. A generated `FACT-EXPORT.json` describes the portable representation but does not become project evidence merely because FACT generated it. `verify export` maps that representation back to its exact recorded export event and source files.
+
+The current export implementation supports native directory and deterministic tar representations, explicit multi-selection, full or presented views, confidential-note ciphertext by default, authorised confidential-note plaintext derivation, and optional OpenPGP protection of tar output. Rendered and archival representations are deliberately deferred until their transformation semantics can be defined and verified without overstating byte identity.
+
+Verification results can be emitted as text, HTML, JSON or PDF with `--report`, written with `--output`, and expanded with `--detailed`. All formats are rendered from the same structured verification result. Reports state both what was verified and relevant limitations; generating a report does not silently check it back into FACT.
+
+Portable project packages retain their separate package-level manifest, checksum and signature verification. Packaging is a canonical project transport operation; general export is a policy-controlled disclosure operation. Neither recreates the retired per-acquisition archive verifier.
 
 ## Requirements
 
@@ -289,7 +295,7 @@ The project's continuous-integration configuration should be treated as the auth
 
 FACT assists with acquisition, preservation, provenance and integrity verification. It does not by itself establish the legal admissibility, authenticity, meaning or evidential weight of acquired material.
 
-A valid FACT evidence package can demonstrate properties such as package integrity and cryptographic provenance. It cannot prove that material published by a third-party source was truthful, that an account was controlled by a particular real-world individual, or that an online service supplied historically complete information.
+A valid FACT project or verified portable representation can demonstrate properties such as file integrity, authenticated project history and cryptographic provenance. It cannot prove that material published by a third-party source was truthful, that an account was controlled by a particular real-world individual, or that an online service supplied historically complete information.
 
 Remote digital sources can also change or disappear without notice. FACT can preserve material available to it during acquisition, but it cannot recover information that the source no longer exposes.
 
@@ -331,10 +337,10 @@ See the repository's licence information for the terms under which FACT is distr
 
 ## Projects and catalogue
 
-FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case, acquisition, note and file identifiers, records lifecycle and authority events in a SHA-256 hash chain, retains project operator identities and public verification material, tracks contributor membership and ownership, and supports signed checkpoints for independent verification.
+FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case, acquisition, note, file, artefact, export and authority-transfer identifiers (`CASE-######`, `ACQ-######`, `NOTE-######`, `FILE-######`, `ART-######`, `EXPORT-######` and `TRANSFER-######`), records lifecycle and authority events in a SHA-256 hash chain, retains project operator identities and public verification material, tracks contributor membership, confidential authority and ownership, and supports signed checkpoints for independent verification.
 
 The project owner is the human authority represented by this ledger. The SQLite catalogue is not intended to make a writable project impossible to alter; it is intended to make unauthorised modification detectable. Signed authority transactions and state reconstruction prevent changes to operator identity, ownership, membership or approval status from being silently accepted merely because somebody has edited the database.
 
 Routine acquisitions no longer require operators to retype a case identifier. FACT can infer the current case from the working directory, use the project's selected case, automatically use the sole active case, or present an interactive numbered selector when a choice is required. New cases are allocated sequentially and selected automatically.
 
-Detailed design and operational behaviour are documented in [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md), [`docs/AUTHORITY_AND_IDENTITY.md`](docs/AUTHORITY_AND_IDENTITY.md), and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The interactive workflow is described in [`docs/SHELL.md`](docs/SHELL.md), while accepted future workflow work is recorded in [`docs/TODO.md`](docs/TODO.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).
+Detailed design and operational behaviour are documented in [`docs/EVERYTHING_AS_A_FILE.md`](docs/EVERYTHING_AS_A_FILE.md), [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md), [`docs/AUTHORITY_AND_IDENTITY.md`](docs/AUTHORITY_AND_IDENTITY.md), [`docs/NOTES.md`](docs/NOTES.md), and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The interactive workflow is described in [`docs/SHELL.md`](docs/SHELL.md), while accepted future workflow work is recorded in [`docs/TODO.md`](docs/TODO.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).

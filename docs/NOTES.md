@@ -83,9 +83,9 @@ FACT currently supports two note classes.
 
 A `project` note is readable by active authenticated project members. Its revision file contains the canonical JSON note representation in plaintext because the project itself is the access boundary for that note class.
 
-A `confidential` note is readable only by its author and the current project owner. Its committed revision file contains ciphertext, not plaintext.
+A `confidential` note is readable only by its current confidential authority holder and the current project owner. Its committed revision file contains ciphertext, not plaintext.
 
-The word `project` means project-visible. It does not mean automatically disclosed outside the project. Package and future export disclosure are separate decisions.
+The word `project` means project-visible. It does not mean automatically disclosed outside the project. Package and export disclosure are separate decisions.
 
 ## Confidential files
 
@@ -146,16 +146,16 @@ Both files remain committed. The note's current-revision pointer moves to revisi
 
 A cryptographic revision changes the stored encrypted representation without asserting that the semantic note text changed.
 
-This distinction is important during project ownership transfer. If a confidential note must become decryptable by its author and the incoming project owner, FACT creates a new ciphertext file and records the revision type as `cryptographic`.
+This distinction is important during project ownership transfer. If a confidential note must become decryptable by its current confidential authority holder and the incoming project owner, FACT creates a new ciphertext file and records the revision type as `cryptographic`.
 
 For example:
 
 ```text
 NOTE-000020
 ├── revision 1 -> FILE-000101  content
-│                 encrypted for author + Owner A
+│                 encrypted for authority holder + Owner A
 └── revision 2 -> FILE-000122  cryptographic
-                  encrypted for author + Owner B
+                  encrypted for authority holder + Owner B
 ```
 
 `FILE-000101` is not rewritten or deleted. Its existence demonstrates what encrypted representation was authoritative before the transfer.
@@ -227,10 +227,16 @@ The omission is a presentation/disclosure decision. It is not deletion from the 
 
 An included project note is packaged as its committed plaintext revision file. An included confidential note is packaged as its committed ciphertext revision file. Project packaging never decrypts confidential notes.
 
-The later generalised export subsystem will provide richer selection, full-record versus presented-record views, owner-authorised decrypted export, layered rendering and optional output encryption. Packaging remains a distinct self-contained archival operation rather than becoming the only export mechanism.
+The generalised export subsystem provides explicit selection, full-record and presented-record views, authorised confidential-note plaintext export, and optional output encryption. Layered and rendered representations remain future work until their transformation and verification semantics are implemented. Packaging remains a distinct self-contained archival operation rather than becoming the only export mechanism.
 
 ## Retraction
 
 The general architecture distinguishes committed existence from presentation. Retraction therefore must never mean deleting a note or a revision file.
 
 When note-level retraction is exposed through the user interface, it will be an append-only presentation transition. A full historical export will be able to include the note and all revisions. A presented/filtered export may omit retracted material, but it must identify itself as a filtered view rather than a complete authoritative record.
+
+## Confidential authority transfer
+
+The operator who created a confidential note remains its immutable creator in provenance. Current confidential authority is a separate state and may be transferred without rewriting that authorship. Only the current project owner may propose transfer, and the nominated incoming active project member must accept before authority changes. Rejection or owner cancellation remains in authenticated history.
+
+Acceptance re-encrypts every selected confidential note into new immutable cryptographic revision files for the incoming authority holder and current project owner, validates the replacements, and changes authority only after the whole selected note set succeeds. The outgoing authority holder's historical ciphertext revisions remain in the project but no longer confer current FACT decryption authority.

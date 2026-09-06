@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.14.0 - Export, Verification and Authority
+
+- Added immutable `ART-######` identities that group retained collector artefacts without replacing atomic `FILE-######` evidence identities.
+- Added authenticated project export policy with separate controls for ordinary material, ciphertext, confidential plaintext and broad case/project export.
+- Added policy-controlled exports with never-reused `EXPORT-######` history, native directory/tar output, full/presented views, explicit selections and portable `FACT-EXPORT.json` descriptors.
+- Bound completed exports to the exact actor, policy sequence, scope, source file identities, representation, output paths and digests in authenticated catalogue history.
+- Added confidential-authority state separate from immutable authorship and owner-proposed, recipient-confirmed `TRANSFER-######` lifecycle events.
+- Added all-or-nothing confidential-note re-encryption when accepted authority transfer changes the authorised operator.
+- Added explicit verification commands for external files, artefacts, acquisitions, cases, projects, exports and immutable IDs.
+- Added targeted structural verification that authenticates complete project history/state while rehashing only the selected evidential subtree; exhaustive project verification still rehashes every committed file.
+- Added text, HTML, JSON and PDF verification reports from one structured result model, with optional detailed findings and explicit limitations.
+- Added exact external-file matching across all identical committed `FILE-######` identities and export-to-history correspondence verification.
+- Kept generated export descriptors and verification reports outside the authoritative file record unless deliberately checked back in.
+- Removed the unused orchestration local reported by Ruff during v2.13 field validation.
+
+## 2.13.0 - Integrity Convergence
+
+- Made the authenticated catalogue and individually committed `FILE-######` objects the sole authoritative live acquisition inventory.
+- Removed per-acquisition 7-Zip archives, `EVIDENCESET-SHA256.txt`, `FILELIST.txt`, internal SHA-256/SHA-512 manifests, archive checksum sidecars, detached acquisition-archive signatures and the legacy archive verifier.
+- Removed generated acquisition copies of case records, toolkit metadata, operator identity/public-key files and verification instructions where those facts are already retained in authenticated catalogue state.
+- Bound every successful `ACQUISITION_RECORDED` authority transaction to the exact ordered committed file-ID set plus structured source, tool, observation and case provenance.
+- Added catalogue verification of acquisition-to-file membership as the authoritative replacement for duplicate evidence-set manifests.
+- Moved acquisition staging beneath protected project-local `.fact/staging/acquisitions/`; successful staging is removed after full project verification while failed staging remains explicitly unauthoritative for diagnosis.
+- Retained the acquisition transcript as a single ordinary immutable `transcript` file and rejected unexplained regular files left in successful staging instead of silently admitting temporary implementation debris as evidence.
+- Removed the now-unused 7-Zip archive and checksum-manifest services from the runtime acquisition architecture.
+- Changed top-level `fact verify [PATH]` to verify the live FACT project catalogue and every committed file rather than a retired per-acquisition archive.
+- Updated project packaging so it copies only authoritative project/case file state and package-specific verification metadata, never legacy acquisition archives or acquisition staging.
+- Bumped the unreleased project/catalogue schema boundary to version 6. No compatibility migration is provided for earlier development schemas.
+
+## 2.12.0 - Collector Convergence
+
+- Converged retained YouTube and screenshot/image acquisition outputs on the everything-as-a-file classification and relationship model.
+- Added source-metadata, network and inspection classifications for retained collector material while preserving the existing primary/supporting roles.
+- Added explicit retained-file relationships so screenshot capture metadata describes its immutable original and YouTube metadata/inspection outputs can reference primary media.
+- Distinguished successful retained evidence from temporary acquisition working state; known yt-dlp fragment/scratch files are removed after successful capture and never receive `FILE-######` identities.
+- Added meaningful classifications and media types for FACT-generated acquisition records instead of treating every unregistered retained record as an undifferentiated record.
+- Restored the README catalogue invariant to state that case, acquisition, note and file identifiers are all never reused.
+
 ## 2.11.0 - File-backed Notes
 
 - Moved retained note content onto the ordinary immutable `FILE-######` store; SQLite now retains note lineage and file references rather than note payload BLOBs.

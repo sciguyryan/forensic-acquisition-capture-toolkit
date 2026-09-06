@@ -75,13 +75,13 @@ A checkpoint describes an exact catalogue state. After legitimate catalogue muta
 
 A self-contained signed catalogue cannot by itself detect replacement with an older catalogue and its matching older valid checkpoint. This is a rollback attack.
 
-Future sealed FACT acquisition packages should cryptographically bind the relevant project ID, catalogue event sequence and chain-head hash. Once such a package has been independently retained, it becomes an external anchor against silent rollback of the local project catalogue. Additional external checkpoint publication or protected backup can provide stronger anchoring where required.
+Independently retained signed project packages bind the project ID, catalogue event sequence and chain-head hash and can therefore provide an external anchor against silent rollback of the local project catalogue. External checkpoint publication or protected backup can provide additional anchoring where required.
 
 ## Threat model
 
 The catalogue is intended to detect accidental edits and make casual manual tampering substantially more difficult. It protects against common attempts such as changing an issued identifier, removing a retirement event, rewriting current state without updating history, or modifying a checkpoint without the signing key.
 
-It does not claim to defeat an attacker who simultaneously controls the host, FACT process, signing credentials, all historical checkpoints and every externally retained evidence package.
+It does not claim to defeat an attacker who simultaneously controls the host, FACT process, signing credentials, all historical checkpoints and every externally retained signed project package.
 
 ## Encryption
 

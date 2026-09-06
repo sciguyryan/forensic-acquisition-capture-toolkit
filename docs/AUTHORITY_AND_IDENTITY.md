@@ -108,7 +108,7 @@ This historical distinction is important. If an operator creates or approves mat
 
 ## Recorded material and owner decisions
 
-A sealed acquisition is recorded in the authority ledger immediately. The record is therefore part of the same rolling history whether the acquisition was performed by the owner or by a contributor.
+A successfully committed acquisition is recorded in the authority ledger immediately after its retained `FILE-######` set has been checked in. The record is therefore part of the same rolling history whether the acquisition was performed by the owner or by a contributor.
 
 When the responsible case owner performs the acquisition, the authority status is `approved` immediately. When an active contributor performs it, the status begins as `pending`. The responsible owner can later approve or reject the record:
 
@@ -118,7 +118,7 @@ fact --root /path/to/project record approve ACQ-000123
 fact --root /path/to/project record reject ACQ-000123 --reason "Outside agreed scope"
 ```
 
-Approval or rejection changes the authority state of the recorded acquisition. It does not change the acquisition's original collection time, operator, provenance, archive digest or position in the historical chain. Rejected material remains historically recorded rather than being deleted or made to appear never to have existed.
+Approval or rejection changes the authority state of the recorded acquisition. It does not change the acquisition's original collection time, operator, provenance, committed file membership or position in the historical chain. Rejected material remains historically recorded rather than being deleted or made to appear never to have existed.
 
 This distinction allows FACT to preserve both facts at once: a contributor really did collect and submit particular material, and the responsible owner either accepted or rejected it as part of the authoritative project record.
 

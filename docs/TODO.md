@@ -19,17 +19,14 @@ This document records accepted future work that has not yet been implemented. It
 
 ## Generalised evidence export
 
-- Build a general export subsystem distinct from project packaging. Export selects and represents evidential material; packaging creates a self-contained verifiable FACT package.
-- Support export scopes for an individual `FILE-######`, logical artefact, acquisition, case, complete project and sensible explicit multi-selection.
-- Support a full historical record view and a presented/filtered view. The full view includes retracted material and historical representations. A presented view may omit material currently retracted or otherwise withheld, but must identify itself as filtered and must never imply that omitted committed history did not exist.
-- Preserve identifiers, hashes, provenance and relevant relationships so recipients can determine exactly which FACT objects an export came from and which filtering or transformation decisions were applied.
-- For encrypted artefacts, including confidential notes, default to exporting the committed encrypted representation unless an authorised owner explicitly requests decrypted output. Decryption must never occur merely because the object was selected for export.
-- Refuse apparently complete output when a selected encrypted artefact cannot be decrypted, a selected file cannot be verified, a required layer cannot be resolved, or another mandatory representation step fails. Partial output must never silently masquerade as a complete selection.
-- Support layered artefacts. For images and later review-capable media, allow exporting the immutable original, selected structured layers, the complete layered representation, or an explicitly rendered/flattened derivative. Rendering never alters the authoritative source objects.
-- Support multiple output representations appropriate to the selected material, including native/raw files, structured machine-readable forms, human-readable/rendered forms and archival forms where defined.
-- Support optionally encrypting the resulting export to one or more explicitly selected recipient keys. Output encryption is an outer protection choice and is independent of whether source artefacts are encrypted inside FACT.
-- Record enough export metadata to distinguish source selection, historical/presented view, decryption decisions, layer/rendering decisions, output format and recipient encryption without turning the exported copy into new authoritative project evidence automatically.
-- If an exported or rendered result is deliberately checked back into FACT, treat it as a new immutable derivative file with explicit provenance rather than updating its source.
+The v2.14 foundation implements authenticated export policy, immutable `EXPORT-######` events, native directory/tar export, full/presented views, multi-selection, export verification and confidential-note ciphertext/plaintext handling. Remaining expansion work is:
+
+- Add rendered/flattened, structured and archival representations with deterministic transformation/provenance descriptions and verification semantics.
+- Add first-class layered image/review export after annotation and proposed-redaction layers exist.
+- Extend recipient-encryption UX and key selection while preserving output protection as a choice independent from source confidentiality.
+- Implement a generic encrypted file/artefact payload format and authenticated streaming/chunk cryptography before enabling cryptographic authority transfer or plaintext export for large generic encrypted artefacts.
+- Expand export receipts/summary presentation where useful without checking generated descriptors back into evidence automatically.
+- If an exported/rendered result is deliberately checked back into FACT, admit it as a new immutable derivative file with explicit provenance.
 
 ## Operator onboarding and project-local cryptographic bootstrap
 
@@ -40,7 +37,7 @@ This document records accepted future work that has not yet been implemented. It
 - Store every project-owned configuration, key, public material, metadata and related operational state beneath the project and its correct protected subdirectories. Do not scatter project-owned state into unrelated global locations.
 - Keep project-local cryptographic material clearly separated from operator identity keys in naming, storage, documentation and lifecycle. Project creation must make this boundary obvious to the operator.
 - Apply restrictive permissions, explicit purpose metadata, fingerprint validation, creation rollback and recovery/backup guidance to generated project-local keys.
-- Ensure project-local private key material is excluded from ordinary source distributions, general exports and evidence packages unless a future narrowly defined backup/recovery operation explicitly requires otherwise.
+- Ensure project-local private key material is excluded from ordinary source distributions, general exports and project packages unless a future narrowly defined backup/recovery operation explicitly requires otherwise.
 - Fold project-local key rotation, revocation, recovery and eventual retirement into the same lifecycle design rather than treating automatic creation as a one-off key-generation command.
 
 ## Audit timeline and contribution queries
@@ -57,6 +54,12 @@ This document records accepted future work that has not yet been implemented. It
 - Add case verification as a structural and cryptographic validation operation.
 - Add case sealing as an explicit lifecycle transition that binds the responsible owner and verified state.
 - Add case packaging as a transport/export operation distinct from sealing.
+
+## Collector convergence follow-on
+
+- Continue auditing source collectors as their capabilities expand so every intentionally retained evidential output is individually classified and checked in, while transient working data remains outside the authoritative record.
+- Extend explicit file relationships when collectors gain richer source-specific context rather than encoding those relationships only in filenames or prose.
+- Keep future image annotations, proposed redactions and rendered derivatives on the ordinary file/relationship foundation established by screenshot/image acquisition.
 
 ## Screenshot review and presentation
 

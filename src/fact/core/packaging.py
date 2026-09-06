@@ -462,7 +462,17 @@ def create_project_package(
                     item["file_id"] for item in withheld_note_files
                 },
             )
-            if snapshot_verified != verified:
+            stable_verified = {
+                key: value
+                for key, value in verified.items()
+                if key != "hashed_file_count"
+            }
+            stable_snapshot = {
+                key: value
+                for key, value in snapshot_verified.items()
+                if key != "hashed_file_count"
+            }
+            if stable_snapshot != stable_verified:
                 raise ToolkitError(
                     "Catalogue changed while the project package was being prepared"
                 )

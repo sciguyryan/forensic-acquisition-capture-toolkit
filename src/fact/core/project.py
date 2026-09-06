@@ -7,11 +7,13 @@ import shutil
 from contextlib import suppress
 from pathlib import Path
 
+from .. import __version__
 from ..errors import ToolkitError
 from ..identity import OperatorIdentity
 from .authority import assign_case_owner, establish_project_genesis
 from .catalogue import (
     PROJECT_NAME,
+    SCHEMA_VERSION,
     fail_identifier,
     initialise_catalogue,
     issue_identifier,
@@ -33,7 +35,7 @@ def _initialise_project(root: Path, project_id: str, title: str) -> Path:
         raise ToolkitError(f"FACT project already exists at {root}")
     escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
     project_file.write_text(
-        f'schema_version = 6\nfact_version = "2.13.0"\nproject_id = "{project_id}"\ntitle = "{escaped_title}"\n',
+        f'schema_version = {SCHEMA_VERSION}\nfact_version = "{__version__}"\nproject_id = "{project_id}"\ntitle = "{escaped_title}"\n',
         encoding="utf-8",
     )
     project_file.chmod(0o600)

@@ -1,8 +1,8 @@
 # Everything as a file
 
-FACT uses one simple evidential rule: **if FACT retains a byte-bearing object as evidence or as part of the evidential record, FACT treats it as a file.**
+FACT uses one deliberately simple evidential rule: **if FACT retains a byte-bearing object as evidence or as part of the evidential record, FACT treats it as a file.**
 
-This rule applies regardless of where the bytes came from or whether a human would normally think of them as a document. A downloaded video is a file, but so is a captured HTTP request, a response body, a header transcript, a JSON metadata response, a screenshot, a command transcript, a certificate record, a generated verification report, a manifest and a sealed package.
+This rule applies regardless of where the bytes came from or whether a human would normally think of them as a document. A downloaded video is a file, but so is a captured HTTP request, a response body, a header transcript, a JSON metadata response, a screenshot, a command transcript or a certificate record. Package-time manifests and verification descriptors are different: they describe an exported representation and are not automatically admitted back into the live project as evidence.
 
 The purpose is not to create files for their own sake. It is to make every retained component independently identifiable, hashable, attributable, verifiable and exportable.
 
@@ -39,7 +39,7 @@ FACT distinguishes three ideas that were historically easy to conflate.
 
 An **acquisition** is an event or process. It records what the operator attempted to collect, from where, using which collector and under which case context.
 
-An **artefact** is a logical evidential concept or grouping. An artefact may be represented by one file or by several related files. Artefact classification gives files meaning but does not make the grouping the atomic evidence object.
+An **artefact** is a logical evidential concept or grouping with a never-reused `ART-######` identity. An artefact may be represented by one file or by several related files. Artefact identity gives those files a stable logical boundary but does not make the grouping the atomic byte-bearing evidence object.
 
 A **file** is the immutable byte-bearing object that FACT actually checks in.
 
@@ -47,7 +47,7 @@ For a web capture, one logical artefact might include a request transcript, resp
 
 ## Network evidence is file evidence
 
-Network activity is not special-cased into opaque catalogue fields when FACT retains its byte-bearing representation. The more useful context FACT can faithfully preserve, the stronger the resulting evidential record can be.
+Network activity is not special-cased into opaque catalogue fields when FACT deliberately retains its byte-bearing representation. The more useful context FACT can faithfully preserve, the stronger the resulting evidential record can be.
 
 Depending on the collector and what the source exposes, a capture may therefore retain files representing:
 
@@ -77,11 +77,19 @@ This distinction is important. Retraction means "do not present this as part of 
 
 ## Check-in and all-or-nothing batches
 
-Collectors work in mutable staging because a partially completed capture must not masquerade as committed evidence. Once capture and mandatory sealing succeed, FACT prepares the retained files for check-in, validates their hashes and commits the batch to the project file store and catalogue.
+Collectors work in mutable staging because a partially completed capture must not masquerade as committed evidence. Once capture has produced its intentional retained set, FACT rejects unexplained leftover files, prepares the registered files and acquisition transcript for check-in, validates their bytes and commits the batch to the project file store and catalogue. The authenticated acquisition event then binds the exact committed `FILE-######` set and provenance, and full project verification must pass before successful staging is removed.
 
 For ordinary handled failures, a batch is all or nothing. FACT must not report half of an intended check-in as a successful complete acquisition. Prepared temporary material is unauthoritative and may be removed when the batch fails.
 
 The filesystem and SQLite do not provide a shared native transaction. FACT therefore uses private staging, byte-for-byte hash validation, guarded catalogue transactions and conservative failure handling. A future crash-recovery journal may strengthen recovery across abrupt process or machine failure. FACT must never silently adopt unexplained files into the authoritative record merely because they appear on disk.
+
+## Acquisition membership without duplicate manifests
+
+Older FACT development builds created per-acquisition `EVIDENCESET-SHA256.txt`, `FILELIST.txt`, SHA-256/SHA-512 manifests and a second sealed archive. Those representations are no longer part of the live project model.
+
+The authoritative acquisition membership is now the exact ordered `FILE-######` list in the authenticated `ACQUISITION_RECORDED` transaction. Catalogue verification compares that list with the files actually associated with the acquisition. Each file's SHA-256 remains in the file catalogue and its `FILE_COMMITTED` history. This avoids maintaining a second checksum or inventory system that could drift from the authoritative record.
+
+A project package may still generate its own manifest, descriptor, checksum and detached signature because a portable copy needs self-contained verification material. Those package artefacts describe the export. They do not become live-project evidence unless a later deliberate workflow checks them back in as new derivative files.
 
 ## Verification and sanctity
 
@@ -119,16 +127,31 @@ A note may be retracted from the presented record, but neither its identity nor 
 
 This convergence is now implemented. Every note revision is an ordinary committed `FILE-######` object. Project notes live in the project file store, case notes live in the corresponding case file store, and a note about another file is connected through an explicit `note-about` relationship. The note tables retain logical lineage and authority state rather than duplicating mutable payload bytes in SQLite.
 
+
+## Exported representations are not automatic evidence
+
+An export is a recorded disclosure event, not an automatic file check-in. `EXPORT-######` records who exported what, under which policy and representation, and binds the resulting output digests. The generated export directory/archive, `FACT-EXPORT.json` descriptor and verification reports remain outside the authoritative file tree unless an operator deliberately checks a resulting representation back in through a future derivative workflow.
+
+This keeps two statements simultaneously true: the chain can prove that an export occurred and what it contained, while FACT does not recursively turn its own presentation/transport records into new evidence merely because it generated them.
+
 ## Encrypted artefacts
 
 Encrypted artefacts are a planned extension of the same model rather than a separate evidence system. The encrypted bytes will themselves be the committed file representation and therefore have ordinary file IDs and hashes.
 
 Ownership transfer must be all or nothing for encrypted material. FACT must successfully decrypt, re-encrypt, validate and stage every affected confidential note representation and encrypted artefact before the new ownership state is committed. No partial transfer may become authoritative.
 
-Large encrypted files may require chunked or streaming authenticated encryption so that confidentiality does not require loading an entire artefact into memory. That cryptographic design is deferred to a dedicated future phase so it can be introduced without weakening the established immutable file model.
+Large encrypted files may require chunked or streaming authenticated encryption so that confidentiality does not require loading an entire artefact into memory. That cryptographic design is intentionally deferred until the ordinary immutable file model is established.
 
 ## What this model does and does not prove
 
 A larger, internally coherent evidence tree increases the amount of history that would need to be fabricated consistently in order to substitute a convincing false project state. Individual hashes, relationships, provenance and the rolling catalogue history reinforce one another.
 
 This does not make fabrication impossible and a hash alone does not establish who performed an action. FACT's integrity chain, authenticated operator model and signed authority anchors/checkpoints have distinct roles. Documentation and user interfaces must not collapse those claims into an assertion that hashing alone proves real-world authenticity or legal admissibility.
+
+## Collector retention boundary
+
+Everything-as-a-file does not mean that every temporary byte touched by an acquisition tool becomes evidence. The boundary is intentional retention. A file that FACT retains as part of the authoritative acquisition record receives a `FILE-######` identity, hash, classification and provenance. Temporary fragments, scratch files, intermediate buffers and other working material that are discarded after successful acquisition never enter the catalogue.
+
+For example, a completed YouTube download may retain the original media, yt-dlp source metadata, captions, thumbnails, HTTP capture material and media-inspection reports. Each retained object is checked in separately. A `.part` fragment used only while downloading is not retained and receives no file identity. Failed acquisition staging remains governed by the separate incomplete-acquisition policy and must not be confused with successfully committed evidence.
+
+The screenshot/image collector follows the same rule. The exact captured image is the primary file and the retained capture-environment metadata is a separate file related to it with a `describes` relationship. Future annotation and redaction layers will become additional retained files and relationships; they will not rewrite the original image.

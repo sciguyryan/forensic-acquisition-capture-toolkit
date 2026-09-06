@@ -1,86 +1,98 @@
 # FACT architecture
 
-FACT is structured so that source-specific capture logic remains separate from the evidential lifecycle around that capture. The distinction is deliberate: adding a collector must not require reimplementing project management, staging rules, artefact classification, hashing, sealing, signing, packaging or generic verification.
+FACT is structured so that source-specific capture logic remains separate from the authoritative evidential lifecycle around that capture. Adding a collector must not require reimplementing project management, identifier allocation, immutable file check-in, authority, verification, packaging or disclosure policy.
 
 ## Architectural rule
 
-A collector acquires a source. FACT core preserves, records, seals and verifies the result.
+A collector acquires a source. FACT core decides which intentionally retained files cross into the authoritative record, commits them individually, records their provenance and verifies the resulting project.
 
-The intended lifecycle is:
+The current lifecycle is:
 
 ```text
 project/case context
         |
         v
-acquisition workspace + INCOMPLETE marker
+private acquisition staging + INCOMPLETE marker
         |
         v
 collector capture
         |
         v
-explicit artefact registry
+explicit retained-file registry
+        |
+        v
+remove transient/scratch output
         |
         v
 immutable FILE-###### check-in
         |
         v
-provenance, relationships and records
+file relationships
         |
         v
-evidence-set manifest
+authenticated ACQUISITION_RECORDED event
+  - exact committed file IDs
+  - source and acquisition provenance
+  - operator and case context
+  - tool versions and observations
         |
         v
-archive + hashes + signatures
+full catalogue/file verification
         |
         v
-mandatory self-verification
-        |
-        v
-sealed acquisition
+successful staging removed
 ```
 
-The `INCOMPLETE` marker is an evidential state marker, not temporary cosmetic state. It exists until capture reaches the sealing boundary and is recreated if mandatory self-verification fails.
+The `INCOMPLETE` marker belongs to unauthoritative working state. It remains with failed acquisition staging for diagnosis, but it is never itself checked in as evidence. A successful staging tree is removed only after the committed files, acquisition authority event and complete project verification are successful.
+
+## One authoritative inventory
+
+The live FACT project has one authoritative inventory: the `files` catalogue table and the corresponding `FILE_COMMITTED` events in the authenticated rolling history.
+
+FACT no longer creates a second per-acquisition 7-Zip archive or the historical `EVIDENCESET-SHA256.txt`, `FILELIST.txt`, `SHA256SUMS.txt` and `SHA512SUMS.txt` files. It also no longer creates per-acquisition archive hash sidecars, detached archive signatures or archive-verification reports.
+
+Those mechanisms belonged to an older architecture in which the acquisition archive itself was the primary evidential object. Under everything-as-a-file, maintaining a second list or hash manifest of the same committed files would create parallel representations that can drift without adding a distinct authority property.
+
+This does not mean portable packages lack verification material. Project packaging deliberately generates a package descriptor, package manifest, outer SHA-256 checksum, public verification material and detached package signature. Those are representations of a selected verified project state for portability. They are not recursively committed back into the live project merely because FACT generated them.
 
 ## Source layout
 
-The canonical Python package is now `fact`.
+The canonical Python package is `fact`.
 
 ```text
 src/fact/
 ├── core/
 │   ├── acquisition.py
+│   ├── authority.py
 │   ├── catalogue.py
 │   ├── files.py
 │   ├── notes.py
+│   ├── orchestration.py
 │   ├── packaging.py
 │   ├── project.py
-│   ├── records.py
-│   ├── sealing.py
-│   └── verification.py
+│   └── records.py
 ├── services/
-│   ├── archive.py
-│   ├── commands.py
-│   └── hashing.py
+│   └── commands.py
 ├── collectors/
 │   ├── base.py
 │   ├── registry.py
+│   ├── screenshot/
 │   └── youtube/
-│       └── collector.py
 ├── review/
+├── shell/
 ├── cli.py
 ├── identity.py
 ├── keys.py
 └── models.py
 ```
 
-
 ## Acquisition context
 
-Collectors receive an `AcquisitionContext`. It contains the acquisition ID, case ID, staging workspace, artefact registry and command service needed to perform capture.
+Collectors receive an `AcquisitionContext`. It contains the acquisition ID, case ID, private staging workspace, artefact registry and command service needed to perform capture.
 
-Collectors must not allocate project or case identifiers. They must not create toolkit signing keys, seal archives or decide whether an acquisition has passed mandatory verification.
+Collectors must not allocate project or case identifiers, create project cryptographic keys, commit catalogue authority state, package the project or decide whether project verification has passed.
 
-The context is also the boundary through which reusable services are supplied. This makes collector behaviour testable without invoking real external programs.
+The context is also the boundary through which reusable services are supplied. This keeps source collectors testable without moving generic evidential policy into source-specific code.
 
 ## Collector contract
 
@@ -100,118 +112,106 @@ A collector is responsible for:
 
 - validating the source-specific target;
 - invoking source-specific acquisition mechanisms;
-- writing acquired material beneath its staging workspace;
-- registering every intentional collector artefact;
-- returning source-specific metadata, evidence metadata, warnings and observations.
+- writing working material beneath its staging workspace;
+- deliberately registering every file that should be retained as evidence;
+- removing successful temporary fragments and scratch files that should not be retained;
+- attaching useful classifications, media types, descriptions and relationships to retained files;
+- returning structured source metadata, observations and source-specific evidence state.
 
 A collector is not responsible for:
 
-- project or case creation;
-- identifier allocation;
-- evidence-key management;
-- operator signing policy;
-- generic manifests;
-- archive sealing;
-- mandatory verification;
-- project packaging.
+- permanent project, case, acquisition, note, file, artefact, export or authority-transfer identifier allocation;
+- authoritative file storage;
+- catalogue hashing or authority transactions;
+- project membership or ownership decisions;
+- project packaging or export;
+- project-local signing-key lifecycle;
+- final project integrity verification.
 
-The current built-in registry contains the YouTube collector. The registry is explicit rather than plugin-driven for now. This provides a clean extension point without committing FACT to a third-party plugin security model prematurely.
+## The retention boundary
 
-## Immutable file core
+Everything-as-a-file applies only after intentional retention.
 
-`core/files.py` is the common evidential persistence boundary. A retained byte sequence is committed as a `FILE-######` object with a scope, classification, logical path, SHA-256 digest, size, actor attribution and immutable storage path. Project-scoped files live under `files/`; case-scoped files live under the corresponding case `files/` directory.
+A temporary downloader fragment, scratch file, response buffer, conversion intermediate or staging helper does not become evidence merely because FACT touched it. If it is removed after successful capture and is not deliberately retained, it receives no `FILE-######`, no permanent hash and no catalogue event.
 
-This layer is deliberately reusable outside collectors. Retained notes already use it: every content revision and every ownership-transfer re-encryption is a normal committed file. Future encrypted artefacts, review layers, rendered derivatives and export-generated artefacts that are deliberately checked back into FACT should use the same mechanism rather than inventing separate byte stores.
+Conversely, anything FACT deliberately retains as evidential material must cross the ordinary file check-in boundary. The core refuses an unexplained regular file left in successful staging rather than silently sweeping implementation debris into the authoritative record. This fail-closed behaviour forces collectors to make retention explicit.
 
-The catalogue may record mutable *current presentation pointers* such as which note revision is current, but it does not rewrite the bytes or hash of a committed representation. A change adds a new file or state-transition event.
+Failed acquisition staging is different. It may preserve incomplete working material for diagnosis or recovery, but that tree is explicitly unauthoritative and must not be confused with committed evidence.
 
-## Artefact registry
+## File commitment and relationships
 
-Collector outputs are explicit first-class artefacts.
+Each retained file receives a never-reused `FILE-######` identifier. FACT records its case and acquisition association, actor, logical path, classification, media type, description, SHA-256, size, storage path, commitment sequence and presentation state.
 
-Each registered artefact has a staging-relative path and a role. Initial roles are:
+Committed bytes are immutable. A changed representation is a new file. Retraction and supersession are append-only presentation transitions and do not erase committed existence.
 
-- `primary`;
-- `supporting`;
-- `metadata`;
-- `transcript`;
-- `derived`;
-- `annotation`;
-- `redaction_request`;
-- `preview`.
+Relationships such as `describes`, `derived-from` and `note-about` are append-only catalogue events connecting immutable files. Future image annotation, proposed-redaction and rendered-derivative layers should use the same relationship machinery rather than introducing a parallel evidence store.
 
-The important boundary is between acquired evidence and material produced later by review or derivation. A redacted image, annotation layer or preview must never silently replace or masquerade as the acquired original.
+## Acquisition membership
 
-The registry rejects symbolic links and files outside the acquisition staging directory. This prevents a collector from registering an unrelated host file as acquisition evidence merely by referring to it.
+A successful `ACQUISITION_RECORDED` authority transaction contains the exact ordered set of `FILE-######` identifiers committed for that acquisition. It also retains the structured acquisition record containing case context, source facts, completion time, tool versions, observations and collector-specific evidence state.
 
-`ARTEFACTS.json` serialises the registry for later verification and review tooling.
+Catalogue verification reconstructs that authenticated acquisition event and confirms its file list exactly matches the files currently associated with the acquisition in the catalogue. This is the authoritative replacement for the historical evidence-set and file-list manifests.
 
-## Evidence-set identity
+The file hashes themselves remain in the file catalogue and `FILE_COMMITTED` history. They are not copied into an additional acquisition checksum manifest.
 
-The collector-independent sealing layer creates `EVIDENCESET-SHA256.txt` from the explicitly registered collector artefacts.
+## Acquisition transcript
 
-This replaces the weaker architectural assumption that every regular file found beneath certain hard-coded directories is necessarily part of the acquired source payload. Future collectors can use whatever sensible directory layout their source requires while the evidential membership rule remains the same.
+The lifecycle transcript is one collector-independent file that remains worth retaining because it contains historical information that cannot necessarily be reconstructed from final catalogue state. It lives inside acquisition staging while work is in progress and, on success, is checked in once as an ordinary `transcript` file.
 
-Generated FACT records, signing material and manifests are not part of this source-payload identity. They are covered by the later package manifests and archive signatures.
+There is no separate successful `logs/` copy after commitment. The checked-in `FILE-######` is the authoritative retained transcript.
 
-## Command service
+## Verification
 
-Collectors receive a `CommandRunner` rather than invoking `subprocess` directly.
+`verify_chain()` verifies the rolling event chain and current state derived from it. It also checks operator and ownership state, notes, committed files, file relationships, presentation state and recorded acquisition membership.
 
-The existing functional command API remains available internally, but the runner gives collectors an injectable service boundary for:
+Every present committed file is checked directly against its recorded size and SHA-256. Missing or altered bytes therefore fail project verification without requiring a separate per-acquisition checksum file.
 
-- command execution;
-- environment handling;
-- transcript generation;
-- return-code policy;
-- required executable discovery;
-- version probing.
+Filtered package construction may explicitly permit selected withheld note files to be absent from the staged package view. This exception is narrow and does not weaken normal live-project verification.
 
-Future security work, including argument redaction for sensitive command-line values, can therefore be implemented centrally.
+## Packaging is not acquisition sealing
 
-## YouTube collector
+Project packaging is an output operation over verified project state. It snapshots the catalogue, copies the selected authoritative file tree, applies explicit disclosure filtering, writes package-specific metadata and a package manifest, creates a deterministic `.fact.tar.gz`, hashes and signs that package, and verifies the resulting transport representation.
 
-YouTube remains the first collector and behavioural baseline.
+Package artefacts are not automatically checked back into FACT. If a future workflow deliberately admits an exported or rendered result back into the project, it must be checked in as a new immutable derivative with explicit provenance.
 
-The former monolithic acquisition function has been divided so that:
+## Cryptographic boundaries
 
-- YouTube URL parsing, `yt-dlp`, live-chat capture, supplemental HTTP capture and media inspection live under `collectors/youtube/`;
-- workspace creation and artefact registration live under `core/acquisition.py`;
-- archive sealing, source-payload manifests, hashing, signatures and mandatory self-verification live under `core/sealing.py`;
-- external commands live under `services/commands.py`.
+Operator signing identities authenticate authority-changing transactions. Project-local FACT keys are a separate future bootstrap/lifecycle concern and must remain beneath the project in protected purpose-specific subdirectories. FACT must not create or mutate an operator's global GnuPG identity as part of project creation.
 
-The collector-oriented command spelling is:
+Hashing and authentication have distinct roles. SHA-256 identifies committed bytes and links catalogue history, while signatures and signed checkpoints provide actor attribution and external anchoring. Removing duplicate archive hashes does not remove those distinct authentication properties.
 
-```bash
-fact acquire youtube URL --acquisition-comment "Purpose"
-```
+## No change left behind
 
-## Review and derivation boundary
+Once something enters the authoritative FACT record, its committed representation is immutable. New facts and changed representations are appended. Presentation is a view over that history, not a replacement for it.
 
-The `review/` package now contains the initial screenshot review-layer model and static browser foundation. The graphical review editor remains future work.
+This rule applies to files, note revisions, cryptographic re-encryption, relationships, ownership changes, acquisition decisions and future review layers.
 
-FACT uses the following distinction:
+## Artefact identities
 
-> Acquisition creates evidence. Review describes evidence. Derivation creates representations of evidence.
+Retained collector artefacts now receive never-reused `ART-######` identities. An artefact is a logical evidential grouping and may own one or more member files; it does not replace the immutable byte identity of any `FILE-######`. Collector staging paths are resolved to committed file identities before the artefact is created, and the authenticated `ARTEFACT_CREATED` event binds the grouping. This gives structural verification and later review/export workflows a stable object boundary without weakening everything-as-a-file.
 
-This rule governs screenshot annotations and proposed redactions. The original screenshot remains immutable. Annotation and proposed-redaction layers are stored separately, and rendered derivatives are explicitly identified as derivatives.
+## Export authority and recorded disclosure
 
-The same review model is intended to support later image evidence, PDF pages, extracted video frames and the closed-project HTML evidence browser.
+General export is a disclosure operation over verified project state, distinct from canonical project packaging. Each project has an authenticated export policy controlling ordinary export, ciphertext export, confidential plaintext export and broad case/project scope. Policy changes require the project owner and are retained as signed append-only events.
 
-## Next collectors
+Every export attempt receives a never-reused `EXPORT-######`. FACT records `EXPORT_STARTED` before building in private temporary space and `EXPORT_COMPLETED` only after the final output exists. If completion cannot be authenticated, FACT removes the placed output rather than leave an apparently successful unaudited disclosure. Failed attempts remain historical state.
 
-The architecture is designed for the following near-term collectors:
+A completed export binds the source project chain anchor, actor, policy sequence, scope, view, representation, exact source file identities, output paths, source and output SHA-256 values, manifest digest and final container/tree digest. The portable `FACT-EXPORT.json` is therefore a representation of a recorded disclosure, not a second authority ledger.
 
-- logical file capture;
-- web-page capture.
+The current representation is `native`. Directory and deterministic tar output are supported, and tar output may optionally be protected to recipient OpenPGP keys. Confidential note ciphertext is the default retained representation. Authorised plaintext note export is recorded as a derived output whose digest is distinct from its encrypted source `FILE-######`. Rendered, flattened and archival representations remain future work until their deterministic/provenance semantics are implemented.
 
-Screenshot capture is now implemented through a reusable capability/backend boundary. `ScreenshotCollector` owns evidential semantics, `LinuxScreenshotCapability` owns Linux backend policy, and `XdgDesktopPortalBackend` owns the concrete D-Bus portal interaction. Detailed behaviour is documented in `SCREENSHOT_CAPTURE.md`.
+## Confidential authority transfer
 
+Immutable creator attribution and current confidential authority are separate. The creator field remains historical provenance. The current confidential authority holder determines who, in addition to the current project owner, may decrypt an object when project policy permits.
 
-## Everything-as-a-file evidence model
+Only the project owner may propose a `TRANSFER-######`, and the exact target object set is bound into the proposal. The nominated incoming active member must explicitly accept or reject it; the owner may cancel while pending. Acceptance must complete every required cryptographic transition before authority changes. Confidential notes implement this today by creating new immutable encrypted revision files addressed to the incoming authority and current owner. Generic encrypted file/artefact transfer is fail-closed until a generic encrypted-payload format exists.
 
-The canonical evidential unit is now the individually committed file. Acquisitions are provenance-bearing events and artefacts are logical classifications or relationships around files. They are not opaque containers that replace file identity. See `EVERYTHING_AS_A_FILE.md` for the normative model and worked examples.
+## Verification scopes and reports
 
-This architecture deliberately favours a richer evidence tree. A source collector should preserve useful request, response, metadata, transcript and diagnostic material as files when those bytes form part of what FACT observed. Each committed file is independently hashed and represented in the rolling catalogue history.
+Verification has two different directions. `fact verify file <path>` starts outside FACT and establishes byte correspondence to every matching committed file identity. Structural verification starts from a FACT object (`artefact`, `acquisition`, `case`, `project`, or an immutable ID), verifies the selected object's descendant payloads, and verifies the authenticated catalogue/history that anchors the object to the project.
 
-The governing mutation rule is **no change left behind**. Existing authoritative bytes are never edited to express a new fact. New bytes become new files; new meaning becomes a relationship or state transition; and presentation filters never erase committed history.
+The catalogue rolling chain, signatures, reconstructed authority state and identifier/state invariants are always checked. For a narrow structural target, unrelated sibling payload bytes are not redundantly rehashed. `fact verify project` is exhaustive and rehashes every committed file. The result explicitly records how many payloads were hashed and states relevant scope limitations.
+
+`fact verify export <path>` validates the portable descriptor/container, exact output membership and hashes, the matching `EXPORT-######` completion event, the recorded source history anchor and the source `FILE-######` records. An encrypted export envelope can be matched exactly to its recorded encrypted digest without claiming that its internal plaintext was inspected.
+
+Text, HTML, JSON and PDF reports are renderings of the same structured verification result. `--detailed` exposes the supporting checks and metadata; it does not change what is verified. Reports are generated outputs and do not enter the project record unless a later explicit check-in operation admits them as new files.

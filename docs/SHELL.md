@@ -107,7 +107,7 @@ catalogue verify
 package
 ```
 
-Evidence archive verification remains usable without a selected project because it operates on the archive supplied by the operator.
+`verify` now verifies the authoritative project catalogue and committed file tree. It therefore requires a project path or a location beneath a FACT project; `catalogue verify` exposes the same integrity foundation within an already selected project context.
 
 ## Input behaviour
 
@@ -127,7 +127,7 @@ Completion includes the shell command surface, common subcommands and collector 
 
 ## Future command families
 
-The shell is intended to host later project and case operations, including ownership, notes, audit, verification, sealing, packaging, screenshot review, and project closure. Those capabilities should be implemented in reusable core/application services first and then exposed through both the ordinary CLI and this shell.
+The shell can continue to host later project and case operations such as case audit and sealing, richer timeline and contribution queries, screenshot review, and project closure. New capabilities should be implemented in reusable core/application services first and then exposed through both the ordinary CLI and this shell.
 
 ## Authenticated operator context
 

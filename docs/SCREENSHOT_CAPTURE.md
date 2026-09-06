@@ -2,7 +2,7 @@
 
 FACT v2.4 introduces the first screenshot acquisition capability. The initial implementation targets Arch Linux and other modern Linux desktop environments that provide the XDG Desktop Portal Screenshot interface.
 
-Screenshot acquisition follows the same collector-independent lifecycle as YouTube acquisition. Capture produces an immutable original, registers it as primary evidence, writes capture metadata, and passes those artefacts to the normal FACT hashing, sealing, signing, and mandatory verification path.
+Screenshot acquisition follows the same collector-independent lifecycle as YouTube acquisition. Capture produces an immutable original, registers it as primary evidence, writes retained capture metadata, and passes those files to the normal FACT immutable check-in, relationship, authenticated acquisition-record and project-verification path.
 
 ## Evidential boundary
 
