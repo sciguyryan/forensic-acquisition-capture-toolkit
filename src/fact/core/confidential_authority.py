@@ -16,6 +16,7 @@ from ..errors import ToolkitError
 from ..identity import OperatorIdentity
 from .authority import _append_signed, _key_row, require_registered_operator
 from .catalogue import _connect, _write_transaction, issue_identifier
+from .confidential_access import grant_access, revoke_access_basis
 from .notes import reencrypt_confidential_notes_for_authority_transfer
 
 _SUPPORTED_TYPES = {"note", "file", "artefact"}
@@ -254,6 +255,24 @@ def accept_confidential_authority_transfer(
                         item["object_type"],
                         item["object_id"],
                     ),
+                )
+                revoke_access_basis(
+                    connection,
+                    actor,
+                    operator_id=str(transfer["from_operator_id"]),
+                    object_type=str(item["object_type"]),
+                    object_id=str(item["object_id"]),
+                    authority_basis="object-owner",
+                    reason="Direct confidential authority transferred to another operator",
+                )
+                grant_access(
+                    connection,
+                    actor,
+                    operator_id=actor.operator_id,
+                    object_type=str(item["object_type"]),
+                    object_id=str(item["object_id"]),
+                    authority_basis="object-owner",
+                    reason="Operator accepted direct confidential authority",
                 )
             connection.execute(
                 "UPDATE confidential_authority_transfers SET state = 'accepted', "

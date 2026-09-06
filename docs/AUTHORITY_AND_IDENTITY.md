@@ -40,7 +40,7 @@ Authority-changing events use a canonical signed transaction before they are app
 
 FACT immediately verifies the new signature against the project-retained public key and the exact historical signing fingerprint before appending the event. Catalogue verification later reconstructs the authority state from those signed events and checks the signatures again.
 
-The rolling hash and transaction signature provide different assurances. The versioned `fact-audit-event/v2` envelope protects event ordering and commits the event timestamp, event/object identity, actor kind, project-local operator ID, immutable operator UUID, credential fingerprint, authority basis, event details and previous hash. The `fact-authority-transaction/v2` signature independently binds the operator UUID and signing fingerprint to the authority transaction. Verification cross-checks the signed transaction against the outer event attribution. The rolling chain therefore detects later alteration of provenance fields, while the operator signature demonstrates control of the corresponding registered signing key for the exact signed transaction. Neither mechanism is treated as a substitute for the other.
+The rolling hash and transaction signature provide different assurances. The versioned `fact-audit-event/v3` envelope protects event ordering and commits the selected chain-hash algorithm, event timestamp, event/object identity, actor kind, project-local operator ID, immutable operator UUID, credential fingerprint, authority basis, event details and previous digest. The `fact-authority-transaction/v2` signature independently binds the operator UUID and signing fingerprint to the authority transaction. Verification cross-checks the signed transaction against the outer event attribution. The rolling chain therefore detects later alteration of provenance fields, while the operator signature demonstrates control of the corresponding registered signing key for the exact signed transaction. Neither mechanism is treated as a substitute for the other.
 
 ## Session authentication
 
@@ -132,18 +132,22 @@ The catalogue contains project-relevant operator records, retained public keys, 
 
 The same principle applies to evidence bytes through their cryptographic digests. FACT cannot stop a sufficiently privileged attacker from writing different bytes to a project directory or SQLite file. It aims to ensure that doing so produces an integrity discrepancy rather than a silently accepted new history.
 
-Signed catalogue checkpoints and sealed packages provide stronger external anchors against rollback. An attacker who controls the entire project directory may be able to restore an older internally consistent copy of project state. They cannot make that older state match an independently retained later signed checkpoint without the relevant signing authority. This limitation should be considered when deciding how and where checkpoints or sealed packages are retained.
+Signed catalogue checkpoints and independently retained signed project packages provide stronger external anchors against rollback. An attacker who controls the entire project directory may be able to restore an older internally consistent copy of project state. They cannot make that older state match an independently retained later signed checkpoint or project package without the relevant signing authority. This limitation should be considered when deciding how and where those external anchors are retained.
 
 ## Current limitations and future key lifecycle work
 
-FACT 2.8 establishes the signed identity and authority foundation but does not yet implement the complete operator-key lifecycle. Auditable signing-key rotation, explicit revocation, compromised or lost-key recovery, and exceptional administrative ownership recovery require their own conservative transaction designs. Historical verification must remain possible when those capabilities are added.
+FACT establishes a signed identity and authority foundation but does not yet implement the complete operator-key lifecycle. Auditable signing-key rotation, explicit revocation, compromised or lost-key recovery, and exceptional administrative ownership recovery require their own conservative transaction designs. Historical verification must remain possible when those capabilities are added.
 
 Until that work is implemented, operators should treat the signing key registered with a project as durable project identity material and protect its private counterpart appropriately. FACT must never silently replace a project-retained key merely because the local system keyring has changed.
 
-## Confidential-note authority
+## Confidential access authority
 
-The project catalogue already retains each registered operator's public OpenPGP key material. FACT uses that retained public material for confidential-note encryption; it does not create a second mutable identity database for note access.
+The project catalogue already retains each registered operator's public OpenPGP key material. FACT uses that retained public material for the current confidential-note encryption representation; it does not create a second mutable identity database for note access.
 
-Confidential note content is authorised to the note author and current project owner. Project ownership acceptance therefore includes a ciphertext-recipient transition before ownership flags change. The signed ownership-transfer event records the completed transition as an aggregate consequence of the transfer rather than creating one authority event for every re-encrypted revision.
+Confidential access authority is represented independently from cryptographic possession. An operator may hold several authenticated access bases for the same confidential object, including direct `object-owner` authority and role-derived `project-owner` authority. Each grant and revocation remains in append-only authenticated history.
 
-Private decryption keys remain outside project authority. A transfer that cannot complete the confidential-note transition fails closed and leaves the previous ownership state authoritative.
+Project ownership transfer therefore has explicit object-level access consequences. FACT revokes only the outgoing owner's `project-owner` grants, adds the corresponding grants for the incoming owner, and leaves unrelated surviving bases untouched. Where the current GnuPG ciphertext recipient set must change, the transfer still creates and validates immutable cryptographic note revisions before ownership changes.
+
+Private decryption keys remain outside project authority. FACT checks current authenticated access before protected decryption and can refuse its normal decryption path after the operator's last active basis has been revoked. This does not make historical ciphertext or previously disclosed plaintext inaccessible to an operator who retained the necessary key or an external copy.
+
+See `docs/CONFIDENTIAL_ACCESS.md` for the current multi-basis access model, revocation semantics and cryptographic limitations.

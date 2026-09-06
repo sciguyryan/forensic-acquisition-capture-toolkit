@@ -23,7 +23,7 @@ from .hashing import (
     require_hash,
 )
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 AUDIT_EVENT_SCHEMA = "fact-audit-event/v3"
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
@@ -136,6 +136,11 @@ def _state_digest(connection: sqlite3.Connection) -> str:
             "SELECT transfer_id, from_operator_id, to_operator_id, scope_json, state, reason, "
             "proposed_sequence, resolved_sequence FROM confidential_authority_transfers "
             "ORDER BY proposed_sequence, transfer_id"
+        ),
+        "confidential_access_grants": (
+            "SELECT operator_id, object_type, object_id, authority_basis, granted_sequence, "
+            "revoked_sequence, grant_reason, revoke_reason FROM confidential_access_grants "
+            "ORDER BY granted_sequence, operator_id, object_type, object_id, authority_basis"
         ),
         "exports": (
             "SELECT export_id, actor_id, scope_type, scope_id, view_mode, representation, "
@@ -384,6 +389,22 @@ def initialise_catalogue(
                 PRIMARY KEY(object_type, object_id),
                 FOREIGN KEY(creator_id) REFERENCES operators(operator_id),
                 FOREIGN KEY(authority_id) REFERENCES operators(operator_id)
+            );
+            CREATE TABLE confidential_access_grants (
+                operator_id TEXT NOT NULL,
+                object_type TEXT NOT NULL CHECK(object_type IN ('file', 'note', 'artefact')),
+                object_id TEXT NOT NULL,
+                authority_basis TEXT NOT NULL CHECK(authority_basis IN (
+                    'object-owner', 'explicit-grant', 'project-owner', 'case-role',
+                    'recovery-authority', 'system-policy'
+                )),
+                granted_sequence INTEGER NOT NULL,
+                revoked_sequence INTEGER,
+                grant_reason TEXT NOT NULL,
+                revoke_reason TEXT,
+                PRIMARY KEY(operator_id, object_type, object_id, authority_basis, granted_sequence),
+                FOREIGN KEY(operator_id) REFERENCES operators(operator_id),
+                CHECK(revoked_sequence IS NULL OR revoked_sequence > granted_sequence)
             );
             CREATE TABLE confidential_authority_transfers (
                 transfer_id TEXT PRIMARY KEY,

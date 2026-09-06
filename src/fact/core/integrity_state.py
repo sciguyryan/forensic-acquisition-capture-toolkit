@@ -229,6 +229,76 @@ def _verify_confidential_authority(
         raise ToolkitError("Confidential authority transfer state differs from history")
 
 
+def _verify_confidential_access(
+    connection: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> None:
+    """Reconstruct every grant/revocation from authenticated authority events."""
+
+    grants: dict[tuple[str, str, str, str, int], dict[str, object]] = {}
+    for row in rows:
+        event_type = str(row["event_type"])
+        if event_type not in {
+            "CONFIDENTIAL_ACCESS_GRANTED",
+            "CONFIDENTIAL_ACCESS_REVOKED",
+        }:
+            continue
+        sequence = int(row["event_sequence"])
+        data = _signed_data(row)
+        operator_id = str(data["operator_id"])
+        object_type = str(row["object_type"])
+        object_id = str(row["object_id"])
+        authority_basis = str(data["authority_basis"])
+        if event_type == "CONFIDENTIAL_ACCESS_GRANTED":
+            key = (operator_id, object_type, object_id, authority_basis, sequence)
+            if key in grants:
+                raise ToolkitError(
+                    "Confidential access grant was recorded more than once"
+                )
+            grants[key] = {
+                "operator_id": operator_id,
+                "object_type": object_type,
+                "object_id": object_id,
+                "authority_basis": authority_basis,
+                "granted_sequence": sequence,
+                "revoked_sequence": None,
+                "grant_reason": str(data["reason"]),
+                "revoke_reason": None,
+            }
+            continue
+
+        granted_sequence = data.get("granted_sequence")
+        if not isinstance(granted_sequence, int):
+            raise ToolkitError(
+                "Confidential access revocation lacks its grant sequence"
+            )
+        key = (operator_id, object_type, object_id, authority_basis, granted_sequence)
+        current = grants.get(key)
+        if current is None or current["revoked_sequence"] is not None:
+            raise ToolkitError(
+                "Confidential access revocation lacks an active matching grant"
+            )
+        current["revoked_sequence"] = sequence
+        current["revoke_reason"] = str(data["reason"])
+
+    live = {
+        (
+            str(row["operator_id"]),
+            str(row["object_type"]),
+            str(row["object_id"]),
+            str(row["authority_basis"]),
+            int(row["granted_sequence"]),
+        ): dict(row)
+        for row in connection.execute(
+            "SELECT operator_id, object_type, object_id, authority_basis, granted_sequence, "
+            "revoked_sequence, grant_reason, revoke_reason FROM confidential_access_grants"
+        ).fetchall()
+    }
+    if live != grants:
+        raise ToolkitError(
+            "Confidential access state differs from authenticated history"
+        )
+
+
 def _verify_exports(connection: sqlite3.Connection, rows: list[sqlite3.Row]) -> None:
     exports: dict[str, dict[str, object]] = {}
     items: set[tuple[str, str, str, str, str, str]] = set()
@@ -325,4 +395,5 @@ def verify_extended_state(
     _verify_artefacts(connection, rows)
     _verify_export_policy(connection, rows)
     _verify_confidential_authority(connection, rows)
+    _verify_confidential_access(connection, rows)
     _verify_exports(connection, rows)

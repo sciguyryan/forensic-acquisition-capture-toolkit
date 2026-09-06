@@ -867,6 +867,14 @@ def accept_ownership_transfer(
                 ),
             )
             if transfer["scope_type"] == "project":
+                from .confidential_access import transition_project_owner_access
+
+                transition_project_owner_access(
+                    connection,
+                    actor,
+                    outgoing_owner_id=str(transfer["from_operator_id"]),
+                    incoming_owner_id=actor.operator_id,
+                )
                 connection.execute(
                     "UPDATE project_memberships SET membership_role = 'contributor' "
                     "WHERE operator_id = ?",

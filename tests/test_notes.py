@@ -454,3 +454,82 @@ def test_cross_case_subject_file_is_rejected_without_committing_note_file(
         )
     after = {path for path in tmp_path.rglob("FILE-*") if path.is_dir()}
     assert after == before
+
+
+def test_project_owner_access_basis_is_revoked_without_revoking_object_owner(
+    tmp_path: Path,
+) -> None:
+    """Ownership transfer removes only project-owner derived confidential access."""
+
+    owner, alice, bob = project(tmp_path)
+    alice_note = create_note(
+        tmp_path,
+        alice,
+        "Alice note",
+        "Alice keeps direct access",
+        visibility="confidential",
+    )
+    owner_note = create_note(
+        tmp_path,
+        owner,
+        "Owner note",
+        "Owner owns this directly",
+        visibility="confidential",
+    )
+
+    transfer_id = propose_ownership_transfer(
+        tmp_path, owner, bob.operator_id, "Rotation"
+    )
+    assert accept_ownership_transfer(tmp_path, bob) == transfer_id
+
+    # The outgoing owner loses project-owner access to Alice's note.
+    with pytest.raises(ToolkitError, match="current authenticated authority"):
+        read_note(tmp_path, owner, alice_note)
+
+    # Direct object ownership is an independent authority basis and survives.
+    assert read_note(tmp_path, owner, owner_note)["body"] == "Owner owns this directly"
+    assert read_note(tmp_path, alice, alice_note)["body"] == "Alice keeps direct access"
+    assert read_note(tmp_path, bob, alice_note)["body"] == "Alice keeps direct access"
+
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            "SELECT object_id, operator_id, authority_basis, revoked_sequence "
+            "FROM confidential_access_grants ORDER BY object_id, granted_sequence"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    grants = [dict(row) for row in rows]
+    assert any(
+        row["object_id"] == alice_note
+        and row["operator_id"] == owner.operator_id
+        and row["authority_basis"] == "project-owner"
+        and row["revoked_sequence"] is not None
+        for row in grants
+    )
+    assert any(
+        row["object_id"] == owner_note
+        and row["operator_id"] == owner.operator_id
+        and row["authority_basis"] == "object-owner"
+        and row["revoked_sequence"] is None
+        for row in grants
+    )
+    verify_chain(tmp_path)
+
+
+def test_confidential_access_grant_tampering_is_detected(tmp_path: Path) -> None:
+    """Access state is part of the authenticated project state, not an unauthenticated ACL."""
+
+    _, alice, _ = project(tmp_path)
+    create_note(tmp_path, alice, "Secret", "Body", visibility="confidential")
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.execute(
+        "UPDATE confidential_access_grants SET grant_reason = 'tampered' "
+        "WHERE operator_id = 'alice' AND authority_basis = 'object-owner'"
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(ToolkitError):
+        verify_chain(tmp_path)

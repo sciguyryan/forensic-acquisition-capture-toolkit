@@ -200,11 +200,13 @@ A completed export binds the source project chain anchor, actor, policy sequence
 
 The current representation is `native`. Directory and deterministic tar output are supported, and tar output may optionally be protected to recipient OpenPGP keys. Confidential note ciphertext is the default retained representation. Authorised plaintext note export is recorded as a derived output whose digest is distinct from its encrypted source `FILE-######`. Rendered, flattened and archival representations remain future work until their deterministic/provenance semantics are implemented.
 
-## Confidential authority transfer
+## Confidential object-owner transfer
 
-Immutable creator attribution and current confidential authority are separate. The creator field remains historical provenance. The current confidential authority holder determines who, in addition to the current project owner, may decrypt an object when project policy permits.
+Immutable creator attribution and current confidential access authority are separate. A `TRANSFER-######` changes direct object-owner authority for the selected confidential objects; it does not collapse every other access basis into that transfer.
 
-Only the project owner may propose a `TRANSFER-######`, and the exact target object set is bound into the proposal. The nominated incoming active member must explicitly accept or reject it; the owner may cancel while pending. Acceptance must complete every required cryptographic transition before authority changes. Confidential notes implement this today by creating new immutable encrypted revision files addressed to the incoming authority and current owner. Generic encrypted file/artefact transfer is fail-closed until a generic encrypted-payload format exists.
+Only the project owner may propose a transfer, and the exact target object set is bound into the proposal. The nominated incoming active member must explicitly accept or reject it; the owner may cancel while pending. Acceptance must complete every required cryptographic transition before direct object-owner authority changes. Confidential notes implement this today by creating new immutable encrypted revision files. Generic encrypted file/artefact transfer is fail-closed until a generic encrypted-payload format exists.
+
+An operator may separately hold role-derived or explicitly granted access to the same object. Those bases are recorded and revoked independently. A transfer therefore cannot be described as revoking all access unless no other authenticated basis survives.
 
 ## Verification scopes and reports
 
@@ -215,3 +217,7 @@ The catalogue rolling chain, signatures, reconstructed authority state and ident
 `fact verify export <path>` validates the portable descriptor/container, exact output membership and hashes, the matching `EXPORT-######` completion event, the recorded source history anchor and the source `FILE-######` records. An encrypted export envelope can be matched exactly to its recorded encrypted digest without claiming that its internal plaintext was inspected.
 
 Text, HTML, JSON and PDF reports are renderings of the same structured verification result. `--detailed` exposes the supporting checks and metadata; it does not change what is verified. Reports are generated outputs and do not enter the project record unless a later explicit check-in operation admits them as new files.
+
+## Confidential access authority
+
+Confidential access is provenance-aware and multi-basis. Cryptographic possession is necessary but is not treated as sufficient authority. Protected decryption paths must resolve current authenticated access before decrypting. See `CONFIDENTIAL_ACCESS.md` for the current authority model, transfer semantics, security limitations and the deliberately deferred envelope-encryption/recovery architecture.

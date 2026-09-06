@@ -84,9 +84,8 @@ Depending on the source and available material, acquisition can include:
 - subtitles or captions;
 - live chat where available;
 - acquisition command transcripts;
-- tool information;
-- evidence manifests; and
-- cryptographic integrity and signature material.
+- tool and inspection information; and
+- retained source or network capture material where available.
 
 Original downloaded media is preserved without transcoding.
 
@@ -150,9 +149,9 @@ FACT no longer creates a second per-acquisition evidence archive. Portable archi
 
 ## Retained notes
 
-FACT projects can retain attributable notes as part of the project record. Every note revision is an ordinary immutable `FILE-######` object. Project-visible notes are stored as canonical note files and can be read by active authenticated project members. Confidential note revision files contain ciphertext only. Their immutable creator attribution is separate from current confidential authority: the current confidential authority holder and the current project owner may read them through FACT. SQLite retains note lineage, authority and file references rather than a mutable note-body BLOB.
+FACT projects can retain attributable notes as part of the project record. Every note revision is an ordinary immutable `FILE-######` object. Project-visible notes are stored as canonical note files and can be read by active authenticated project members. Confidential note revision files contain ciphertext only. Their immutable creator attribution is separate from current access authority: FACT evaluates the operator's active authenticated confidential-access grants before protected decryption. SQLite retains note lineage, access authority and file references rather than a mutable note-body BLOB.
 
-Notes are withheld from external project packages by default. Withholding omits their committed revision-file bytes from the filtered package view while retaining their identities and hashes in catalogue history. The project owner may explicitly include selected notes; confidential notes remain encrypted even when included. Project ownership transfer and accepted confidential-authority transfer append new cryptographic revision files before the authority change is allowed to commit. See `docs/NOTES.md` for examples and the security and failure model.
+Notes are withheld from external project packages by default. Withholding omits their committed revision-file bytes from the filtered package view while retaining their identities and hashes in catalogue history. The project owner may explicitly include selected notes; confidential notes remain encrypted even when included. Confidential access changes are append-only authority events. Project ownership transfer revokes only access derived from the outgoing `project-owner` basis and grants the corresponding basis to the incoming owner, while independent surviving access bases remain intact. See `docs/NOTES.md` and `docs/CONFIDENTIAL_ACCESS.md` for examples and the security and failure model.
 
 ## Evidence packages
 
@@ -169,13 +168,13 @@ The canonical package remains unencrypted so its package identity is independent
 Detailed package-format, encryption and recovery documentation is provided in `docs/PROJECT_PACKAGES.md`.
 
 
-## Export policy and confidential authority
+## Export policy and confidential access authority
 
 Each project carries an authenticated export policy. The policy separately controls ordinary export, ciphertext export, confidential plaintext export and broad case/project export. Policy changes are owner-authorised append-only events, so a later `EXPORT-######` can be evaluated against the policy that was actually in force when it occurred.
 
-Confidential authorship and confidential authority are deliberately different concepts. Creator attribution never changes. Current confidential authority may move only through an authenticated `TRANSFER-######`: the project owner proposes the exact scope, the nominated incoming active member accepts or rejects it, and the historical decision remains in the chain. For confidential notes, acceptance performs and validates the required immutable re-encryption before authority changes. Generic encrypted file/artefact cryptographic transfer remains intentionally unsupported until FACT has a defined generic encrypted-payload format.
+Confidential authorship and current access authority are different concepts. Creator attribution never changes. A confidential object may carry several independent authenticated access bases for the same operator, such as `object-owner`, `explicit-grant` and `project-owner`. Revoking one basis does not erase another surviving basis, and access history is retained through append-only `CONFIDENTIAL_ACCESS_GRANTED` and `CONFIDENTIAL_ACCESS_REVOKED` events.
 
-This distinction also governs export. Project policy may permit ordinary operators to export ordinary material or ciphertext, but confidential plaintext requires the current project owner or the object's current confidential authority holder according to policy. Export permission does not imply decryption permission.
+This distinction also governs decryption and export. Cryptographic possession is necessary but is not treated as sufficient current authority. FACT checks authenticated confidential-access state before protected decryption, and project policy separately controls whether an authorised operator may export confidential plaintext. The current GnuPG representation does not provide cryptographic erasure: a revoked operator who retained plaintext, a private key or an external copy may still possess that information outside FACT. Revocation limits future access through FACT's normal infrastructure rather than rewriting or invalidating historical disclosure.
 
 ## Cryptographic integrity
 
@@ -340,10 +339,10 @@ See the repository's licence information for the terms under which FACT is distr
 
 ## Projects and catalogue
 
-FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case, acquisition, note, file, artefact, export and authority-transfer identifiers (`CASE-######`, `ACQ-######`, `NOTE-######`, `FILE-######`, `ART-######`, `EXPORT-######` and `TRANSFER-######`), records lifecycle and authority events in the project-selected authenticated hash chain, retains project operator identities and public verification material, tracks contributor membership, confidential authority and ownership, and supports signed checkpoints for independent verification.
+FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case, acquisition, note, file, artefact, export and authority-transfer identifiers (`CASE-######`, `ACQ-######`, `NOTE-######`, `FILE-######`, `ART-######`, `EXPORT-######` and `TRANSFER-######`), records lifecycle and authority events in the project-selected authenticated hash chain, retains project operator identities and public verification material, tracks contributor membership, confidential access authority and ownership, and supports signed checkpoints for independent verification.
 
 The project owner is the human authority represented by this ledger. The SQLite catalogue is not intended to make a writable project impossible to alter; it is intended to make unauthorised modification detectable. Signed authority transactions and state reconstruction prevent changes to operator identity, ownership, membership or approval status from being silently accepted merely because somebody has edited the database.
 
 Routine acquisitions no longer require operators to retype a case identifier. FACT can infer the current case from the working directory, use the project's selected case, automatically use the sole active case, or present an interactive numbered selector when a choice is required. New cases are allocated sequentially and selected automatically.
 
-Detailed design and operational behaviour are documented in [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md), [`docs/AUTHORITY_AND_IDENTITY.md`](docs/AUTHORITY_AND_IDENTITY.md), and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The interactive workflow is described in [`docs/SHELL.md`](docs/SHELL.md), while accepted future workflow work is recorded in [`docs/TODO.md`](docs/TODO.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).
+Detailed design and operational behaviour are documented in [`docs/EVERYTHING_AS_A_FILE.md`](docs/EVERYTHING_AS_A_FILE.md), [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md), [`docs/AUTHORITY_AND_IDENTITY.md`](docs/AUTHORITY_AND_IDENTITY.md), [`docs/CONFIDENTIAL_ACCESS.md`](docs/CONFIDENTIAL_ACCESS.md), [`docs/NOTES.md`](docs/NOTES.md), and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The interactive workflow is described in [`docs/SHELL.md`](docs/SHELL.md), while accepted future workflow work is recorded in [`docs/TODO.md`](docs/TODO.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).

@@ -34,6 +34,7 @@ from .authority import (
     require_registered_operator,
 )
 from .catalogue import _append_event, _connect, _write_transaction, issue_identifier
+from .confidential_access import grant_access, require_confidential_access
 from .files import (
     FilePayloadCandidate,
     _commit_prepared,
@@ -260,6 +261,26 @@ def create_note(
                 "authority_id, effective_sequence) VALUES ('note', ?, ?, ?, ?)",
                 (note_id, actor.operator_id, actor.operator_id, sequence),
             )
+            grant_access(
+                connection,
+                actor,
+                operator_id=actor.operator_id,
+                object_type="note",
+                object_id=note_id,
+                authority_basis="object-owner",
+                reason="Confidential note creator owns the note",
+            )
+            owner_id = _project_owner_id(connection)
+            if owner_id != actor.operator_id:
+                grant_access(
+                    connection,
+                    actor,
+                    operator_id=owner_id,
+                    object_type="note",
+                    object_id=note_id,
+                    authority_basis="project-owner",
+                    reason="Current project owner receives project-owner access",
+                )
         _link_note_file(
             connection,
             subject_file_id=subject_file_id,
@@ -312,12 +333,7 @@ def read_note(
         if note is None:
             raise ToolkitError(f"Unknown FACT note: {note_id}")
         if note["visibility"] == "confidential":
-            owner_id = _project_owner_id(connection)
-            authority_id = _confidential_authority_id(connection, note_id)
-            if actor.operator_id not in {authority_id, owner_id}:
-                raise ToolkitError(
-                    "Confidential note is restricted to its current authority and project owner"
-                )
+            require_confidential_access(connection, actor.operator_id, "note", note_id)
         selected = revision or int(note["latest_revision"])
         row = connection.execute(
             "SELECT * FROM note_revisions WHERE note_id = ? AND revision = ?",
@@ -370,12 +386,7 @@ def revise_note(
             raise ToolkitError(f"Unknown FACT note: {note_id}")
         visibility = str(note["visibility"])
         if visibility == "confidential":
-            owner_id = _project_owner_id(connection)
-            authority_id = _confidential_authority_id(connection, note_id)
-            if actor.operator_id not in {authority_id, owner_id}:
-                raise ToolkitError(
-                    "Only the current confidential authority or project owner may revise this note"
-                )
+            require_confidential_access(connection, actor.operator_id, "note", note_id)
         elif str(note["author_id"]) != actor.operator_id:
             raise ToolkitError("Only the note author may revise a retained note")
         case_id = note["case_id"]
@@ -408,12 +419,7 @@ def revise_note(
                 "Note authority or revision state changed while revision was prepared"
             )
         if str(live["visibility"]) == "confidential":
-            owner_id = _project_owner_id(connection)
-            authority_id = _confidential_authority_id(connection, note_id)
-            if actor.operator_id not in {authority_id, owner_id}:
-                raise ToolkitError(
-                    "Confidential note authority changed while revision was prepared"
-                )
+            require_confidential_access(connection, actor.operator_id, "note", note_id)
         elif str(live["author_id"]) != actor.operator_id:
             raise ToolkitError("Note authorship changed while revision was prepared")
         revision_file_id = str(committed[0]["file_id"])

@@ -54,7 +54,7 @@ FACT never silently repairs a broken chain. A chain-verification failure is an i
 
 ## State digest
 
-The audit chain protects logical history. Signed checkpoints additionally contain a deterministic digest of the current identifier and authority state under the project-selected chain-hash profile. This allows FACT to detect direct changes to live catalogue state, including identifier, identity, membership, ownership, transfer and approval records, even if the audit journal itself was left untouched.
+The audit chain protects logical history. Signed checkpoints additionally contain a deterministic digest of the current identifier and authority state under the project-selected chain-hash profile. This allows FACT to detect direct changes to live catalogue state, including identifier, identity, membership, ownership, transfer, approval and confidential-access records, even if the audit journal itself was left untouched.
 
 ## Signed checkpoints
 
@@ -131,11 +131,11 @@ FACT extends the project catalogue so project-relevant operator identity and aut
 
 These tables do not contain private keys, passphrases or GnuPG session state. They retain the public information necessary to understand and verify project history. FACT has no separate mutable operator-profile authority outside the project catalogue.
 
-Authority changes are represented by signed canonical transactions in the audit event chain. The transaction binds the actor, signing fingerprint, event sequence and previous chain head before it is appended. Verification reconstructs the authority tables from those events and compares the reconstructed state with the live relational state.
+Authority changes are represented by signed canonical transactions in the audit event chain. The transaction binds the actor, immutable operator UUID, signing fingerprint, event sequence and previous chain head before it is appended. Verification reconstructs the authority tables from those events and compares the reconstructed state with the live relational state.
 
 As a result, a direct SQL edit to a contributor state, owner, operator identity, retained public key or acquisition approval state is not treated as a legitimate project change. It creates a discrepancy that `catalogue verify` reports.
 
-The catalogue state digest used by signed checkpoints now covers identifiers and authority state. This means a signed checkpoint is sensitive to ex post facto changes to identity, membership, ownership, transfer and approval records as well as identifier state.
+The catalogue state digest used by signed checkpoints covers identifiers and authority state. This means a signed checkpoint is sensitive to ex post facto changes to identity, membership, ownership, transfer, approval and confidential-access records as well as identifier state.
 
 See `docs/AUTHORITY_AND_IDENTITY.md` for the signed transaction model, session authentication, contributor admission, ownership transfer, approval lifecycle, threat model and current key-lifecycle limitations.
 
@@ -144,9 +144,18 @@ See `docs/AUTHORITY_AND_IDENTITY.md` for the signed transaction model, session a
 
 Each project selects separate chain and evidential-content hash profiles at genesis. The policy is recorded in `PROJECT.toml`, catalogue metadata and signed project genesis, and verification requires those representations to agree. The current project schema does not permit an in-place hash-policy change.
 
-FACT uses a curated registry rather than accepting arbitrary algorithm names. SHA-256 remains the default, while the supported profiles may include SHA-512, SHA-3, BLAKE2 and BLAKE3 variants exposed by the current implementation. If a selected implementation is unavailable, FACT fails closed rather than silently substituting another algorithm. Package transport checksums may remain fixed by the package format and are distinct from the project's live integrity policy.
+FACT uses a curated registry rather than accepting arbitrary algorithm names. SHA-256 remains the default, while the supported profiles include the SHA-512, SHA-3, BLAKE2 and BLAKE3 variants exposed by the current implementation. If a selected implementation is unavailable, FACT fails closed rather than silently substituting another algorithm. Package transport checksums may remain fixed by the package format and are distinct from the project's live integrity policy.
 
 
 ## Provenance event envelope
 
-Schema 8 uses the versioned `fact-audit-event/v2` canonical hash envelope. Every chain event commits its sequence, recorded UTC timestamp, event and object identity, explicit actor representation, event details and previous event hash. Operator-authored authority events bind the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis. System lifecycle events use an explicit system actor. Signed authority transactions independently carry the same operator UUID and credential fingerprint, and catalogue verification rejects any mismatch between the signed transaction and the rolling-chain event.
+Schema 10 uses the versioned `fact-audit-event/v3` canonical hash envelope. Every chain event commits its selected chain-hash algorithm, sequence, recorded UTC timestamp, event and object identity, explicit actor representation, event details and previous event digest. Operator-authored authority events bind the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis. System lifecycle events use an explicit system actor. Signed authority transactions independently carry the same operator UUID and credential fingerprint, and catalogue verification rejects any mismatch between the signed transaction and the rolling-chain event.
+
+
+## Confidential access state
+
+Confidential access grants are retained in the same authenticated catalogue as other authority state. A single operator may hold several independent bases for one confidential object. `CONFIDENTIAL_ACCESS_GRANTED` and `CONFIDENTIAL_ACCESS_REVOKED` events preserve when each basis began and ended, while the live access table records the corresponding grant and revocation sequences for efficient current-state queries.
+
+Revoking one basis does not erase another surviving basis. Project ownership transfer therefore revokes only the outgoing owner's role-derived `project-owner` grants and creates the incoming owner's corresponding grants. Direct `object-owner` or other independent authority remains unchanged unless a separate authenticated event changes it.
+
+This access state governs FACT-mediated decryption. It does not claim to invalidate historical ciphertext keys or erase material that an operator obtained while authorised. See `CONFIDENTIAL_ACCESS.md` for the current cryptographic boundary.

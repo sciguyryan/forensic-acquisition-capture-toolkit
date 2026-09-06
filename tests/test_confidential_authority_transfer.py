@@ -106,7 +106,7 @@ def test_owner_proposes_incoming_accepts_and_provenance_does_not_move(
     assert list_confidential_authority_transfers(tmp_path)[0]["state"] == "accepted"
     assert read_note(tmp_path, bob, note_id)["body"] == "Sensitive body"
     assert read_note(tmp_path, owner, note_id)["body"] == "Sensitive body"
-    with pytest.raises(ToolkitError, match="current authority"):
+    with pytest.raises(ToolkitError, match="current authenticated authority"):
         read_note(tmp_path, alice, note_id)
     assert verify_chain(tmp_path)["event_count"] > 0
 

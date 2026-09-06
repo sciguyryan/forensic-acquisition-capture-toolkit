@@ -1,6 +1,33 @@
-# FACT v2.15.0 field validation
+# FACT v2.17.0 field validation
 
-This release hardens FACT's provenance spine by assigning each retained operator an immutable UUID and binding operator identity, credential attribution and authority context directly into the versioned rolling-hash event envelope. It preserves the v2.14 export, verification and confidential-authority architecture. Field validation should concentrate on UUID persistence, audit-envelope tamper detection, export-to-history correspondence, exhaustive project verification and regression of acquisition, packaging and confidential authority.
+This release introduces authenticated multi-basis confidential access state and changes the project/catalogue schema to version 10. Field validation should concentrate on grant and revocation history, multi-basis access resolution, ownership-transfer consequences, protected decryption preflight and regression of the existing confidential-note cryptographic transitions.
+
+Required checks:
+
+```fish
+python -m ruff check src tests
+python -m ruff format --check src tests
+python -m pytest
+```
+
+Confirm that an outgoing project owner loses access to confidential material they held only through the `project-owner` basis, while retaining access to confidential material for which they retain an independent `object-owner` basis. Confirm that the incoming owner can read the re-encrypted current revision and that `fact verify project` succeeds afterwards.
+
+The new access-authority foundation does not yet implement the planned DEK/envelope-encryption or threshold-recovery mechanisms. FACT can deny future use of its protected decryption path when authenticated access has ended, but the current GnuPG representation does not provide cryptographic erasure of keys, plaintext or external copies already retained by an operator.
+
+
+## Confidential-access checks
+
+1. Create a confidential note as an operator who is also the current project owner. Inspect the authenticated access state and confirm separate `object-owner` and `project-owner` grants exist rather than one ambiguous recipient record.
+2. Transfer project ownership to another active operator. Confirm the outgoing owner's `project-owner` basis is recorded as revoked and the incoming owner's corresponding basis is recorded as granted. Confirm the outgoing operator's independent `object-owner` basis remains active.
+3. Repeat with a confidential object for which the outgoing owner has only `project-owner` access. After transfer, confirm FACT refuses the outgoing operator's protected decryption path and allows the incoming owner to read the current re-encrypted revision.
+4. Revoke one access basis from an operator who still has another active basis for the same object. Confirm effective access remains. Revoke the final active basis in a disposable project and confirm protected decryption is denied.
+5. Inspect the catalogue history. `CONFIDENTIAL_ACCESS_GRANTED` and `CONFIDENTIAL_ACCESS_REVOKED` events must retain the basis, operator and object attribution required to explain current access. Historical grant events must remain present after revocation.
+6. Run `fact verify project` after grant, revocation and ownership-transfer operations. Directly alter the live access table in a disposable database copy without matching authenticated history and confirm verification fails.
+7. Confirm the user-facing result does not claim retroactive erasure. A revoked operator must be blocked by FACT's normal infrastructure, but documentation and diagnostics must not claim that previously retained plaintext, keys, screenshots, exports or independently copied ciphertext have been made inaccessible.
+
+## Provenance-spine regression checks
+
+The v2.15 provenance-spine behaviour remains part of the current security model. Confirm operator UUID persistence, audit-envelope tamper detection, export-to-history correspondence and exhaustive project verification alongside the new confidential-access checks.
 
 
 ## Provenance-spine checks
@@ -55,7 +82,7 @@ This release hardens FACT's provenance spine by assigning each retained operator
 6. Run `fact verify artefact ART-######`, `fact verify acquisition ACQ-######`, `fact verify case CASE-######`, `fact verify id FILE-######`, and `fact verify project`. Confirm narrow structural verification states that unrelated sibling payloads were not rehashed, while project verification is exhaustive.
 7. Produce text, HTML, JSON and PDF reports with `--report`, `--output` and `--detailed`. Confirm each carries the same result/status semantics, identifies its verification scope and limitations, and does not create a project file identity.
 8. Authenticate as a non-owner active member. Exercise ordinary and broad-scope export under both permissive and owner-only policies. Confirm policy enforcement is fail-closed and a denied operator cannot obtain a successful export merely by selecting a narrower CLI path.
-9. Create a confidential note. Confirm ordinary export emits its committed ciphertext. Confirm plaintext export requires the current project owner or current confidential authority holder according to policy and is recorded as a derived export output rather than byte-identical evidence.
+9. Create a confidential note. Confirm ordinary export emits its committed ciphertext. Confirm plaintext export requires both project export permission and current authenticated confidential access, and is recorded as a derived export output rather than byte-identical evidence.
 10. As project owner, propose a `TRANSFER-######` for the confidential note to another active member. Confirm the outgoing authority holder cannot accept it. Have the nominated incoming member accept it and verify that immutable creator attribution is unchanged, a new cryptographic note revision is committed, current authority changes only after successful re-encryption, and the former authority holder can no longer decrypt through FACT.
 11. Repeat with rejection and owner cancellation. Confirm the proposal and outcome remain in authenticated history. Attempt a generic encrypted file/artefact authority transfer and confirm FACT refuses it until the generic encrypted-payload cryptographic transition is implemented rather than pretending authority moved.
 12. For a tar export protected to a recipient key, confirm the encrypted envelope's digest corresponds to the recorded export. `fact verify export` may establish exact envelope correspondence without decryption, but must clearly state that the internal plaintext representation was not independently inspected.

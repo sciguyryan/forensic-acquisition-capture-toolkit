@@ -138,7 +138,7 @@ This keeps two statements simultaneously true: the chain can prove that an expor
 
 Encrypted artefacts are a planned extension of the same model rather than a separate evidence system. The encrypted bytes will themselves be the committed file representation and therefore have ordinary file IDs and hashes.
 
-Ownership transfer must be all or nothing for encrypted material. FACT must successfully decrypt, re-encrypt, validate and stage every affected confidential note representation and encrypted artefact before the new ownership state is committed. No partial transfer may become authoritative.
+Ownership transfer must be all or nothing for encrypted material that currently requires a cryptographic transition. FACT must successfully decrypt, re-encrypt, validate and stage every affected confidential note representation before the new ownership state is committed. No partial transition may become authoritative. Generic encrypted artefacts remain future work until their encrypted-payload format and transition semantics are defined.
 
 Large encrypted files may require chunked or streaming authenticated encryption so that confidentiality does not require loading an entire artefact into memory. That cryptographic design is intentionally deferred until the ordinary immutable file model is established.
 

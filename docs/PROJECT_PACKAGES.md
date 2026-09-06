@@ -92,7 +92,7 @@ Detached signatures are intentionally outside the deterministic archive. OpenPGP
 - project ID;
 - FACT version;
 - catalogue event count;
-- catalogue chain-head SHA-256 value;
+- catalogue chain-head digest and selected chain-hash profile;
 - catalogue state digest;
 - catalogue checkpoint status;
 - evidence-signing key fingerprint;
@@ -258,7 +258,7 @@ It cannot make a fully compromised host trustworthy. An attacker who controls th
 
 ## Retained note disclosure
 
-Retained notes are excluded from external project packages by default. Because each note revision is now an ordinary committed file, packaging does not null a database payload. Instead, the filtered package view omits the revision-file bytes for notes whose disclosure policy is `withheld`, while the catalogue snapshot still retains the note identity, revision lineage, `FILE-######` identity, SHA-256 and provenance showing that the material exists in the authoritative project. The authoritative project catalogue is never rewritten by packaging.
+Retained notes are excluded from external project packages by default. Because each note revision is now an ordinary committed file, packaging does not null a database payload. Instead, the filtered package view omits the revision-file bytes for notes whose disclosure policy is `withheld`, while the catalogue snapshot still retains the note identity, revision lineage, `FILE-######` identity, content digest and provenance showing that the material exists in the authoritative project. The authoritative project catalogue is never rewritten by packaging.
 
 The current project owner may explicitly mark an individual note for inclusion. Project-visible revision files are then included as their committed bytes. Confidential revision files remain encrypted ciphertext and are never decrypted by the packaging path.
 

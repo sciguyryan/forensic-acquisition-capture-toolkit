@@ -83,7 +83,7 @@ FACT currently supports two note classes.
 
 A `project` note is readable by active authenticated project members. Its revision file contains the canonical JSON note representation in plaintext because the project itself is the access boundary for that note class.
 
-A `confidential` note is readable only by its current confidential authority holder and the current project owner. Its committed revision file contains ciphertext, not plaintext.
+A `confidential` note is readable through FACT only when the authenticated operator has at least one active confidential-access grant for that note. Its committed revision file contains ciphertext, not plaintext. Access may arise through independent bases such as direct `object-owner` authority or the current `project-owner` role.
 
 The word `project` means project-visible. It does not mean automatically disclosed outside the project. Package and export disclosure are separate decisions.
 
@@ -98,7 +98,7 @@ NOTE-000008
 └── revision 1 -> FILE-000040
                   classification: confidential-note-revision
                   media type: application/pgp-encrypted
-                  content_digest: HASH(content bytes under project content profile)
+                  content_digest: HASH(ciphertext bytes under project content profile)
 ```
 
 The ciphertext is the authoritative stored representation. Its content digest is handled exactly like the hash of any other committed file.
@@ -146,7 +146,7 @@ Both files remain committed. The note's current-revision pointer moves to revisi
 
 A cryptographic revision changes the stored encrypted representation without asserting that the semantic note text changed.
 
-This distinction is important during project ownership transfer. If a confidential note must become decryptable by its current confidential authority holder and the incoming project owner, FACT creates a new ciphertext file and records the revision type as `cryptographic`.
+This distinction is important during project ownership transfer. If the required confidential-note recipient set changes so the incoming project owner must be able to decrypt the current representation, FACT creates a new ciphertext file and records the revision type as `cryptographic`.
 
 For example:
 
@@ -191,7 +191,7 @@ A future file-store hardening phase will add a durable recovery journal for abru
 
 ## Reading and verification
 
-Reading a note resolves the selected note revision to its `FILE-######` record. FACT checks that the file exists, that its size and configured content digest still match the committed values, and then decodes or decrypts the stored bytes as appropriate.
+Reading a note resolves the selected note revision to its `FILE-######` record. FACT checks that the file exists, that its size and configured content digest still match the committed values, verifies the authenticated operator has current confidential access where required, and then decodes or decrypts the stored bytes as appropriate.
 
 Normal catalogue verification independently checks the complete file tree. If a note revision file is changed or removed, this is a file sanctity violation just as it would be for a video, screenshot or captured network response.
 
@@ -235,8 +235,12 @@ The general architecture distinguishes committed existence from presentation. Re
 
 When note-level retraction is exposed through the user interface, it will be an append-only presentation transition. A full historical export will be able to include the note and all revisions. A presented/filtered export may omit retracted material, but it must identify itself as a filtered view rather than a complete authoritative record.
 
-## Confidential authority transfer
+## Confidential access authority
 
-The operator who created a confidential note remains its immutable creator in provenance. Current confidential authority is a separate state and may be transferred without rewriting that authorship. Only the current project owner may propose transfer, and the nominated incoming active project member must accept before authority changes. Rejection or owner cancellation remains in authenticated history.
+The operator who created a confidential note remains its immutable creator in provenance. Current access authority is separate and may have several independent bases for the same operator and note. FACT records each basis separately so changing a role does not silently erase unrelated direct authority.
 
-Acceptance re-encrypts every selected confidential note into new immutable cryptographic revision files for the incoming authority holder and current project owner, validates the replacements, and changes authority only after the whole selected note set succeeds. The outgoing authority holder's historical ciphertext revisions remain in the project but no longer confer current FACT decryption authority.
+Project ownership transfer revokes the outgoing owner's `project-owner` grants and adds the corresponding grants for the incoming owner. An `object-owner` or other independent surviving basis remains active. Access changes are append-only `CONFIDENTIAL_ACCESS_GRANTED` and `CONFIDENTIAL_ACCESS_REVOKED` events; historical grants are not deleted or rewritten.
+
+The current GnuPG ciphertext representation still requires cryptographic transitions where ownership changes the recipient set. Those transitions create new immutable cryptographic revision files rather than rewriting historical ciphertext. FACT checks current authenticated access before its protected decryption path, so an operator whose last active basis has been revoked can no longer decrypt through FACT even if an old credential remains technically capable of decrypting a historical ciphertext outside FACT.
+
+This is not retroactive cryptographic erasure. FACT cannot revoke plaintext, private keys, screenshots, exports or other material that an operator retained while authorised. See `CONFIDENTIAL_ACCESS.md` for the current access model and its cryptographic boundary.

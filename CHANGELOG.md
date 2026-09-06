@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.17.0 - Cryptographic Constitution
+
+- Added authenticated multi-basis confidential access state so possession of a technically valid key is no longer treated as sufficient authority to use FACT's protected decryption path.
+- Added independently revocable `object-owner`, `project-owner`, `explicit-grant`, `case-role`, `recovery-authority` and `system-policy` authority bases, with effective access remaining valid while any authenticated basis survives.
+- Added immutable `CONFIDENTIAL_ACCESS_GRANTED` and `CONFIDENTIAL_ACCESS_REVOKED` events and verification that reconstructs the live access table from signed catalogue history.
+- Updated confidential-note reads and revisions to fail closed against current authenticated access state before decryption.
+- Updated direct confidential-authority transfer so the outgoing direct `object-owner` basis is revoked and the accepting operator receives the replacement direct basis without rewriting creation provenance.
+- Updated project ownership transfer to revoke only the outgoing owner's `project-owner` basis and grant that basis to the incoming owner, preserving direct object ownership and other independent access reasons.
+- Added regression coverage proving that an outgoing project owner loses role-derived access to another operator's confidential note while retaining access to confidential material they directly own.
+- Added direct tamper coverage proving that mutable confidential-access rows cannot diverge from their authenticated grant/revocation history.
+- Documented the intended later DEK/envelope-encryption, forward-exclusion and finite threshold-recovery architecture without claiming those cryptographic mechanisms are implemented yet.
+- Expanded the accepted TODO programme with revocable confidential access, project-removal consequences, operator activity/change attribution, `--explain`, ASCII and HTML/SVG `--graph`, graph filtering, version/state comparison and future cross-project operator identity management.
+- Bumped the unreleased project/catalogue schema boundary to version 10. No in-place migration is provided for earlier development schemas.
+
 ## 2.16.0 - Hash Agility
 
 - Added immutable per-project integrity policy with independently selectable rolling-chain and evidential-content hash algorithms.
