@@ -487,3 +487,59 @@ def test_genesis_does_not_recreate_missing_authority_schema(tmp_path: Path) -> N
     finally:
         connection.close()
     assert "record_authority" not in tables
+
+
+def test_operator_uuid_is_unique_immutable_and_bound_to_signed_event_hash(
+    tmp_path: Path,
+) -> None:
+    """Bind human authority events to stable UUID identity anchors."""
+    owner, alice, _ = make_project(tmp_path)
+    invite_and_accept(tmp_path, owner, alice)
+
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.row_factory = sqlite3.Row
+    operators = connection.execute(
+        "SELECT operator_id, operator_uuid FROM operators ORDER BY operator_id"
+    ).fetchall()
+    assert len({row["operator_uuid"] for row in operators}) == 2
+    for row in operators:
+        assert str(row["operator_uuid"])
+
+    event = connection.execute(
+        "SELECT actor_kind, actor_id, actor_uuid, credential_fingerprint, "
+        "authority_basis FROM audit_events WHERE event_type = 'CONTRIBUTOR_ACCEPTED'"
+    ).fetchone()
+    assert event["actor_kind"] == "operator"
+    assert event["actor_id"] == alice.operator_id
+    assert event["actor_uuid"] == next(
+        row["operator_uuid"]
+        for row in operators
+        if row["operator_id"] == alice.operator_id
+    )
+    assert event["credential_fingerprint"] == alice.operator_signing_subkey_fingerprint
+    assert event["authority_basis"] == "signed-authority-transaction"
+
+    connection.execute(
+        "UPDATE audit_events SET actor_uuid = ? WHERE event_type = 'CONTRIBUTOR_ACCEPTED'",
+        ("00000000-0000-4000-8000-000000000000",),
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(ToolkitError, match="event hash is invalid"):
+        verify_chain(tmp_path)
+
+
+def test_operator_uuid_live_state_tampering_is_detected(tmp_path: Path) -> None:
+    """Reject a direct UUID rewrite even when the rolling event rows are untouched."""
+    owner, _, _ = make_project(tmp_path)
+
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.execute(
+        "UPDATE operators SET operator_uuid = ? WHERE operator_id = ?",
+        ("00000000-0000-4000-8000-000000000001", owner.operator_id),
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(ToolkitError, match="operator"):
+        verify_chain(tmp_path)

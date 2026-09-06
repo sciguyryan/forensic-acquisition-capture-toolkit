@@ -24,7 +24,7 @@ fact --root /path/to/project authority status
 
 ## Operator identity and signing keys
 
-A project-retained operator identity includes the operator ID, public descriptive fields, full signing-key fingerprints and the public OpenPGP key material required to verify signed authority transactions. Private keys, passphrases, GnuPG agent state and session authentication secrets are never stored in the catalogue.
+A project-retained operator identity includes a human-friendly project-local operator ID, a randomly generated immutable operator UUID, public descriptive fields, full signing-key fingerprints and the public OpenPGP key material required to verify signed authority transactions. The UUID is created once when the operator first enters project authority and is not derived from a key, name, email address or other mutable attribute. Private keys, passphrases, GnuPG agent state and session authentication secrets are never stored in the catalogue.
 
 FACT has no persistent local operator-profile file. When a new project is created, the proposed owner supplies their public identity details and selects a usable secret signing key from the local GnuPG keyring. FACT retains the resulting public identity, full signing fingerprints and exported public key inside the new project catalogue. Subsequent project operations identify the operator by the project-retained operator ID and verify signatures against the retained public key material.
 
@@ -32,13 +32,15 @@ Historical public verification material is retained with the project so that a l
 
 A valid cryptographic signature demonstrates control of the private key associated with the retained operator identity at that point in project history. It does not prove that a particular biological person personally operated the keyboard. Key custody, workstation security, hardware-token policy and compromise response remain important operational controls outside the cryptographic claim FACT can make.
 
+A UUID identifies the retained operator across credential changes. A signing fingerprint identifies the credential used at a particular point in history. FACT deliberately keeps these concepts separate so future key rotation can append credential history without rewriting earlier attribution or changing the operator's UUID.
+
 ## Signed authority transactions
 
 Authority-changing events use a canonical signed transaction before they are appended to the rolling catalogue chain. The signed payload binds the transaction to the project, event type, object, actor, actor signing-key fingerprint, intended event sequence, previous chain head, timestamp and event-specific data.
 
 FACT immediately verifies the new signature against the project-retained public key and the exact historical signing fingerprint before appending the event. Catalogue verification later reconstructs the authority state from those signed events and checks the signatures again.
 
-The rolling hash and transaction signature provide different assurances. The rolling hash protects event ordering and detects changes to the chain. The operator signature demonstrates that the corresponding registered signing key authorised the exact authority transaction. Neither mechanism is treated as a substitute for the other.
+The rolling hash and transaction signature provide different assurances. The versioned `fact-audit-event/v2` envelope protects event ordering and commits the event timestamp, event/object identity, actor kind, project-local operator ID, immutable operator UUID, credential fingerprint, authority basis, event details and previous hash. The `fact-authority-transaction/v2` signature independently binds the operator UUID and signing fingerprint to the authority transaction. Verification cross-checks the signed transaction against the outer event attribution. The rolling chain therefore detects later alteration of provenance fields, while the operator signature demonstrates control of the corresponding registered signing key for the exact signed transaction. Neither mechanism is treated as a substitute for the other.
 
 ## Session authentication
 

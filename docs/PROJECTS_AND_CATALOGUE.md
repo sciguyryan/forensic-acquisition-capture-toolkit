@@ -46,7 +46,7 @@ The current implementation does not delete case material when a case is retired.
 
 ## Audit journal
 
-Every catalogue-changing operation appends an audit event. Events include their sequence, UTC timestamp, event type, affected object, canonical JSON details, the previous event hash, and their own SHA-256 hash.
+Every catalogue-changing operation appends an audit event. The versioned audit envelope commits the event sequence, UTC timestamp, event and object identity, explicit actor representation, canonical event details and previous event hash into the event's own SHA-256 hash. Operator-authored authority events additionally commit the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis.
 
 The first event refers to a fixed all-zero genesis hash. Every later event cryptographically commits to the previous event. Altering, deleting, inserting or reordering historical events therefore breaks verification unless the attacker reconstructs the subsequent chain.
 
@@ -54,7 +54,7 @@ FACT never silently repairs a broken chain. A chain-verification failure is an i
 
 ## State digest
 
-The audit chain protects logical history. Signed checkpoints additionally contain a deterministic SHA-256 digest of the identifier registry's current state. This allows FACT to detect direct changes to the live identifier table even if the audit journal itself was left untouched.
+The audit chain protects logical history. Signed checkpoints additionally contain a deterministic SHA-256 digest of the current identifier and authority state. This allows FACT to detect direct changes to live catalogue state, including identifier, identity, membership, ownership, transfer and approval records, even if the audit journal itself was left untouched.
 
 ## Signed checkpoints
 
@@ -75,13 +75,13 @@ A checkpoint describes an exact catalogue state. After legitimate catalogue muta
 
 A self-contained signed catalogue cannot by itself detect replacement with an older catalogue and its matching older valid checkpoint. This is a rollback attack.
 
-Independently retained signed project packages bind the project ID, catalogue event sequence and chain-head hash and can therefore provide an external anchor against silent rollback of the local project catalogue. External checkpoint publication or protected backup can provide additional anchoring where required.
+Signed FACT project packages bind the project ID, catalogue event sequence and chain-head hash. Once a package has been independently retained, it becomes an external anchor against silent rollback of the local project catalogue. Additional external checkpoint publication or protected backup can provide stronger anchoring where required.
 
 ## Threat model
 
 The catalogue is intended to detect accidental edits and make casual manual tampering substantially more difficult. It protects against common attempts such as changing an issued identifier, removing a retirement event, rewriting current state without updating history, or modifying a checkpoint without the signing key.
 
-It does not claim to defeat an attacker who simultaneously controls the host, FACT process, signing credentials, all historical checkpoints and every externally retained signed project package.
+It does not claim to defeat an attacker who simultaneously controls the host, FACT process, signing credentials, all historical checkpoints and every externally retained project package.
 
 ## Encryption
 
@@ -127,7 +127,7 @@ fact --root /path/to/project catalogue verify --checkpoint --public-key /path/to
 
 ## Identity and authority state
 
-FACT 2.8 extends the project catalogue so project-relevant operator identity and authority are protected by the same integrity model as the rest of the project state. Operator records, retained public signing keys, contributor membership, project and case ownership, ownership-transfer state, and evidential approval state are stored in dedicated tables in `catalogue.sqlite`.
+FACT extends the project catalogue so project-relevant operator identity and authority are protected by the same integrity model as the rest of the project state. Operator records, retained public signing keys, contributor membership, project and case ownership, ownership-transfer state, and evidential approval state are stored in dedicated tables in `catalogue.sqlite`.
 
 These tables do not contain private keys, passphrases or GnuPG session state. They retain the public information necessary to understand and verify project history. FACT has no separate mutable operator-profile authority outside the project catalogue.
 
@@ -138,3 +138,8 @@ As a result, a direct SQL edit to a contributor state, owner, operator identity,
 The catalogue state digest used by signed checkpoints now covers identifiers and authority state. This means a signed checkpoint is sensitive to ex post facto changes to identity, membership, ownership, transfer and approval records as well as identifier state.
 
 See `docs/AUTHORITY_AND_IDENTITY.md` for the signed transaction model, session authentication, contributor admission, ownership transfer, approval lifecycle, threat model and current key-lifecycle limitations.
+
+
+## Provenance event envelope
+
+Schema 8 uses the versioned `fact-audit-event/v2` canonical hash envelope. Every chain event commits its sequence, recorded UTC timestamp, event and object identity, explicit actor representation, event details and previous event hash. Operator-authored authority events bind the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis. System lifecycle events use an explicit system actor. Signed authority transactions independently carry the same operator UUID and credential fingerprint, and catalogue verification rejects any mismatch between the signed transaction and the rolling-chain event.

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.15.0 - Provenance Spine
+
+- Added a randomly generated immutable UUID to every operator when that identity first enters project authority. The UUID is independent of signing credentials and therefore survives future key rotation.
+- Introduced the versioned `fact-audit-event/v2` rolling-hash envelope and bound actor kind, project-local operator ID, operator UUID, credential fingerprint and authority basis into provenance-bearing event hashes.
+- Upgraded signed authority transactions to `fact-authority-transaction/v2` so the signed payload and outer rolling-chain envelope independently bind and cross-check the same immutable operator UUID.
+- Made system-generated chain events explicitly identify themselves as system events rather than relying on absent operator fields.
+- Bound committed-file actor UUID and active credential fingerprint into `FILE_COMMITTED` event envelopes while retaining the existing file metadata and acquisition authority records.
+- Extended authority-state reconstruction and checkpoint state digests to verify retained operator UUIDs and reject direct UUID or event-attribution tampering.
+- Added regression coverage that performs a recorded export, verifies the external export, then performs exhaustive project verification, and confirms export authority events retain their operator UUID and signing fingerprint.
+- Added direct tamper coverage proving that changing a hashed event operator UUID invalidates the rolling chain.
+- Bumped the unreleased project/catalogue schema boundary to version 8. No in-place migration is provided for earlier development schemas.
+
 ## 2.14.0 - Export, Verification and Authority
 
 - Added immutable `ART-######` identities that group retained collector artefacts without replacing atomic `FILE-######` evidence identities.

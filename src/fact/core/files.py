@@ -180,7 +180,15 @@ def _commit_prepared(
             "size_bytes": size,
             "storage_path": storage_path,
         }
-        _append_event(connection, "FILE_COMMITTED", "file", file_id, event_details)
+        _append_event(
+            connection,
+            "FILE_COMMITTED",
+            "file",
+            file_id,
+            event_details,
+            actor_id=actor_id,
+            authority_basis="committed-file-actor",
+        )
         sequence = connection.execute(
             "SELECT MAX(event_sequence) FROM audit_events"
         ).fetchone()[0]

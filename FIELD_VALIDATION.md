@@ -1,6 +1,17 @@
-# FACT v2.14.0 field validation
+# FACT v2.15.0 field validation
 
-This release adds authenticated export/disclosure history, project export policy, confidential-authority transfer, immutable artefact identities, scoped verification and multi-format verification reports on top of the everything-as-a-file catalogue architecture. Field validation should concentrate on export-to-history correspondence, exact file matching, verification scope, policy enforcement, confidential-note authority changes and regression of acquisition, packaging and whole-project integrity.
+This release hardens FACT's provenance spine by assigning each retained operator an immutable UUID and binding operator identity, credential attribution and authority context directly into the versioned rolling-hash event envelope. It preserves the v2.14 export, verification and confidential-authority architecture. Field validation should concentrate on UUID persistence, audit-envelope tamper detection, export-to-history correspondence, exhaustive project verification and regression of acquisition, packaging and confidential authority.
+
+
+## Provenance-spine checks
+
+1. Create a fresh disposable project and inspect `.fact/catalogue.sqlite`. Confirm the initial owner has both the human-friendly project-local `operator_id` and a non-empty unique `operator_uuid`. Invite and accept another operator and confirm the two UUID values differ.
+2. Inspect the `PROJECT_GENESIS` and contributor acceptance audit rows. Operator-authored rows must contain `actor_kind = operator`, the project-local actor ID, the retained immutable operator UUID, the signing fingerprint used for that authority transaction and a non-empty authority basis. Identifier-allocation rows should instead be explicit system events.
+3. Inspect the signed authority transaction nested in an operator-authored event. Confirm its `actor_uuid` matches the outer audit row UUID and its signing fingerprint matches the outer credential fingerprint.
+4. In a disposable database copy, change only `audit_events.actor_uuid` for one signed event and run `fact verify project` or `fact catalogue verify`. Verification must fail because the changed UUID is part of the rolling event hash.
+5. Restore the valid project, then change only `operators.operator_uuid` directly. Verification must fail because reconstructed signed authority state and checkpoint state digest no longer agree with the live operator table.
+6. Perform a native export and run `fact verify export /path/to/export`, followed by `fact verify project`. Both must succeed. Inspect `EXPORT_STARTED` and `EXPORT_COMPLETED`: both must bind the exporting operator's project ID, immutable UUID and signing fingerprint.
+7. Confirm full project verification remains exhaustive and rehashes every committed `FILE-######` payload after the export. Exported bytes and verification reports must remain external representations rather than silently becoming project evidence.
 
 ## Collector convergence checks
 

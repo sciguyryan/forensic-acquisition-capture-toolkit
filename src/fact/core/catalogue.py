@@ -17,7 +17,8 @@ from ..identity import verify_operator_payload
 from ..keys import fingerprint, prepare_gnupg, sign
 from ..services.commands import run
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
+AUDIT_EVENT_SCHEMA = "fact-audit-event/v2"
 GENESIS_HASH = "0" * 64
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
@@ -53,7 +54,7 @@ def _state_digest(connection: sqlite3.Connection) -> str:
             "FROM identifiers ORDER BY namespace, sequence"
         ),
         "operators": (
-            "SELECT operator_id, name, public_contact, organisation, role_label, state, "
+            "SELECT operator_id, operator_uuid, name, public_contact, organisation, role_label, state, "
             "created_sequence FROM operators ORDER BY operator_id"
         ),
         "operator_keys": (
@@ -185,12 +186,22 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 event_type TEXT NOT NULL,
                 object_type TEXT NOT NULL,
                 object_id TEXT NOT NULL,
+                actor_kind TEXT NOT NULL CHECK(actor_kind IN ('system', 'operator')),
+                actor_id TEXT,
+                actor_uuid TEXT,
+                credential_fingerprint TEXT,
+                authority_basis TEXT,
                 details_json TEXT NOT NULL,
                 previous_hash TEXT NOT NULL,
-                event_hash TEXT NOT NULL UNIQUE
+                event_hash TEXT NOT NULL UNIQUE,
+                CHECK(
+                    (actor_kind = 'system' AND actor_id IS NULL AND actor_uuid IS NULL) OR
+                    (actor_kind = 'operator' AND actor_id IS NOT NULL AND actor_uuid IS NOT NULL)
+                )
             );
             CREATE TABLE operators (
                 operator_id TEXT PRIMARY KEY,
+                operator_uuid TEXT NOT NULL UNIQUE,
                 name TEXT NOT NULL,
                 public_contact TEXT,
                 organisation TEXT,
@@ -432,7 +443,18 @@ def _append_event(
     occurred_at: str | None = None,
     expected_sequence: int | None = None,
     expected_previous: str | None = None,
+    actor_id: str | None = None,
+    actor_uuid: str | None = None,
+    credential_fingerprint: str | None = None,
+    authority_basis: str | None = None,
 ) -> str:
+    """Append one canonical audit event to the rolling provenance chain.
+
+    Operator-attributed events bind the immutable project operator ID, globally
+    unique operator UUID, active credential fingerprint and authority basis into
+    the hash envelope. System events use an explicit system actor rather than an
+    empty or ambiguous attribution.
+    """
     sequence, previous = _current_event_context(connection)
     if expected_sequence is not None and sequence != expected_sequence:
         raise ToolkitError("Catalogue changed while a signed transaction was prepared")
@@ -440,26 +462,61 @@ def _append_event(
         raise ToolkitError(
             "Catalogue chain head changed while a signed transaction was prepared"
         )
+    if actor_id is not None and (actor_uuid is None or credential_fingerprint is None):
+        row = connection.execute(
+            "SELECT p.operator_uuid, k.signing_fingerprint "
+            "FROM operators p LEFT JOIN operator_keys k "
+            "ON k.operator_id = p.operator_id AND k.state = 'active' "
+            "WHERE p.operator_id = ?",
+            (actor_id,),
+        ).fetchone()
+        if row is None:
+            raise ToolkitError(f"Audit actor is not registered: {actor_id}")
+        actor_uuid = actor_uuid or str(row["operator_uuid"])
+        if credential_fingerprint is None and row["signing_fingerprint"] is not None:
+            credential_fingerprint = str(row["signing_fingerprint"])
+    actor_kind = "operator" if actor_id is not None else "system"
+    if actor_kind == "system":
+        actor_uuid = None
+        credential_fingerprint = None
+        authority_basis = authority_basis or "fact-system"
     occurred_at = occurred_at or _utc_now()
     details_json = _canonical(details).decode("utf-8")
+    actor = {
+        "kind": actor_kind,
+        "operator_id": actor_id,
+        "operator_uuid": actor_uuid,
+        "credential_fingerprint": credential_fingerprint,
+        "authority_basis": authority_basis,
+    }
     material = {
+        "schema": AUDIT_EVENT_SCHEMA,
         "event_sequence": sequence,
         "occurred_at": occurred_at,
         "event_type": event_type,
         "object_type": object_type,
         "object_id": object_id,
+        "actor": actor,
         "details": details,
         "previous_hash": previous,
     }
     digest = _event_hash(material)
     connection.execute(
-        "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO audit_events(event_sequence, occurred_at, event_type, object_type, "
+        "object_id, actor_kind, actor_id, actor_uuid, credential_fingerprint, "
+        "authority_basis, details_json, previous_hash, event_hash) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             sequence,
             occurred_at,
             event_type,
             object_type,
             object_id,
+            actor_kind,
+            actor_id,
+            actor_uuid,
+            credential_fingerprint,
+            authority_basis,
             details_json,
             previous,
             digest,
@@ -658,7 +715,7 @@ def _verify_authority_state(
             raise ToolkitError(
                 f"Authority transaction envelope is malformed at event {row['event_sequence']}"
             )
-        if transaction.get("schema") != "fact-authority-transaction/v1":
+        if transaction.get("schema") != "fact-authority-transaction/v2":
             raise ToolkitError(
                 f"Unknown authority transaction schema at event {row['event_sequence']}"
             )
@@ -676,15 +733,26 @@ def _verify_authority_state(
                     f"Authority transaction does not match catalogue event {row['event_sequence']}: {field}"
                 )
         actor_id = transaction.get("actor_id")
+        actor_uuid = transaction.get("actor_uuid")
         actor_key = transaction.get("actor_key_fingerprint")
         data = transaction.get("data")
         if (
             not isinstance(actor_id, str)
+            or not isinstance(actor_uuid, str)
             or not isinstance(actor_key, str)
             or not isinstance(data, dict)
         ):
             raise ToolkitError(
                 f"Authority transaction identity is malformed at event {row['event_sequence']}"
+            )
+        if (
+            row["actor_kind"] != "operator"
+            or row["actor_id"] != actor_id
+            or row["actor_uuid"] != actor_uuid
+            or row["credential_fingerprint"] != actor_key
+        ):
+            raise ToolkitError(
+                f"Authority transaction actor provenance does not match catalogue event {row['event_sequence']}"
             )
 
         event_type = str(row["event_type"])
@@ -712,6 +780,9 @@ def _verify_authority_state(
             identity = data["identity"]
             assert isinstance(identity, dict)
             operator_id = str(identity["operator_id"])
+            retained_uuid = data.get("operator_uuid")
+            if not isinstance(retained_uuid, str) or retained_uuid != actor_uuid:
+                raise ToolkitError("Project genesis operator UUID is inconsistent")
             if actor_id != operator_id or actor_key != identity.get(
                 "operator_signing_subkey_fingerprint"
             ):
@@ -720,6 +791,7 @@ def _verify_authority_state(
                 )
             operators[operator_id] = {
                 "operator_id": operator_id,
+                "operator_uuid": actor_uuid,
                 "name": identity["name"],
                 "public_contact": identity.get("public_contact"),
                 "organisation": identity.get("organisation"),
@@ -757,8 +829,12 @@ def _verify_authority_state(
                     "Contributor invitation is missing retained identity"
                 )
             operator_id = str(identity["operator_id"])
+            invited_uuid = data.get("operator_uuid")
+            if not isinstance(invited_uuid, str):
+                raise ToolkitError("Contributor invitation is missing operator UUID")
             signing = str(identity["operator_signing_subkey_fingerprint"])
             operators[operator_id] = {
+                "operator_uuid": invited_uuid,
                 "operator_id": operator_id,
                 "name": identity["name"],
                 "public_contact": identity.get("public_contact"),
@@ -879,7 +955,7 @@ def _verify_authority_state(
             {
                 str(row["operator_id"]): dict(row)
                 for row in connection.execute(
-                    "SELECT operator_id, name, public_contact, organisation, role_label, state, "
+                    "SELECT operator_id, operator_uuid, name, public_contact, organisation, role_label, state, "
                     "created_sequence FROM operators ORDER BY operator_id"
                 ).fetchall()
             },
@@ -1252,12 +1328,21 @@ def verify_chain(
                     f"Catalogue hash chain is broken at event {expected_sequence}"
                 )
             details = json.loads(row["details_json"])
+            actor = {
+                "kind": str(row["actor_kind"]),
+                "operator_id": row["actor_id"],
+                "operator_uuid": row["actor_uuid"],
+                "credential_fingerprint": row["credential_fingerprint"],
+                "authority_basis": row["authority_basis"],
+            }
             material = {
+                "schema": AUDIT_EVENT_SCHEMA,
                 "event_sequence": expected_sequence,
                 "occurred_at": row["occurred_at"],
                 "event_type": row["event_type"],
                 "object_type": row["object_type"],
                 "object_id": row["object_id"],
+                "actor": actor,
                 "details": details,
                 "previous_hash": previous,
             }

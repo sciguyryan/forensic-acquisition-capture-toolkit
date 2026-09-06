@@ -517,3 +517,52 @@ def test_cli_dispatches_new_verify_and_export_read_commands(
         == 0
     )
     assert "FACT Verification Report" in capsys.readouterr().out
+
+
+def test_export_verify_then_full_project_verify_preserves_provenance_chain(
+    tmp_path: Path,
+) -> None:
+    """Exercise disclosure correspondence and exhaustive project verification together."""
+    owner, case_id, _, committed, _ = project_with_acquisition(tmp_path)
+    output = tmp_path.parent / "provenance-export"
+    exported = create_export(
+        tmp_path,
+        owner,
+        scope_type="case",
+        scope_id=case_id,
+        output=output,
+        output_format="directory",
+    )
+
+    export_result = verify_export(tmp_path, output)
+    assert export_result["status"] == "verified"
+    assert export_result["matches"][0]["export_id"] == exported["export_id"]
+
+    project_result = verify_structural(tmp_path, "project")
+    assert project_result["status"] == "verified"
+    assert project_result["scope"]["project_chain"]["hashed_file_count"] == len(
+        committed
+    )
+
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.row_factory = sqlite3.Row
+    rows = connection.execute(
+        "SELECT event_type, actor_id, actor_uuid, credential_fingerprint "
+        "FROM audit_events WHERE object_id = ? ORDER BY event_sequence",
+        (exported["export_id"],),
+    ).fetchall()
+    connection.close()
+    assert [row["event_type"] for row in rows] == [
+        "IDENTIFIER_ISSUED",
+        "EXPORT_STARTED",
+        "EXPORT_COMPLETED",
+    ]
+    authoritative = [row for row in rows if row["event_type"] != "IDENTIFIER_ISSUED"]
+    assert all(row["actor_id"] == owner.operator_id for row in authoritative)
+    assert all(row["actor_uuid"] for row in authoritative)
+    assert all(
+        row["credential_fingerprint"] == owner.operator_signing_subkey_fingerprint
+        for row in authoritative
+    )
+    assert rows[0]["actor_id"] is None
+    assert rows[0]["actor_uuid"] is None

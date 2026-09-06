@@ -34,8 +34,13 @@ from .catalogue import (
 )
 
 AUTHORITY_SCHEMA_VERSION = 1
-AUTHORITY_TRANSACTION_SCHEMA = "fact-authority-transaction/v1"
+AUTHORITY_TRANSACTION_SCHEMA = "fact-authority-transaction/v2"
 AUTHENTICATION_CHALLENGE_SCHEMA = "fact-operator-authentication/v1"
+
+
+def _new_operator_uuid() -> str:
+    """Generate a globally unique immutable FACT operator identity anchor."""
+    return str(uuid.uuid4())
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +105,7 @@ def _transaction(
     object_type: str,
     object_id: str,
     data: dict[str, object],
+    actor_uuid: str | None = None,
 ) -> tuple[dict[str, object], str]:
     """Build and sign the exact transaction that will enter the audit chain."""
     sequence, previous = _current_event_context(connection)
@@ -109,6 +115,16 @@ def _transaction(
             "SELECT value FROM metadata WHERE key = 'project_id'"
         ).fetchone()[0]
     )
+    if actor_uuid is None:
+        row = connection.execute(
+            "SELECT operator_uuid FROM operators WHERE operator_id = ?",
+            (actor.operator_id,),
+        ).fetchone()
+        if row is None:
+            raise ToolkitError(
+                f"Signed transaction actor is not registered: {actor.operator_id}"
+            )
+        actor_uuid = str(row["operator_uuid"])
     transaction = {
         "schema": AUTHORITY_TRANSACTION_SCHEMA,
         "project_id": project_id,
@@ -118,6 +134,7 @@ def _transaction(
         "object_type": object_type,
         "object_id": object_id,
         "actor_id": actor.operator_id,
+        "actor_uuid": actor_uuid,
         "actor_key_fingerprint": actor.operator_signing_subkey_fingerprint,
         "previous_hash": previous,
         "data": data,
@@ -135,6 +152,8 @@ def _append_signed(
     object_id: str,
     data: dict[str, object],
     verification_key: str,
+    actor_uuid: str | None = None,
+    authority_basis: str = "signed-authority-transaction",
 ) -> int:
     """Sign, verify and append one authority transaction atomically."""
     transaction, signature = _transaction(
@@ -144,6 +163,7 @@ def _append_signed(
         object_type=object_type,
         object_id=object_id,
         data=data,
+        actor_uuid=actor_uuid,
     )
     verify_operator_payload(
         verification_key,
@@ -163,6 +183,10 @@ def _append_signed(
         occurred_at=str(transaction["occurred_at"]),
         expected_sequence=int(transaction["event_sequence"]),
         expected_previous=str(transaction["previous_hash"]),
+        actor_id=actor.operator_id,
+        actor_uuid=str(transaction["actor_uuid"]),
+        credential_fingerprint=actor.operator_signing_subkey_fingerprint,
+        authority_basis=authority_basis,
     )
     return int(transaction["event_sequence"])
 
@@ -274,6 +298,7 @@ def require_registered_operator(
             )
         return {
             "operator_id": identity.operator_id,
+            "operator_uuid": str(row["operator_uuid"]),
             "membership_role": membership["membership_role"] if membership else None,
             "membership_state": membership["state"] if membership else None,
             "public_key": str(key["public_key"]),
@@ -339,7 +364,9 @@ def establish_project_genesis(
         existing = connection.execute("SELECT COUNT(*) FROM operators").fetchone()[0]
         if existing:
             raise ToolkitError("Project authority has already been established")
+        owner_uuid = _new_operator_uuid()
         data = _identity_data(owner, public_key)
+        data["operator_uuid"] = owner_uuid
         data["ownership_scope"] = "project"
         data["export_policy"] = {
             "ordinary_export": "members",
@@ -359,11 +386,14 @@ def establish_project_genesis(
             ),
             data=data,
             verification_key=public_key,
+            actor_uuid=owner_uuid,
+            authority_basis="project-genesis",
         )
         connection.execute(
-            "INSERT INTO operators VALUES (?, ?, ?, ?, ?, 'active', ?)",
+            "INSERT INTO operators VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
             (
                 owner.operator_id,
+                owner_uuid,
                 owner.name,
                 owner.public_contact,
                 owner.organisation,
@@ -499,7 +529,9 @@ def invite_contributor(
                 f"Operator already exists in project authority: {contributor.operator_id}"
             )
         key = _key_row(connection, actor.operator_id)
+        contributor_uuid = _new_operator_uuid()
         data = _identity_data(contributor, contributor_public_key)
+        data["operator_uuid"] = contributor_uuid
         sequence = _append_signed(
             connection,
             actor=actor,
@@ -510,9 +542,10 @@ def invite_contributor(
             verification_key=str(key["public_key"]),
         )
         connection.execute(
-            "INSERT INTO operators VALUES (?, ?, ?, ?, ?, 'active', ?)",
+            "INSERT INTO operators VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
             (
                 contributor.operator_id,
+                contributor_uuid,
                 contributor.name,
                 contributor.public_contact,
                 contributor.organisation,
@@ -640,7 +673,7 @@ def list_members(project_root: Path) -> list[dict[str, object]]:
     try:
         _require_authority_tables(connection)
         rows = connection.execute(
-            "SELECT p.operator_id, p.name, m.membership_role, m.state, "
+            "SELECT p.operator_id, p.operator_uuid, p.name, m.membership_role, m.state, "
             "k.signing_fingerprint FROM operators p "
             "JOIN project_memberships m ON m.operator_id = p.operator_id "
             "JOIN operator_keys k ON k.operator_id = p.operator_id AND k.state = 'active' "
