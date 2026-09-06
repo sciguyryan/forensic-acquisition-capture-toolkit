@@ -23,7 +23,7 @@ from .hashing import (
     require_hash,
 )
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 AUDIT_EVENT_SCHEMA = "fact-audit-event/v3"
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
@@ -77,8 +77,8 @@ def _state_digest(connection: sqlite3.Connection) -> str:
             "FROM identifiers ORDER BY namespace, sequence"
         ),
         "operators": (
-            "SELECT operator_id, operator_uuid, name, public_contact, organisation, role_label, state, "
-            "created_sequence FROM operators ORDER BY operator_id"
+            "SELECT operator_id, operator_ref, operator_uuid, name, public_contact, organisation, role_label, state, "
+            "created_sequence FROM operators ORDER BY created_sequence, operator_id"
         ),
         "operator_keys": (
             "SELECT operator_id, primary_fingerprint, signing_fingerprint, public_key, state, "
@@ -237,6 +237,7 @@ def initialise_catalogue(
             );
             CREATE TABLE operators (
                 operator_id TEXT PRIMARY KEY,
+                operator_ref TEXT NOT NULL UNIQUE,
                 operator_uuid TEXT NOT NULL UNIQUE,
                 name TEXT NOT NULL,
                 public_contact TEXT,
@@ -850,6 +851,7 @@ def _verify_authority_state(
                 )
             operators[operator_id] = {
                 "operator_id": operator_id,
+                "operator_ref": str(data["operator_ref"]),
                 "operator_uuid": actor_uuid,
                 "name": identity["name"],
                 "public_contact": identity.get("public_contact"),
@@ -895,6 +897,7 @@ def _verify_authority_state(
             operators[operator_id] = {
                 "operator_uuid": invited_uuid,
                 "operator_id": operator_id,
+                "operator_ref": str(data["operator_ref"]),
                 "name": identity["name"],
                 "public_contact": identity.get("public_contact"),
                 "organisation": identity.get("organisation"),
@@ -1014,8 +1017,8 @@ def _verify_authority_state(
             {
                 str(row["operator_id"]): dict(row)
                 for row in connection.execute(
-                    "SELECT operator_id, operator_uuid, name, public_contact, organisation, role_label, state, "
-                    "created_sequence FROM operators ORDER BY operator_id"
+                    "SELECT operator_id, operator_ref, operator_uuid, name, public_contact, organisation, role_label, state, "
+                    "created_sequence FROM operators ORDER BY created_sequence, operator_id"
                 ).fetchall()
             },
         ),

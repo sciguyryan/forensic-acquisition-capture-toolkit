@@ -43,6 +43,18 @@ def _new_operator_uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _next_operator_ref(connection: sqlite3.Connection) -> str:
+    """Return the next immutable project-local operator reference.
+
+    Operators are never deleted from authoritative state, so the retained row
+    count is a monotonic allocation source inside the surrounding immediate
+    transaction. The reference is a human-facing project-local anchor; the UUID
+    remains the globally unique identity anchor.
+    """
+    count = int(connection.execute("SELECT COUNT(*) FROM operators").fetchone()[0])
+    return f"OPERATOR-{count + 1:06d}"
+
+
 @dataclass(frozen=True, slots=True)
 class AuthenticatedOperator:
     """Describe cryptographically authenticated operator context for one session."""
@@ -199,12 +211,18 @@ def _identity_data(identity: OperatorIdentity, public_key: str) -> dict[str, obj
     }
 
 
-def _operator_row(connection: sqlite3.Connection, operator_id: str) -> sqlite3.Row:
+def _operator_row(
+    connection: sqlite3.Connection, operator_identifier: str
+) -> sqlite3.Row:
+    """Resolve an operator by alias, project-local reference or immutable UUID."""
     row = connection.execute(
-        "SELECT * FROM operators WHERE operator_id = ?", (operator_id,)
+        "SELECT * FROM operators WHERE operator_id = ? OR operator_ref = ? OR operator_uuid = ?",
+        (operator_identifier, operator_identifier, operator_identifier),
     ).fetchone()
     if row is None:
-        raise ToolkitError(f"Operator is not registered in this project: {operator_id}")
+        raise ToolkitError(
+            f"Operator is not registered in this project: {operator_identifier}"
+        )
     return row
 
 
@@ -226,10 +244,11 @@ def registered_operator_identity(
     try:
         _require_authority_tables(connection)
         row = _operator_row(connection, operator_id)
-        key = _key_row(connection, operator_id)
+        canonical_id = str(row["operator_id"])
+        key = _key_row(connection, canonical_id)
         membership = connection.execute(
             "SELECT state FROM project_memberships WHERE operator_id = ?",
-            (operator_id,),
+            (canonical_id,),
         ).fetchone()
         if require_active and (membership is None or membership["state"] != "active"):
             raise ToolkitError(
@@ -237,7 +256,7 @@ def registered_operator_identity(
             )
         return OperatorIdentity(
             schema_version=AUTHORITY_SCHEMA_VERSION,
-            operator_id=operator_id,
+            operator_id=canonical_id,
             name=str(row["name"]),
             public_contact=row["public_contact"],
             organisation=row["organisation"],
@@ -254,7 +273,8 @@ def registered_operator_public_key(project_root: Path, operator_id: str) -> str:
     connection = _connect(project_root)
     try:
         _require_authority_tables(connection)
-        return str(_key_row(connection, operator_id)["public_key"])
+        row = _operator_row(connection, operator_id)
+        return str(_key_row(connection, str(row["operator_id"]))["public_key"])
     finally:
         connection.close()
 
@@ -365,8 +385,10 @@ def establish_project_genesis(
         if existing:
             raise ToolkitError("Project authority has already been established")
         owner_uuid = _new_operator_uuid()
+        owner_ref = _next_operator_ref(connection)
         data = _identity_data(owner, public_key)
         data["operator_uuid"] = owner_uuid
+        data["operator_ref"] = owner_ref
         data["ownership_scope"] = "project"
         data["integrity"] = {
             "chain_hash": str(
@@ -402,9 +424,10 @@ def establish_project_genesis(
             authority_basis="project-genesis",
         )
         connection.execute(
-            "INSERT INTO operators VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
+            "INSERT INTO operators VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)",
             (
                 owner.operator_id,
+                owner_ref,
                 owner_uuid,
                 owner.name,
                 owner.public_contact,
@@ -463,7 +486,7 @@ def current_owner(
         if not resolved_scope:
             raise ToolkitError("Case ownership requires a case identifier")
         row = connection.execute(
-            "SELECT o.owner_id, o.effective_from_sequence, p.name "
+            "SELECT o.owner_id, p.operator_ref, o.effective_from_sequence, p.name "
             "FROM ownership o JOIN operators p ON p.operator_id = o.owner_id "
             "WHERE o.scope_type = ? AND o.scope_id = ?",
             (scope_type, resolved_scope),
@@ -542,8 +565,10 @@ def invite_contributor(
             )
         key = _key_row(connection, actor.operator_id)
         contributor_uuid = _new_operator_uuid()
+        contributor_ref = _next_operator_ref(connection)
         data = _identity_data(contributor, contributor_public_key)
         data["operator_uuid"] = contributor_uuid
+        data["operator_ref"] = contributor_ref
         sequence = _append_signed(
             connection,
             actor=actor,
@@ -554,9 +579,10 @@ def invite_contributor(
             verification_key=str(key["public_key"]),
         )
         connection.execute(
-            "INSERT INTO operators VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
+            "INSERT INTO operators VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)",
             (
                 contributor.operator_id,
+                contributor_ref,
                 contributor_uuid,
                 contributor.name,
                 contributor.public_contact,
@@ -685,7 +711,7 @@ def list_members(project_root: Path) -> list[dict[str, object]]:
     try:
         _require_authority_tables(connection)
         rows = connection.execute(
-            "SELECT p.operator_id, p.operator_uuid, p.name, m.membership_role, m.state, "
+            "SELECT p.operator_id, p.operator_ref, p.operator_uuid, p.name, m.membership_role, m.state, "
             "k.signing_fingerprint FROM operators p "
             "JOIN project_memberships m ON m.operator_id = p.operator_id "
             "JOIN operator_keys k ON k.operator_id = p.operator_id AND k.state = 'active' "

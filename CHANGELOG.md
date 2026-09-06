@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.18.0 - Identity Inception
+
+- Formalised immutable project-local `OPERATOR-######` references alongside human-friendly operator aliases and globally unique operator UUIDs.
+- Bound project-local operator references into signed genesis/invitation transactions, reconstructed authority state and signed state digests so direct reference tampering is detectable.
+- Allowed registered-operator lookup by alias, `OPERATOR-######` reference or immutable UUID while preserving the catalogue alias as the existing command-facing identity.
+- Made the normal mandatory-owner bootstrap explicitly transactional with an interruption marker, complete cleanup on ordinary bootstrap failure and exhaustive project verification before the project becomes discoverable as fully initialised.
+- Added a protected project-owned `.fact/crypto/` foundation and isolated operator public-keyring location without silently copying private keys from the user's general GnuPG keyring.
+- Bumped the unreleased project/catalogue schema boundary to version 11. Active projects from another schema remain deliberately non-upgradable in place.
+- Preserved the accepted recovery, credential lifecycle, revocable access, version/state comparison and operator attribution/provenance graphing programme, including graph-depth, direct-only, consequential-change, event-type and object-type filters.
+
 ## 2.17.0 - Cryptographic Constitution
 
 - Added authenticated multi-basis confidential access state so possession of a technically valid key is no longer treated as sufficient authority to use FACT's protected decryption path.

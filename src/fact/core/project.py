@@ -26,6 +26,7 @@ from .hashing import (
 )
 
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_INITIALISING_NAME = ".fact-initialising"
 
 
 def _initialise_project(
@@ -61,7 +62,13 @@ def _initialise_project(
         )
         (root / "cases").mkdir(mode=0o700)
         (root / "files").mkdir(mode=0o700)
+        crypto = root / ".fact" / "crypto"
+        crypto.mkdir(mode=0o700)
+        (crypto / "operator-public-keyring").mkdir(mode=0o700)
     except Exception:
+        shutil.rmtree(root / ".fact", ignore_errors=True)
+        shutil.rmtree(root / "cases", ignore_errors=True)
+        shutil.rmtree(root / "files", ignore_errors=True)
         project_file.unlink(missing_ok=True)
         raise
     return project_file
@@ -84,17 +91,43 @@ def initialise_owned_project(
     incomplete project is removed rather than leaving an apparently usable
     ownerless project behind.
     """
-    project_file = _initialise_project(
-        root, project_id, title, chain_hash=chain_hash, content_hash=content_hash
+    root.mkdir(parents=True, exist_ok=True)
+    initialising = root / _INITIALISING_NAME
+    if initialising.exists():
+        raise ToolkitError(
+            f"FACT initialisation marker already exists at {initialising}; "
+            "inspect the directory before retrying rather than overwriting an interrupted setup"
+        )
+    initialising.write_text(
+        "FACT project initialisation in progress\n", encoding="utf-8"
     )
+    initialising.chmod(0o600)
+    try:
+        project_file = _initialise_project(
+            root, project_id, title, chain_hash=chain_hash, content_hash=content_hash
+        )
+    except Exception:
+        initialising.unlink(missing_ok=True)
+        raise
     try:
         establish_project_genesis(root, owner, owner_public_key)
+        # Initialisation is not considered complete merely because the genesis
+        # write returned successfully. Reconstruct the authenticated project
+        # state before removing the interruption marker.
+        from .verification import verify_structural
+
+        verify_structural(root, "project")
+        (root / _INITIALISING_NAME).unlink()
     except Exception:
-        # No evidential work is permitted before authority genesis, so a failed
-        # initial signature may safely unwind the newly-created empty project.
+        # No evidential work is permitted before authority genesis completes, so
+        # an unsuccessful bootstrap can safely unwind every path created by this
+        # operation. Preserve the caller's project directory itself when it
+        # existed before initialisation.
         shutil.rmtree(root / ".fact", ignore_errors=True)
         shutil.rmtree(root / "cases", ignore_errors=True)
+        shutil.rmtree(root / "files", ignore_errors=True)
         project_file.unlink(missing_ok=True)
+        (root / _INITIALISING_NAME).unlink(missing_ok=True)
         raise
     return project_file
 

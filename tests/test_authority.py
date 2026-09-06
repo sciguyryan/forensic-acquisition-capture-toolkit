@@ -543,3 +543,37 @@ def test_operator_uuid_live_state_tampering_is_detected(tmp_path: Path) -> None:
 
     with pytest.raises(ToolkitError, match="operator"):
         verify_chain(tmp_path)
+
+
+def test_project_local_operator_references_are_stable_and_resolvable(
+    tmp_path: Path,
+) -> None:
+    """Allocate immutable OPERATOR references independently of friendly aliases."""
+    owner, alice, _ = make_project(tmp_path)
+    invite_and_accept(tmp_path, owner, alice)
+
+    members = {item["operator_id"]: item for item in list_members(tmp_path)}
+    assert members["owner"]["operator_ref"] == "OPERATOR-000001"
+    assert members["alice"]["operator_ref"] == "OPERATOR-000002"
+
+    by_ref = authority.registered_operator_identity(tmp_path, "OPERATOR-000002")
+    assert by_ref.operator_id == "alice"
+    by_uuid = authority.registered_operator_identity(
+        tmp_path, str(members["alice"]["operator_uuid"])
+    )
+    assert by_uuid.operator_id == "alice"
+    assert current_owner(tmp_path)["operator_ref"] == "OPERATOR-000001"
+    verify_chain(tmp_path)
+
+
+def test_operator_reference_tampering_is_detected(tmp_path: Path) -> None:
+    """Treat project-local operator references as authenticated identity state."""
+    make_project(tmp_path)
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    connection.execute(
+        "UPDATE operators SET operator_ref = 'OPERATOR-999999' WHERE operator_id = 'owner'"
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(ToolkitError, match="current operators state"):
+        verify_chain(tmp_path)

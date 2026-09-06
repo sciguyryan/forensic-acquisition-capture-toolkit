@@ -6,6 +6,8 @@ FACT organises work as projects containing cases, acquisitions and individually 
 
 The catalogue is designed to make casual or accidental rewriting of project history detectable. It is not claimed to make a fully compromised host trustworthy.
 
+Normal project initialisation is fail-closed. The mandatory owner bootstrap remains marked incomplete until signed genesis has been reconstructed and exhaustive project verification succeeds. A project that does not cross that verification boundary must not be presented as active or usable.
+
 ## Project layout
 
 ```text
@@ -14,6 +16,7 @@ PROJECT.toml
     catalogue.sqlite
     catalogue-checkpoint.json
     catalogue-checkpoint.json.asc
+    crypto/
 files/
 cases/
     CASE-000001/
@@ -26,7 +29,7 @@ cases/
 
 `PROJECT.toml` contains stable, human-readable project metadata. `.fact/catalogue.sqlite` contains operational project state and the cryptographic audit journal. Case directories contain human-readable case records and the immutable payload store for case-scoped files. Each `FILE-######` directory corresponds to one permanent check-in identity. The top-level `files/` store is reserved for project-scoped file material. See `EVERYTHING_AS_A_FILE.md` for the normative evidence model.
 
-The `.fact` directory and catalogue are created with owner-only permissions where the host filesystem supports POSIX permissions.
+The `.fact` directory and catalogue are created with owner-only permissions where the host filesystem supports POSIX permissions. The protected `.fact/crypto/` area is reserved for project-scoped cryptographic state. Its current operator public-keyring support is a foundation for later credential lifecycle work and does not imply that private operator keys are copied into the project.
 
 ## Identifier invariant
 
@@ -34,7 +37,7 @@ Once FACT issues an identifier, that identifier is permanently consumed within t
 
 Retiring or deleting the object associated with an identifier must never make the identifier available again. Failed later work must likewise not rewind the counter. Gaps in the sequence are therefore legitimate and meaningful.
 
-Case identifiers use six decimal digits, for example `CASE-000001`. Individually committed files use the same monotonic pattern, for example `FILE-000001`.
+Case identifiers use six decimal digits, for example `CASE-000001`. Individually committed files use the same monotonic pattern, for example `FILE-000001`. Project-retained operators also receive immutable project-local references such as `OPERATOR-000001`; these references are distinct from human-friendly aliases and globally unique operator UUIDs.
 
 Allocation uses a SQLite `BEGIN IMMEDIATE` transaction. This serialises concurrent writers before the current sequence is read and advanced, preventing two FACT processes from being issued the same identifier.
 

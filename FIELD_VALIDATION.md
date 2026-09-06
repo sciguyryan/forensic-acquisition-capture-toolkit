@@ -1,6 +1,26 @@
-# FACT v2.17.0 field validation
+# FACT v2.18.0 field validation
 
-This release introduces authenticated multi-basis confidential access state and changes the project/catalogue schema to version 10. Field validation should concentrate on grant and revocation history, multi-basis access resolution, ownership-transfer consequences, protected decryption preflight and regression of the existing confidential-note cryptographic transitions.
+This candidate adds the first project-initialisation and operator-reference foundation on top of the v2.17 confidential-access model. Validation should concentrate on fail-closed owner bootstrap, immutable `OPERATOR-######` references, authenticated identity reconstruction, operator lookup and the new protected project cryptographic area without interpreting that area as project-local private-key migration.
+
+## Identity-inception checks
+
+1. Create a fresh project through the normal `fact project init` path. Confirm the project remains explicitly marked incomplete while owner bootstrap is in progress and that the marker is removed only after signed genesis can be reconstructed and exhaustive project verification succeeds.
+2. Force or simulate failure before signed genesis or final verification completes. FACT must not leave an apparently active ownerless or partially authoritative project. Ordinary bootstrap failure should unwind the incomplete project state conservatively.
+3. Inspect the retained owner identity. Confirm it has an immutable project-local `OPERATOR-######` reference, a separate immutable operator UUID and the human-friendly alias or ID used for interaction. The project reference and UUID must not be derived from mutable descriptive fields or signing credentials.
+4. Add another operator through the existing authority workflow. Confirm each retained operator receives a distinct project-local reference and UUID, and that reconstructed authority state contains the same immutable references.
+5. Exercise operator lookup by project-local reference and by UUID. Confirm both resolve to the intended retained operator without redefining project authority from mutable local state.
+6. In a disposable catalogue copy, alter only a retained operator reference. Full project or catalogue verification must fail because reconstructed authenticated operator state no longer agrees with the live relational state.
+7. Inspect `.fact/crypto/`. Confirm it is protected project-scoped cryptographic state and contains only the currently implemented public-keyring foundation. This release must not silently copy private operator keys or passphrases out of the user's ordinary GnuPG keyring.
+8. Run the complete existing provenance, confidential-access, acquisition, export and project-verification regressions. The new bootstrap and identity-reference layer must not weaken v2.17 authority or v2.16 hash-agility guarantees.
+
+Required local Arch checks:
+
+```fish
+python -m ruff check src tests
+python -m ruff format --check src tests
+python -m pytest
+python -m compileall -q src tests
+```
 
 Required checks:
 

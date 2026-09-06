@@ -110,14 +110,22 @@ def test_discovery_rejects_project_from_different_schema(tmp_path: Path) -> None
     initialise_project(tmp_path, "P-OLD", "Older project")
     project_file = tmp_path / "PROJECT.toml"
     project_text = project_file.read_text(encoding="utf-8")
-    assert "schema_version = 10" in project_text
-    assert 'fact_version = "2.17.0"' in project_text
+    assert "schema_version = 11" in project_text
+    assert 'fact_version = "2.18.0"' in project_text
     project_file.write_text(
         project_file.read_text(encoding="utf-8").replace(
-            "schema_version = 10", "schema_version = 1"
+            "schema_version = 11", "schema_version = 1"
         ),
         encoding="utf-8",
     )
 
     with pytest.raises(ToolkitError, match="different FACT project schema"):
+        discover_project_root(tmp_path)
+
+
+def test_discovery_rejects_interrupted_owner_bootstrap_marker(tmp_path: Path) -> None:
+    """Never treat a marked, interrupted owner bootstrap as an active project."""
+    initialise_project(tmp_path, "P-INT", "Interrupted")
+    (tmp_path / ".fact-initialising").write_text("in progress\n", encoding="utf-8")
+    with pytest.raises(ToolkitError, match="initialisation is incomplete"):
         discover_project_root(tmp_path)

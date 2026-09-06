@@ -2,25 +2,25 @@
 
 This document records accepted future work that has not yet been implemented. Items are architectural commitments or investigation targets rather than promises that a particular interface is final.
 
-## Current agreed implementation order
+## Current ideal implementation order
 
-1. Project initialisation, mandatory owner bootstrap and project-local keyring.
-2. Recovery foundations and finite threshold-share configuration.
-3. Operator enrolment and signing/encryption credential lifecycle.
-4. Complete user-facing revocable-authority workflows beyond the current multi-basis foundation.
-5. Extend operator-removal and object-specific revocation consequences beyond the current ownership-transfer behaviour.
-6. File-store crash hardening across filesystem/catalogue boundaries.
-7. Generic encrypted artefacts and reviewed envelope-encryption implementation.
-8. Notes and provenance-relationship follow-on.
-9. Version and state comparison.
-10. Operator activity, change attribution, provenance graphing and timeline queries.
-11. Case lifecycle.
-12. Generalised export expansion.
-13. Cross-project operator identity and credential management.
-14. Screenshot review/presentation and remaining assurance work.
+The cryptographic constitution and the first initialisation/identity foundation are now implemented. The remaining work order is:
+
+1. Recovery foundations and finite threshold-share configuration.
+2. Operator enrolment and signing/encryption credential lifecycle.
+3. Complete user-facing revocable-authority workflows beyond the current multi-basis foundation.
+4. Ownership-transfer, operator-removal and object-specific revocation consequences.
+5. File-store crash hardening across filesystem/catalogue boundaries.
+6. Generic encrypted artefacts and reviewed envelope-encryption implementation.
+7. Notes and provenance-relationship follow-on.
+8. Version and state comparison.
+9. Operator activity, change attribution, provenance graphing and timeline queries.
+10. Case lifecycle.
+11. Generalised export expansion.
+12. Cross-project operator identity and credential management.
+13. Screenshot review/presentation and remaining assurance work.
 
 Collector correctness fixes continue whenever discovered; formal collector-convergence expansion remains a later programme. Simple temporal sanity checks may land opportunistically before the larger trusted-time work.
-
 
 ## Provenance and temporal assurance
 
@@ -30,7 +30,7 @@ Collector correctness fixes continue whenever discovered; formal collector-conve
 
 ## Identity and key lifecycle
 
-- Define operator UUID provisioning in the onboarding/initialisation framework so stable operator identity can be reused deliberately across projects without reviving mutable local operator-profile authority.
+- Preserve the new project-local `OPERATOR-######` reference and immutable operator UUID as separate identity anchors during future onboarding and credential-lifecycle work. Cross-project reuse must not revive mutable local operator-profile authority.
 - Add auditable operator signing-key rotation without invalidating historical signatures or rewriting the key that represented an operator at an earlier catalogue sequence.
 - Add explicit signing-key revocation and compromised or lost-key recovery with conservative, highly visible exceptional transactions rather than making recovery appear to be an ordinary key rotation.
 - Design exceptional ownership recovery for situations in which the current owner cannot participate. Recovery must never masquerade as a consensual ownership transfer and must retain the reason, authority and recovery path in project history.
@@ -74,16 +74,16 @@ The v2.14 foundation implements authenticated export policy, immutable `EXPORT-#
 
 ## Operator onboarding and project-local cryptographic bootstrap
 
-- Build the interactive project-initialisation framework around a mandatory owner. Additional operators may be enrolled during initialisation or later through the same underlying authority framework.
-- Formalise a project-local immutable `OPERATOR-######` identity alongside the operator UUID and a separate human-friendly alias/display handle. Preserve the UUID independently of credential rotation.
+- The mandatory-owner bootstrap is now fail-closed and performs exhaustive verification before removing its interruption marker. Extend the interactive setup into a richer step-driven experience as recovery and credential material are added. Additional operators may still be enrolled later through the existing contributor authority framework.
+- Project-local immutable `OPERATOR-######` references are now formalised alongside operator UUIDs and human-friendly aliases. Preserve both immutable anchors independently of credential rotation.
 - Separate signing credentials from encryption credentials in FACT semantics and lifecycle even where a future backend can technically derive or store both beneath one identity.
-- Create a protected project keyring for project-scoped operator and FACT cryptographic material. Do not silently mutate or depend on the user's ordinary/global GnuPG keyring as project authority state.
+- A protected `.fact/crypto/` project cryptographic area and isolated operator public-keyring foundation now exist. Extend this into project-local private signing/encryption credential handling only through an explicit secure creation/import workflow. Do not silently mutate or copy from the user's ordinary/global GnuPG keyring.
 - Keep the architecture ready for a future cross-project operator keyring, but do not make that future facility a prerequisite for project-local initialisation.
 - Add project-local cryptographic bootstrap during project creation for the operational and recovery material that the reviewed architecture requires. Store all project-owned configuration, public material, metadata and operational state beneath protected project directories.
 - Use non-echoing passphrase prompts. Never accept human private-key passphrases as plaintext command-line arguments or retain them in SQLite, `PROJECT.toml`, audit details, logs or crash diagnostics.
 - Validate every created or imported credential before committing initialisation: fingerprint/public-key inspection, signing challenge and verification, plus encryption/decryption self-test where applicable.
-- Make initialisation transactional and fail closed: prepare privately, validate prerequisites and cryptography, build the catalogue, sign genesis, perform full verification, then promote the project to active state. Failed initialisation must not leave an apparently usable ownerless or partially authoritative project.
-- Apply restrictive permissions, explicit purpose metadata, fingerprint validation, rollback and deliberate backup/recovery guidance to project-local keys. Never include project private key material in ordinary source distributions, exports or project packages.
+- Continue strengthening transactional initialisation as recovery and credential creation are added. The current mandatory-owner path uses an interruption marker, unwinds ordinary bootstrap failures and performs exhaustive project verification before activation; future private-key/recovery setup must remain inside the same fail-closed boundary.
+- Apply restrictive permissions, explicit purpose metadata, fingerprint validation, rollback and deliberate backup/recovery guidance to project-local keys. Never include project private key material in ordinary source distributions, exports or evidence packages.
 - Add credential rotation, revocation, loss, compromise, recovery and retirement as lifecycle operations rather than treating bootstrap as one-off key generation.
 
 

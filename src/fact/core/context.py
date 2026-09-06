@@ -67,6 +67,11 @@ def discover_project_root(start: Path) -> Path:
     if candidate.is_file():
         candidate = candidate.parent
     for path in (candidate, *candidate.parents):
+        if (path / ".fact-initialising").exists():
+            raise ToolkitError(
+                f"FACT project initialisation is incomplete at {path}; "
+                "inspect or clean up the interrupted bootstrap before continuing"
+            )
         if (path / PROJECT_NAME).is_file() and (
             path / CATALOGUE_DIR / "catalogue.sqlite"
         ).is_file():

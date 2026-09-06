@@ -10,7 +10,7 @@ A useful summary of the security model is:
 
 ## Project authority
 
-Every newly created FACT project must establish an initial owner before the project is considered usable. Project creation through the normal CLI therefore creates the project and its signed authority genesis as one operation. If the initial owner cannot sign the genesis transaction, FACT removes the incomplete empty project rather than leaving an apparently usable ownerless project behind.
+Every newly created FACT project must establish an initial owner before the project is considered usable. Project creation through the normal CLI therefore creates the project and its signed authority genesis as one operation. The bootstrap remains explicitly incomplete until signed genesis can be reconstructed and exhaustive project verification succeeds. If initialisation fails before that boundary is reached, FACT must not leave an apparently usable ownerless or partially authoritative project behind.
 
 The signed project genesis is the first hash-chained authority event. The initial owner is not an editable field in `PROJECT.toml` and cannot be replaced by changing unrelated local state.
 
@@ -24,15 +24,15 @@ fact --root /path/to/project authority status
 
 ## Operator identity and signing keys
 
-A project-retained operator identity includes a human-friendly project-local operator ID, a randomly generated immutable operator UUID, public descriptive fields, full signing-key fingerprints and the public OpenPGP key material required to verify signed authority transactions. The UUID is created once when the operator first enters project authority and is not derived from a key, name, email address or other mutable attribute. Private keys, passphrases, GnuPG agent state and session authentication secrets are never stored in the catalogue.
+A project-retained operator identity includes an immutable project-local `OPERATOR-######` reference, a human-friendly operator alias, a randomly generated immutable operator UUID, public descriptive fields, full signing-key fingerprints and the public OpenPGP key material required to verify signed authority transactions. The project-local reference and UUID are created when the operator first enters project authority and are not derived from a key, name, email address or other mutable attribute. The project reference provides stable within-project citation, while the UUID remains the globally unique identity anchor. Private keys, passphrases, GnuPG agent state and session authentication secrets are never stored in the catalogue.
 
-FACT has no persistent local operator-profile file. When a new project is created, the proposed owner supplies their public identity details and selects a usable secret signing key from the local GnuPG keyring. FACT retains the resulting public identity, full signing fingerprints and exported public key inside the new project catalogue. Subsequent project operations identify the operator by the project-retained operator ID and verify signatures against the retained public key material.
+FACT has no persistent local operator-profile file. When a new project is created, the proposed owner supplies their public identity details and selects a usable secret signing key from the local GnuPG keyring. FACT retains the resulting public identity, immutable project reference, UUID, full signing fingerprints and exported public key inside the new project catalogue. Subsequent project operations resolve the retained operator identity and verify signatures against the retained public key material. The protected `.fact/crypto/` area is currently a project-local cryptographic foundation only; initialisation does not copy private operator keys out of the user's ordinary GnuPG keyring.
 
 Historical public verification material is retained with the project so that a later verifier does not have to rely on the originating workstation or an external keyserver merely to understand which key signed a historical project transaction.
 
 A valid cryptographic signature demonstrates control of the private key associated with the retained operator identity at that point in project history. It does not prove that a particular biological person personally operated the keyboard. Key custody, workstation security, hardware-token policy and compromise response remain important operational controls outside the cryptographic claim FACT can make.
 
-A UUID identifies the retained operator across credential changes. A signing fingerprint identifies the credential used at a particular point in history. FACT deliberately keeps these concepts separate so future key rotation can append credential history without rewriting earlier attribution or changing the operator's UUID.
+The `OPERATOR-######` reference identifies the operator stably within one project. The UUID is the immutable globally unique identity anchor, and a signing fingerprint identifies the credential used at a particular point in history. FACT keeps these concepts separate so future key rotation can append credential history without rewriting earlier attribution or changing either immutable identity anchor.
 
 ## Signed authority transactions
 
