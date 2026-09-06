@@ -52,9 +52,17 @@ def fake_signatures(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(catalogue, "verify_operator_payload", lambda *args: None)
 
 
-def project_with_acquisition(tmp_path: Path):
+def project_with_acquisition(
+    tmp_path: Path, *, chain_hash: str = "sha256", content_hash: str = "sha256"
+):
     owner = operator("owner")
-    initialise_project(tmp_path, "P-EXPORT", "Export project")
+    initialise_project(
+        tmp_path,
+        "P-EXPORT",
+        "Export project",
+        chain_hash=chain_hash,
+        content_hash=content_hash,
+    )
     establish_project_genesis(tmp_path, owner, "PUBLIC OWNER")
     case_id = create_owned_case(tmp_path, owner, "Matter", "")
     acquisition_id = issue_identifier(tmp_path, "acquisition", "ACQ")
@@ -280,7 +288,7 @@ def test_directory_export_tamper_and_event_table_tamper_are_detected(
 
     connection = sqlite3.connect(catalogue_path(tmp_path))
     connection.execute(
-        "UPDATE exports SET manifest_sha256 = ? WHERE export_id = ?",
+        "UPDATE exports SET manifest_digest = ? WHERE export_id = ?",
         ("f" * 64, exported["export_id"]),
     )
     connection.commit()
@@ -566,3 +574,30 @@ def test_export_verify_then_full_project_verify_preserves_provenance_chain(
     )
     assert rows[0]["actor_id"] is None
     assert rows[0]["actor_uuid"] is None
+
+
+def test_sha3_512_project_export_verify_and_full_project_verify(tmp_path: Path) -> None:
+    owner, case_id, _, committed, _ = project_with_acquisition(
+        tmp_path, chain_hash="sha3-512", content_hash="sha3-512"
+    )
+    output = tmp_path.parent / "sha3-512-export"
+    exported = create_export(
+        tmp_path, owner, scope_type="case", scope_id=case_id, output=output
+    )
+    external = verify_export(tmp_path, output)
+    assert external["status"] == "verified"
+    verified = verify_chain(tmp_path)
+    assert verified["hashed_file_count"] == len(committed)
+    assert len(str(verified["chain_head"])) == 128
+    connection = sqlite3.connect(catalogue_path(tmp_path))
+    try:
+        digest = connection.execute(
+            "SELECT content_digest FROM files WHERE file_id = ?",
+            (committed[0]["file_id"],),
+        ).fetchone()[0]
+        manifest = json.loads((output / "FACT-EXPORT.json").read_text(encoding="utf-8"))
+    finally:
+        connection.close()
+    assert len(digest) == 128
+    assert manifest["content_hash_algorithm"] == "sha3-512"
+    assert exported["export_id"] == "EXPORT-000001"

@@ -165,7 +165,9 @@ def test_authority_cli_dispatches_project_creation_and_membership(
     monkeypatch.setattr(
         cli,
         "initialise_owned_project",
-        lambda *args: calls.append(("project", args)) or project / "PROJECT.toml",
+        lambda *args, **kwargs: (
+            calls.append(("project", args, kwargs)) or project / "PROJECT.toml"
+        ),
     )
     monkeypatch.setattr(cli, "log", lambda *args: calls.append(("log", args)))
     assert (

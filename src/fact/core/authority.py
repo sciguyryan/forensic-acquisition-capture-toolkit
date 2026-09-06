@@ -368,6 +368,18 @@ def establish_project_genesis(
         data = _identity_data(owner, public_key)
         data["operator_uuid"] = owner_uuid
         data["ownership_scope"] = "project"
+        data["integrity"] = {
+            "chain_hash": str(
+                connection.execute(
+                    "SELECT value FROM metadata WHERE key = 'chain_hash'"
+                ).fetchone()[0]
+            ),
+            "content_hash": str(
+                connection.execute(
+                    "SELECT value FROM metadata WHERE key = 'content_hash'"
+                ).fetchone()[0]
+            ),
+        }
         data["export_policy"] = {
             "ordinary_export": "members",
             "ciphertext_export": "members",

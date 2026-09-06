@@ -140,7 +140,7 @@ Failed acquisition staging is different. It may preserve incomplete working mate
 
 ## File commitment and relationships
 
-Each retained file receives a never-reused `FILE-######` identifier. FACT records its case and acquisition association, actor, logical path, classification, media type, description, SHA-256, size, storage path, commitment sequence and presentation state.
+Each retained file receives a never-reused `FILE-######` identifier. FACT records its case and acquisition association, actor, logical path, classification, media type, description, content digest, size, storage path, commitment sequence and presentation state.
 
 Committed bytes are immutable. A changed representation is a new file. Retraction and supersession are append-only presentation transitions and do not erase committed existence.
 
@@ -164,7 +164,7 @@ There is no separate successful `logs/` copy after commitment. The checked-in `F
 
 `verify_chain()` verifies the rolling event chain and current state derived from it. It also checks operator and ownership state, notes, committed files, file relationships, presentation state and recorded acquisition membership.
 
-Every present committed file is checked directly against its recorded size and SHA-256. Missing or altered bytes therefore fail project verification without requiring a separate per-acquisition checksum file.
+Every present committed file is checked directly against its recorded size and configured content digest. Missing or altered bytes therefore fail project verification without requiring a separate per-acquisition checksum file.
 
 Filtered package construction may explicitly permit selected withheld note files to be absent from the staged package view. This exception is narrow and does not weaken normal live-project verification.
 
@@ -178,7 +178,7 @@ Package artefacts are not automatically checked back into FACT. If a future work
 
 Operator signing identities authenticate authority-changing transactions. Project-local FACT keys are a separate future bootstrap/lifecycle concern and must remain beneath the project in protected purpose-specific subdirectories. FACT must not create or mutate an operator's global GnuPG identity as part of project creation.
 
-Hashing and authentication have distinct roles. SHA-256 identifies committed bytes and links catalogue history, while signatures and signed checkpoints provide actor attribution and external anchoring. Removing duplicate archive hashes does not remove those distinct authentication properties.
+Hashing and authentication have distinct roles. The project-selected content profile identifies committed bytes, the selected chain profile links catalogue history, and signatures and signed checkpoints provide actor attribution and external anchoring. Removing duplicate archive hashes does not remove those distinct authentication properties.
 
 ## No change left behind
 
@@ -196,7 +196,7 @@ General export is a disclosure operation over verified project state, distinct f
 
 Every export attempt receives a never-reused `EXPORT-######`. FACT records `EXPORT_STARTED` before building in private temporary space and `EXPORT_COMPLETED` only after the final output exists. If completion cannot be authenticated, FACT removes the placed output rather than leave an apparently successful unaudited disclosure. Failed attempts remain historical state.
 
-A completed export binds the source project chain anchor, actor, policy sequence, scope, view, representation, exact source file identities, output paths, source and output SHA-256 values, manifest digest and final container/tree digest. The portable `FACT-EXPORT.json` is therefore a representation of a recorded disclosure, not a second authority ledger.
+A completed export binds the source project chain anchor, actor, policy sequence, scope, view, representation, exact source file identities, output paths, source and output content-digest values, manifest digest and final container/tree digest. The portable `FACT-EXPORT.json` is therefore a representation of a recorded disclosure, not a second authority ledger.
 
 The current representation is `native`. Directory and deterministic tar output are supported, and tar output may optionally be protected to recipient OpenPGP keys. Confidential note ciphertext is the default retained representation. Authorised plaintext note export is recorded as a derived output whose digest is distinct from its encrypted source `FILE-######`. Rendered, flattened and archival representations remain future work until their deterministic/provenance semantics are implemented.
 

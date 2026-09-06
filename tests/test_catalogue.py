@@ -241,3 +241,42 @@ def test_fail_identifier_rejects_unknown_and_non_active_ids(tmp_path: Path) -> N
     fail_identifier(tmp_path, identifier)
     with pytest.raises(ToolkitError, match="already failed"):
         fail_identifier(tmp_path, identifier)
+
+
+@pytest.mark.parametrize(
+    "algorithm, expected_length",
+    [
+        ("sha256", 64),
+        ("sha512", 128),
+        ("sha3-256", 64),
+        ("sha3-512", 128),
+        ("blake2b-256", 64),
+        ("blake2b-512", 128),
+        ("blake2s-256", 64),
+    ],
+)
+def test_project_chain_hash_profiles_are_self_describing(
+    tmp_path: Path, algorithm: str, expected_length: int
+) -> None:
+    initialise_project(
+        tmp_path, "P-HASH", "Hash profile", chain_hash=algorithm, content_hash="sha256"
+    )
+    create_case(tmp_path)
+    verified = verify_chain(tmp_path)
+    assert len(str(verified["chain_head"])) == expected_length
+    project_record = (tmp_path / "PROJECT.toml").read_text(encoding="utf-8")
+    assert f'chain_hash = "{algorithm}"' in project_record
+
+
+def test_integrity_policy_tampering_is_detected(tmp_path: Path) -> None:
+    initialise_project(tmp_path, "P-HASH", "Hash profile", chain_hash="sha512")
+    create_case(tmp_path)
+    project_file = tmp_path / "PROJECT.toml"
+    project_file.write_text(
+        project_file.read_text(encoding="utf-8").replace(
+            'chain_hash = "sha512"', 'chain_hash = "sha256"'
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ToolkitError, match="integrity policy differs"):
+        verify_chain(tmp_path)

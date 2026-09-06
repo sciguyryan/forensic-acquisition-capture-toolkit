@@ -57,6 +57,7 @@ from .core.context import (
 )
 from .core.export_policy import get_export_policy, set_export_policy
 from .core.exports import create_export, list_exports
+from .core.hashing import DEFAULT_CHAIN_HASH, DEFAULT_CONTENT_HASH, SUPPORTED_HASHES
 from .core.notes import (
     create_note,
     list_notes,
@@ -271,6 +272,12 @@ def parser() -> argparse.ArgumentParser:
     project_init.add_argument("--project-id", required=True)
     project_init.add_argument("--title", required=True)
     project_init.add_argument("--test-key", action="store_true")
+    project_init.add_argument(
+        "--chain-hash", choices=SUPPORTED_HASHES, default=DEFAULT_CHAIN_HASH
+    )
+    project_init.add_argument(
+        "--content-hash", choices=SUPPORTED_HASHES, default=DEFAULT_CONTENT_HASH
+    )
 
     case_parser = subcommands.add_parser("case")
     case_commands = case_parser.add_subparsers(dest="case_command", required=True)
@@ -770,7 +777,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             identity = interactive_identity(test_key=args.test_key)
             public_key = export_public_key_text(identity)
             path = initialise_owned_project(
-                args.path, args.project_id, args.title, identity, public_key
+                args.path,
+                args.project_id,
+                args.title,
+                identity,
+                public_key,
+                chain_hash=args.chain_hash,
+                content_hash=args.content_hash,
             )
             log("PASS", f"FACT project created: {path.parent}")
             log("PASS", f"Initial owner recorded and signed: {identity.operator_id}")

@@ -13,7 +13,6 @@ requirement imposed on every file in a project.
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 import uuid
 from collections.abc import Callable
@@ -23,6 +22,7 @@ from typing import TypeVar
 
 from ..errors import ToolkitError
 from .catalogue import _append_event, _utc_now, _write_transaction
+from .hashing import digest_bytes, digest_file, project_content_hash
 
 T = TypeVar("T")
 
@@ -47,14 +47,6 @@ class FilePayloadCandidate:
     classification: str
     media_type: str | None = None
     description: str | None = None
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _normalise_logical_path(value: str) -> str:
@@ -158,7 +150,7 @@ def _commit_prepared(
         media_type,
         description,
         temporary,
-        sha256,
+        content_digest,
         size,
     ) in prepared:
         file_id, _ = _allocate_file_identifier(connection)
@@ -176,7 +168,7 @@ def _commit_prepared(
             "logical_path": logical_path,
             "classification": classification,
             "media_type": media_type,
-            "sha256": sha256,
+            "content_digest": content_digest,
             "size_bytes": size,
             "storage_path": storage_path,
         }
@@ -194,7 +186,7 @@ def _commit_prepared(
         ).fetchone()[0]
         connection.execute(
             "INSERT INTO files(file_id, case_id, acquisition_id, actor_id, logical_path, "
-            "classification, media_type, description, sha256, size_bytes, storage_path, "
+            "classification, media_type, description, content_digest, size_bytes, storage_path, "
             "committed_sequence, presentation_state) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'presented')",
             (
@@ -206,7 +198,7 @@ def _commit_prepared(
                 classification,
                 media_type,
                 description,
-                sha256,
+                content_digest,
                 size,
                 storage_path,
                 sequence,
@@ -239,8 +231,9 @@ def _prepare_path_candidates(
         seen_paths.add(logical_path)
         temporary = transfer_root / f"{index:08d}.payload"
         shutil.copyfile(source, temporary)
-        source_hash = _sha256(source)
-        if _sha256(temporary) != source_hash:
+        algorithm = project_content_hash(project_root)
+        source_hash = digest_file(algorithm, source)
+        if digest_file(algorithm, temporary) != source_hash:
             raise ToolkitError(
                 f"Prepared file failed byte-for-byte hash validation: {logical_path}"
             )
@@ -277,8 +270,9 @@ def _prepare_payload_candidates(
         temporary = transfer_root / f"{index:08d}.payload"
         temporary.write_bytes(candidate.payload)
         temporary.chmod(0o600)
-        digest = hashlib.sha256(candidate.payload).hexdigest()
-        if _sha256(temporary) != digest:
+        algorithm = project_content_hash(project_root)
+        digest = digest_bytes(algorithm, candidate.payload)
+        if digest_file(algorithm, temporary) != digest:
             raise ToolkitError(
                 f"Prepared payload failed byte-for-byte hash validation: {logical_path}"
             )

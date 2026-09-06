@@ -16,7 +16,7 @@ FILE-000002
 FILE-000003
 ```
 
-A file identifier identifies one check-in event and one immutable byte sequence. It is not a content-addressing shortcut. If the same bytes are captured twice, FACT records two file identities because the two captures have different provenance even though their SHA-256 values happen to match.
+A file identifier identifies one check-in event and one immutable byte sequence. It is not a content-addressing shortcut. If the same bytes are captured twice, FACT records two file identities because the two captures have different provenance even though their content-digest values happen to match.
 
 For example:
 
@@ -87,13 +87,13 @@ The filesystem and SQLite do not provide a shared native transaction. FACT there
 
 Older FACT development builds created per-acquisition `EVIDENCESET-SHA256.txt`, `FILELIST.txt`, SHA-256/SHA-512 manifests and a second sealed archive. Those representations are no longer part of the live project model.
 
-The authoritative acquisition membership is now the exact ordered `FILE-######` list in the authenticated `ACQUISITION_RECORDED` transaction. Catalogue verification compares that list with the files actually associated with the acquisition. Each file's SHA-256 remains in the file catalogue and its `FILE_COMMITTED` history. This avoids maintaining a second checksum or inventory system that could drift from the authoritative record.
+The authoritative acquisition membership is now the exact ordered `FILE-######` list in the authenticated `ACQUISITION_RECORDED` transaction. Catalogue verification compares that list with the files actually associated with the acquisition. Each file's content digest remains in the file catalogue and its `FILE_COMMITTED` history. This avoids maintaining a second checksum or inventory system that could drift from the authoritative record.
 
 A project package may still generate its own manifest, descriptor, checksum and detached signature because a portable copy needs self-contained verification material. Those package artefacts describe the export. They do not become live-project evidence unless a later deliberate workflow checks them back in as new derivative files.
 
 ## Verification and sanctity
 
-Catalogue verification checks more than the rolling event hashes. For every committed file, FACT expects the recorded storage path to exist as a regular file and expects its current size and SHA-256 to match the committed values.
+Catalogue verification checks more than the rolling event hashes. For every committed file, FACT expects the recorded storage path to exist as a regular file and expects its current size and configured content digest to match the committed values.
 
 Changing a committed file is therefore a verification failure. Removing it is also a verification failure.
 
@@ -101,7 +101,7 @@ For example, if the catalogue says:
 
 ```text
 FILE-000042
-SHA-256: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
+Content digest (SHA-256 profile): 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
 ```
 
 but the stored bytes no longer produce that digest, FACT reports that the committed file bytes have changed. It does not update the catalogue to bless the replacement.

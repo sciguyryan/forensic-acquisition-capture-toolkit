@@ -225,7 +225,7 @@ The release tree should not contain generated `*.egg-info/`, `coverage.xml`, `.c
 1. Create a project-visible note with no case association. Inspect the catalogue and project tree. Revision 1 must point to a `FILE-######` row and its bytes must live below `files/FILE-######/`, not inside a note payload BLOB in SQLite. Confirm another active contributor can read it.
 2. Revise the note with a reason. Confirm revision 2 has a different `FILE-######` identity and that the revision 1 file still exists unchanged and remains readable by explicitly selecting revision 1.
 3. Create a case-level note. Its revision file must live below `cases/CASE-######/files/`. If the note is associated with an existing committed file, inspect `file_relationships` and confirm an explicit `note-about` relationship connects the subject file to the note revision file.
-4. Create a confidential note and confirm the author and current project owner can read it while another active contributor is denied. Inspect the corresponding committed revision file directly: the title and body must not appear in plaintext, the file classification must be `confidential-note-revision`, and its SHA-256 must match the `files` table.
+4. Create a confidential note and confirm the author and current project owner can read it while another active contributor is denied. Inspect the corresponding committed revision file directly: the title and body must not appear in plaintext, the file classification must be `confidential-note-revision`, and its digest under the project-selected content-hash profile must match the `files` table.
 5. Propose a project ownership transfer to an active contributor and accept it. Confirm the previous confidential revision file remains present, a new `FILE-######` cryptographic revision is appended, the note's current revision advances, and ownership changes only after the complete confidential transition succeeds.
 6. Inject or simulate a failure during confidential-note re-encryption. Confirm the ownership transfer remains pending, the old owner remains authoritative, no new authoritative note revision remains committed, and the previous ciphertext file is untouched.
 7. Package the project without changing note disclosure. Confirm withheld note revision bytes are absent from the package while their note IDs, file IDs, hashes and lineage remain represented in the catalogue snapshot. Mark a project note for inclusion and confirm its committed file appears. Mark a confidential note for inclusion and confirm the package contains ciphertext rather than decrypted plaintext.
@@ -233,10 +233,19 @@ The release tree should not contain generated `*.egg-info/`, `coverage.xml`, `.c
 
 ## Everything-as-a-file checks
 
-After creating a disposable project, case and successful acquisition, inspect `cases/CASE-000001/files/`. Every retained acquisition file should have its own `FILE-######` directory and immutable payload copy. The catalogue `files` table should contain the same file IDs, logical paths, sizes and SHA-256 values.
+After creating a disposable project, case and successful acquisition, inspect `cases/CASE-000001/files/`. Every retained acquisition file should have its own `FILE-######` directory and immutable payload copy. The catalogue `files` table should contain the same file IDs, logical paths, sizes and configured content-digest values.
 
 Run `fact --root /path/to/project catalogue verify`. Verification must pass before tampering. Change one committed payload byte and run verification again. FACT must report that the committed file bytes changed. Restore the original test project rather than asking FACT to accept the changed bytes. In a second disposable project, remove one committed payload and confirm verification reports a missing committed file.
 
 Where the collector captures network material, confirm request, response, header, body, metadata or diagnostic files that the collector intentionally retained are independently checked in rather than represented only as opaque acquisition metadata.
 
 A failed multi-file check-in must not leave a partial set represented as committed. File identifiers already committed in successful history must never be reused.
+
+
+## Project hash-agility checks
+
+Create disposable projects using at least the default SHA-256 profile and one 512-bit alternative such as SHA3-512. Confirm `PROJECT.toml` records both `[integrity].chain_hash` and `[integrity].content_hash`, and confirm signed project genesis records the same policy. For the SHA3-512 project, commit representative evidence, create an export, verify the external export, then run exhaustive project verification. The rolling chain head and committed content digests should be 128 hexadecimal characters and verification must rehash every committed file successfully.
+
+Repeat project creation for the supported standard-library profiles (`sha256`, `sha512`, `sha3-256`, `sha3-512`, `blake2b-256`, `blake2b-512`, `blake2s-256`). Test `blake3-256` with the packaged `blake3` dependency installed. FACT must reject a selected algorithm if its implementation is unavailable rather than falling back to another digest.
+
+In a disposable project, change only `PROJECT.toml` so its integrity policy differs from the catalogue, then run full project verification. Verification must fail. Restore the project, then alter the catalogue integrity metadata without corresponding signed genesis/history and confirm verification also fails. Hash policy is selected at project genesis and is not an in-place mutable setting.

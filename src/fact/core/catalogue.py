@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -16,10 +15,16 @@ from ..errors import ToolkitError
 from ..identity import verify_operator_payload
 from ..keys import fingerprint, prepare_gnupg, sign
 from ..services.commands import run
+from .hashing import (
+    digest_bytes,
+    digest_file,
+    genesis_hash,
+    project_integrity,
+    require_hash,
+)
 
-SCHEMA_VERSION = 8
-AUDIT_EVENT_SCHEMA = "fact-audit-event/v2"
-GENESIS_HASH = "0" * 64
+SCHEMA_VERSION = 9
+AUDIT_EVENT_SCHEMA = "fact-audit-event/v3"
 CATALOGUE_DIR = ".fact"
 CATALOGUE_NAME = "catalogue.sqlite"
 CHECKPOINT_NAME = "catalogue-checkpoint.json"
@@ -37,8 +42,25 @@ def _canonical(data: object) -> bytes:
     ).encode("utf-8")
 
 
-def _event_hash(event: dict[str, object]) -> str:
-    return hashlib.sha256(_canonical(event)).hexdigest()
+def _integrity_algorithm(connection: sqlite3.Connection, key: str) -> str:
+    row = connection.execute(
+        "SELECT value FROM metadata WHERE key = ?", (key,)
+    ).fetchone()
+    if row is None:
+        raise ToolkitError(f"Catalogue is missing integrity policy: {key}")
+    return require_hash(str(row["value"]))
+
+
+def _chain_hash_algorithm(connection: sqlite3.Connection) -> str:
+    return _integrity_algorithm(connection, "chain_hash")
+
+
+def _content_hash_algorithm(connection: sqlite3.Connection) -> str:
+    return _integrity_algorithm(connection, "content_hash")
+
+
+def _event_hash(connection: sqlite3.Connection, event: dict[str, object]) -> str:
+    return digest_bytes(_chain_hash_algorithm(connection), _canonical(event))
 
 
 def _state_digest(connection: sqlite3.Connection) -> str:
@@ -49,6 +71,7 @@ def _state_digest(connection: sqlite3.Connection) -> str:
     identity, membership, ownership, transfer or approval records.
     """
     tables = {
+        "metadata": ("SELECT key, value FROM metadata ORDER BY key"),
         "identifiers": (
             "SELECT namespace, sequence, identifier, state, issued_at, retired_at "
             "FROM identifiers ORDER BY namespace, sequence"
@@ -90,7 +113,7 @@ def _state_digest(connection: sqlite3.Connection) -> str:
         ),
         "files": (
             "SELECT file_id, case_id, acquisition_id, actor_id, logical_path, classification, "
-            "media_type, description, sha256, size_bytes, storage_path, committed_sequence, "
+            "media_type, description, content_digest, size_bytes, storage_path, committed_sequence, "
             "presentation_state FROM files ORDER BY committed_sequence, file_id"
         ),
         "artefacts": (
@@ -116,11 +139,11 @@ def _state_digest(connection: sqlite3.Connection) -> str:
         ),
         "exports": (
             "SELECT export_id, actor_id, scope_type, scope_id, view_mode, representation, "
-            "output_format, output_sha256, manifest_sha256, state, policy_sequence, "
+            "output_format, output_digest, manifest_digest, state, policy_sequence, "
             "created_sequence, completed_sequence FROM exports ORDER BY created_sequence, export_id"
         ),
         "export_items": (
-            "SELECT export_id, file_id, output_path, source_sha256, output_sha256, mode "
+            "SELECT export_id, file_id, output_path, source_digest, output_digest, mode "
             "FROM export_items ORDER BY export_id, output_path, file_id"
         ),
     }
@@ -137,7 +160,7 @@ def _state_digest(connection: sqlite3.Connection) -> str:
             if table in available
             else []
         )
-    return hashlib.sha256(_canonical(serialised)).hexdigest()
+    return digest_bytes(_chain_hash_algorithm(connection), _canonical(serialised))
 
 
 def catalogue_path(project_root: Path) -> Path:
@@ -155,7 +178,15 @@ def _connect(project_root: Path) -> sqlite3.Connection:
     return connection
 
 
-def initialise_catalogue(project_root: Path, project_id: str) -> Path:
+def initialise_catalogue(
+    project_root: Path,
+    project_id: str,
+    *,
+    chain_hash: str,
+    content_hash: str,
+) -> Path:
+    chain_hash = require_hash(chain_hash)
+    content_hash = require_hash(content_hash)
     fact_dir = project_root / CATALOGUE_DIR
     fact_dir.mkdir(parents=True, exist_ok=False)
     fact_dir.chmod(0o700)
@@ -273,7 +304,7 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 classification TEXT NOT NULL,
                 media_type TEXT,
                 description TEXT,
-                sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+                content_digest TEXT NOT NULL,
                 size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
                 storage_path TEXT NOT NULL UNIQUE,
                 committed_sequence INTEGER NOT NULL UNIQUE,
@@ -374,8 +405,8 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 view_mode TEXT NOT NULL CHECK(view_mode IN ('full', 'presented')),
                 representation TEXT NOT NULL,
                 output_format TEXT NOT NULL,
-                output_sha256 TEXT,
-                manifest_sha256 TEXT,
+                output_digest TEXT,
+                manifest_digest TEXT,
                 state TEXT NOT NULL CHECK(state IN ('preparing', 'completed', 'failed', 'cancelled')),
                 policy_sequence INTEGER NOT NULL,
                 created_sequence INTEGER NOT NULL,
@@ -386,8 +417,8 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
                 export_id TEXT NOT NULL,
                 file_id TEXT NOT NULL,
                 output_path TEXT NOT NULL,
-                source_sha256 TEXT NOT NULL CHECK(length(source_sha256) = 64),
-                output_sha256 TEXT NOT NULL CHECK(length(output_sha256) = 64),
+                source_digest TEXT NOT NULL,
+                output_digest TEXT NOT NULL,
                 mode TEXT NOT NULL CHECK(mode IN ('native', 'derived')),
                 PRIMARY KEY(export_id, output_path),
                 FOREIGN KEY(export_id) REFERENCES exports(export_id),
@@ -400,6 +431,12 @@ def initialise_catalogue(project_root: Path, project_id: str) -> Path:
         )
         connection.execute(
             "INSERT INTO metadata VALUES ('project_id', ?)", (project_id,)
+        )
+        connection.execute(
+            "INSERT INTO metadata VALUES ('chain_hash', ?)", (chain_hash,)
+        )
+        connection.execute(
+            "INSERT INTO metadata VALUES ('content_hash', ?)", (content_hash,)
         )
         connection.execute(
             "INSERT INTO metadata VALUES ('authority_schema_version', '1')"
@@ -427,7 +464,7 @@ def _current_event_context(connection: sqlite3.Connection) -> tuple[int, str]:
         "ORDER BY event_sequence DESC LIMIT 1"
     ).fetchone()
     return (
-        (1, GENESIS_HASH)
+        (1, genesis_hash(_chain_hash_algorithm(connection)))
         if row is None
         else (int(row["event_sequence"]) + 1, str(row["event_hash"]))
     )
@@ -491,6 +528,7 @@ def _append_event(
     }
     material = {
         "schema": AUDIT_EVENT_SCHEMA,
+        "hash_algorithm": _chain_hash_algorithm(connection),
         "event_sequence": sequence,
         "occurred_at": occurred_at,
         "event_type": event_type,
@@ -500,7 +538,7 @@ def _append_event(
         "details": details,
         "previous_hash": previous,
     }
-    digest = _event_hash(material)
+    digest = _event_hash(connection, material)
     connection.execute(
         "INSERT INTO audit_events(event_sequence, occurred_at, event_type, object_type, "
         "object_id, actor_kind, actor_id, actor_uuid, credential_fingerprint, "
@@ -1116,7 +1154,7 @@ def _verify_note_sanctity(
     file_rows = {
         str(row["file_id"]): dict(row)
         for row in connection.execute(
-            "SELECT file_id, classification, sha256 FROM files"
+            "SELECT file_id, classification, content_digest FROM files"
         ).fetchall()
     }
     for key, live in live_revisions.items():
@@ -1133,7 +1171,7 @@ def _verify_note_sanctity(
             raise ToolkitError(
                 f"Committed note revision file is missing from catalogue: {file_id}"
             )
-        if str(file_row["sha256"]) != str(data.get("payload_sha256")):
+        if str(file_row["content_digest"]) != str(data.get("payload_digest")):
             raise ToolkitError(
                 f"Note revision hash differs from its signed history: {file_id}"
             )
@@ -1206,7 +1244,7 @@ def _verify_file_sanctity(
             "logical_path": str(row["logical_path"]),
             "classification": str(row["classification"]),
             "media_type": row["media_type"],
-            "sha256": str(row["sha256"]),
+            "content_digest": str(row["content_digest"]),
             "size_bytes": int(row["size_bytes"]),
             "storage_path": str(row["storage_path"]),
         }
@@ -1227,11 +1265,8 @@ def _verify_file_sanctity(
             raise ToolkitError(
                 f"Committed file is missing from the authoritative tree: {file_id}"
             )
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        if digest.hexdigest() != str(row["sha256"]) or path.stat().st_size != int(
+        observed_digest = digest_file(_content_hash_algorithm(connection), path)
+        if observed_digest != str(row["content_digest"]) or path.stat().st_size != int(
             row["size_bytes"]
         ):
             raise ToolkitError(f"Committed file bytes have changed: {file_id}")
@@ -1300,6 +1335,28 @@ def _verify_acquisition_membership(
             )
 
 
+def _verify_integrity_policy(
+    project_root: Path, connection: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> None:
+    """Require project record, catalogue metadata and signed genesis to agree."""
+    project_chain, project_content = project_integrity(project_root)
+    metadata_chain = _chain_hash_algorithm(connection)
+    metadata_content = _content_hash_algorithm(connection)
+    if (project_chain, project_content) != (metadata_chain, metadata_content):
+        raise ToolkitError(
+            "PROJECT.toml integrity policy differs from authenticated catalogue state"
+        )
+    genesis_rows = [row for row in rows if row["event_type"] == "PROJECT_GENESIS"]
+    if genesis_rows:
+        details = json.loads(genesis_rows[0]["details_json"])
+        transaction = details.get("authority_transaction")
+        data = transaction.get("data") if isinstance(transaction, dict) else None
+        integrity = data.get("integrity") if isinstance(data, dict) else None
+        expected = {"chain_hash": metadata_chain, "content_hash": metadata_content}
+        if integrity != expected:
+            raise ToolkitError("Project genesis integrity policy is inconsistent")
+
+
 def verify_chain(
     project_root: Path,
     *,
@@ -1316,7 +1373,8 @@ def verify_chain(
         rows = connection.execute(
             "SELECT * FROM audit_events ORDER BY event_sequence"
         ).fetchall()
-        previous = GENESIS_HASH
+        _verify_integrity_policy(project_root, connection, rows)
+        previous = genesis_hash(_chain_hash_algorithm(connection))
         expected_sequence = 1
         for row in rows:
             if int(row["event_sequence"]) != expected_sequence:
@@ -1337,6 +1395,7 @@ def verify_chain(
             }
             material = {
                 "schema": AUDIT_EVENT_SCHEMA,
+                "hash_algorithm": _chain_hash_algorithm(connection),
                 "event_sequence": expected_sequence,
                 "occurred_at": row["occurred_at"],
                 "event_type": row["event_type"],
@@ -1346,7 +1405,7 @@ def verify_chain(
                 "details": details,
                 "previous_hash": previous,
             }
-            calculated = _event_hash(material)
+            calculated = _event_hash(connection, material)
             if calculated != row["event_hash"]:
                 raise ToolkitError(
                     f"Catalogue event hash is invalid at event {expected_sequence}"

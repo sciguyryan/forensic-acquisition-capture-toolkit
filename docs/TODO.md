@@ -2,8 +2,16 @@
 
 This document records accepted future work that has not yet been implemented. Items are architectural commitments or investigation targets rather than promises that a particular interface is final.
 
+
+## Provenance and temporal assurance
+
+- Add optional external trusted timestamping or independently retained temporal anchors for projects that require evidence of real-world time rather than only tamper-evident recorded host time.
+- Add conservative temporal sanity checks such as detecting backwards event-time movement or implausible clock discontinuities without pretending those checks provide trusted wall-clock proof.
+- Decide whether a future project schema needs authenticated hash-algorithm transition epochs for exceptionally long-lived projects. The current integrity policy remains immutable from project genesis to closure.
+
 ## Identity and key lifecycle
 
+- Define operator UUID provisioning in the onboarding/initialisation framework so stable operator identity can be reused deliberately across projects without reviving mutable local operator-profile authority.
 - Add auditable operator signing-key rotation without invalidating historical signatures or rewriting the key that represented an operator at an earlier catalogue sequence.
 - Add explicit signing-key revocation and compromised or lost-key recovery with conservative, highly visible exceptional transactions rather than making recovery appear to be an ordinary key rotation.
 - Design exceptional ownership recovery for situations in which the current owner cannot participate. Recovery must never masquerade as a consensual ownership transfer and must retain the reason, authority and recovery path in project history.

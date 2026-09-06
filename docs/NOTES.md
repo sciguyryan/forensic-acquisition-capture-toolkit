@@ -2,7 +2,7 @@
 
 FACT notes are ordinary evidential files with additional note semantics. They do not live in a separate mutable note store and they are not disposable comments attached to otherwise more important evidence.
 
-Every note receives a never-reused `NOTE-######` identity. Every revision of that note receives its own ordinary `FILE-######` identity, immutable bytes, SHA-256 digest, provenance and storage path. SQLite records the note lineage and points each revision to its committed file. It does not store the note body as a note payload BLOB.
+Every note receives a never-reused `NOTE-######` identity. Every revision of that note receives its own ordinary `FILE-######` identity, immutable bytes, content digest, provenance and storage path. SQLite records the note lineage and points each revision to its committed file. It does not store the note body as a note payload BLOB.
 
 This is the note form of FACT's two governing rules:
 
@@ -85,7 +85,7 @@ A `project` note is readable by active authenticated project members. Its revisi
 
 A `confidential` note is readable only by its current confidential authority holder and the current project owner. Its committed revision file contains ciphertext, not plaintext.
 
-The word `project` means project-visible. It does not mean automatically disclosed outside the project. Package and future export disclosure are separate decisions.
+The word `project` means project-visible. It does not mean automatically disclosed outside the project. Package and export disclosure are separate decisions.
 
 ## Confidential files
 
@@ -98,10 +98,10 @@ NOTE-000008
 └── revision 1 -> FILE-000040
                   classification: confidential-note-revision
                   media type: application/pgp-encrypted
-                  sha256: SHA-256(ciphertext bytes)
+                  content_digest: HASH(content bytes under project content profile)
 ```
 
-The ciphertext is the authoritative stored representation. Its SHA-256 digest is handled exactly like the hash of any other committed file.
+The ciphertext is the authoritative stored representation. Its content digest is handled exactly like the hash of any other committed file.
 
 FACT does not deliberately persist confidential-note plaintext in:
 
@@ -169,7 +169,7 @@ Project ownership cannot change while only some confidential notes have been tra
 FACT first processes every affected current confidential revision. Each must:
 
 1. exist as the expected committed file;
-2. pass its stored size and SHA-256 checks;
+2. pass its stored size and configured content-digest checks;
 3. decrypt successfully;
 4. re-encrypt for the author and incoming owner;
 5. decrypt back to the same plaintext in validation; and
@@ -191,7 +191,7 @@ A future file-store hardening phase will add a durable recovery journal for abru
 
 ## Reading and verification
 
-Reading a note resolves the selected note revision to its `FILE-######` record. FACT checks that the file exists, that its size and SHA-256 still match the committed values, and then decodes or decrypts the stored bytes as appropriate.
+Reading a note resolves the selected note revision to its `FILE-######` record. FACT checks that the file exists, that its size and configured content digest still match the committed values, and then decodes or decrypts the stored bytes as appropriate.
 
 Normal catalogue verification independently checks the complete file tree. If a note revision file is changed or removed, this is a file sanctity violation just as it would be for a video, screenshot or captured network response.
 
@@ -199,8 +199,8 @@ For example:
 
 ```text
 NOTE-000030 revision 1 -> FILE-000200
-catalogue SHA-256        -> abcdef...
-current file SHA-256     -> 123456...
+catalogue content digest -> abcdef...
+current content digest   -> 123456...
 ```
 
 FACT rejects the project state. It does not update the catalogue to accept the new bytes.
@@ -227,7 +227,7 @@ The omission is a presentation/disclosure decision. It is not deletion from the 
 
 An included project note is packaged as its committed plaintext revision file. An included confidential note is packaged as its committed ciphertext revision file. Project packaging never decrypts confidential notes.
 
-The later generalised export subsystem will provide richer selection, full-record versus presented-record views, owner-authorised decrypted export, layered rendering and optional output encryption. Packaging remains a distinct self-contained archival operation rather than becoming the only export mechanism.
+The generalised export subsystem provides explicit selection, full-record and presented-record views, authorised confidential-note plaintext export, and optional output encryption. Layered and rendered representations remain future work until their transformation and verification semantics are implemented. Packaging remains a distinct self-contained archival operation rather than becoming the only export mechanism.
 
 ## Retraction
 

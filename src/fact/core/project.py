@@ -19,28 +19,46 @@ from .catalogue import (
     issue_identifier,
     retire_identifier,
 )
+from .hashing import (
+    DEFAULT_CHAIN_HASH,
+    DEFAULT_CONTENT_HASH,
+    require_hash,
+)
 
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
-def _initialise_project(root: Path, project_id: str, title: str) -> Path:
+def _initialise_project(
+    root: Path,
+    project_id: str,
+    title: str,
+    *,
+    chain_hash: str = DEFAULT_CHAIN_HASH,
+    content_hash: str = DEFAULT_CONTENT_HASH,
+) -> Path:
     """Create a new FACT project without overwriting an existing project."""
     if not _PROJECT_ID.fullmatch(project_id):
         raise ToolkitError(
             "Project ID must contain only letters, digits, '.', '_' or '-'"
         )
+    chain_hash = require_hash(chain_hash)
+    content_hash = require_hash(content_hash)
     root.mkdir(parents=True, exist_ok=True)
     project_file = root / PROJECT_NAME
     if project_file.exists() or (root / ".fact").exists():
         raise ToolkitError(f"FACT project already exists at {root}")
     escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
     project_file.write_text(
-        f'schema_version = {SCHEMA_VERSION}\nfact_version = "{__version__}"\nproject_id = "{project_id}"\ntitle = "{escaped_title}"\n',
+        f'schema_version = {SCHEMA_VERSION}\nfact_version = "{__version__}"\n'
+        f'project_id = "{project_id}"\ntitle = "{escaped_title}"\n\n'
+        f'[integrity]\nchain_hash = "{chain_hash}"\ncontent_hash = "{content_hash}"\n',
         encoding="utf-8",
     )
     project_file.chmod(0o600)
     try:
-        initialise_catalogue(root, project_id)
+        initialise_catalogue(
+            root, project_id, chain_hash=chain_hash, content_hash=content_hash
+        )
         (root / "cases").mkdir(mode=0o700)
         (root / "files").mkdir(mode=0o700)
     except Exception:
@@ -55,6 +73,9 @@ def initialise_owned_project(
     title: str,
     owner: OperatorIdentity,
     owner_public_key: str,
+    *,
+    chain_hash: str = DEFAULT_CHAIN_HASH,
+    content_hash: str = DEFAULT_CONTENT_HASH,
 ) -> Path:
     """Create a project whose first usable state includes a signed owner.
 
@@ -63,7 +84,9 @@ def initialise_owned_project(
     incomplete project is removed rather than leaving an apparently usable
     ownerless project behind.
     """
-    project_file = _initialise_project(root, project_id, title)
+    project_file = _initialise_project(
+        root, project_id, title, chain_hash=chain_hash, content_hash=content_hash
+    )
     try:
         establish_project_genesis(root, owner, owner_public_key)
     except Exception:

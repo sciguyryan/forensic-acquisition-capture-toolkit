@@ -9,7 +9,6 @@ identities and the exact project chain head observed before disclosure.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -28,8 +27,9 @@ from .export_policy import (
     require_confidential_plaintext_authority,
     require_export_authority,
 )
+from .hashing import digest_bytes, digest_file, project_content_hash
 
-EXPORT_SCHEMA = "fact-export/v1"
+EXPORT_SCHEMA = "fact-export/v2"
 EXPORT_MANIFEST = "FACT-EXPORT.json"
 EXPORT_FORMATS = {"directory", "tar"}
 EXPORT_VIEWS = {"full", "presented"}
@@ -40,18 +40,6 @@ def _canonical(data: object) -> bytes:
     return json.dumps(
         data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
-
-
-def _sha256_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _safe_leaf(value: str) -> str:
@@ -183,7 +171,7 @@ def _is_confidential(row: dict[str, object]) -> bool:
     return str(row["classification"]).startswith("confidential-")
 
 
-def _tree_digest(root: Path) -> str:
+def _tree_digest(root: Path, algorithm: str) -> str:
     """Return a stable content digest for a directory export."""
 
     inventory: list[dict[str, str]] = []
@@ -196,10 +184,10 @@ def _tree_digest(root: Path) -> str:
             inventory.append(
                 {
                     "path": path.relative_to(root).as_posix(),
-                    "sha256": _sha256_file(path),
+                    "content_digest": digest_file(algorithm, path),
                 }
             )
-    return _sha256_bytes(_canonical(inventory))
+    return digest_bytes(algorithm, _canonical(inventory))
 
 
 def _canonical_tar_gz(root: Path, output: Path) -> None:
@@ -306,7 +294,7 @@ def _start_export(
         )
         connection.execute(
             "INSERT INTO exports(export_id, actor_id, scope_type, scope_id, view_mode, "
-            "representation, output_format, output_sha256, manifest_sha256, state, "
+            "representation, output_format, output_digest, manifest_digest, state, "
             "policy_sequence, created_sequence, completed_sequence) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'preparing', ?, ?, NULL)",
             (
@@ -359,10 +347,10 @@ def _complete_export(
     actor: OperatorIdentity,
     export_id: str,
     *,
-    manifest_sha256: str,
-    output_sha256: str,
+    manifest_digest: str,
+    output_digest: str,
     items: list[dict[str, object]],
-    encrypted_sha256: str | None,
+    encrypted_digest: str | None,
 ) -> int:
     with _write_transaction(project_root) as connection:
         row = connection.execute(
@@ -378,28 +366,28 @@ def _complete_export(
             object_type="export",
             object_id=export_id,
             data={
-                "manifest_sha256": manifest_sha256,
-                "output_sha256": output_sha256,
-                "encrypted_sha256": encrypted_sha256,
+                "manifest_digest": manifest_digest,
+                "output_digest": output_digest,
+                "encrypted_digest": encrypted_digest,
                 "items": items,
             },
             verification_key=str(key["public_key"]),
         )
         connection.execute(
-            "UPDATE exports SET output_sha256 = ?, manifest_sha256 = ?, state = 'completed', "
+            "UPDATE exports SET output_digest = ?, manifest_digest = ?, state = 'completed', "
             "completed_sequence = ? WHERE export_id = ?",
-            (output_sha256, manifest_sha256, sequence, export_id),
+            (output_digest, manifest_digest, sequence, export_id),
         )
         for item in items:
             connection.execute(
-                "INSERT INTO export_items(export_id, file_id, output_path, source_sha256, "
-                "output_sha256, mode) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO export_items(export_id, file_id, output_path, source_digest, "
+                "output_digest, mode) VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     export_id,
                     item["file_id"],
                     item["output_path"],
-                    item["source_sha256"],
-                    item["output_sha256"],
+                    item["source_digest"],
+                    item["output_digest"],
                     item["mode"],
                 ),
             )
@@ -488,6 +476,8 @@ def create_export(
             ciphertext_only=True,
         )
 
+    content_hash_algorithm = project_content_hash(project_root)
+
     export_id = issue_identifier(project_root, "export", "EXPORT")
     _start_export(
         project_root,
@@ -537,8 +527,8 @@ def create_export(
                 source = project_root / str(row["storage_path"])
                 if source.is_symlink() or not source.is_file():
                     raise ToolkitError(f"Committed export source is missing: {file_id}")
-                source_sha = _sha256_file(source)
-                if source_sha != str(row["sha256"]):
+                source_sha = digest_file(content_hash_algorithm, source)
+                if source_sha != str(row["content_digest"]):
                     raise ToolkitError(
                         f"Committed export source has changed: {file_id}"
                     )
@@ -562,8 +552,8 @@ def create_export(
                     {
                         "file_id": file_id,
                         "output_path": relative.as_posix(),
-                        "source_sha256": str(row["sha256"]),
-                        "output_sha256": _sha256_file(target),
+                        "source_digest": str(row["content_digest"]),
+                        "output_digest": digest_file(content_hash_algorithm, target),
                         "mode": mode,
                         "classification": str(row["classification"]),
                         "case_id": row["case_id"],
@@ -575,6 +565,7 @@ def create_export(
             manifest = {
                 "schema": EXPORT_SCHEMA,
                 "fact_version": __version__,
+                "content_hash_algorithm": content_hash_algorithm,
                 "export_id": export_id,
                 "project_id": project_id,
                 "actor_id": actor.operator_id,
@@ -602,12 +593,12 @@ def create_export(
             manifest_path = root / EXPORT_MANIFEST
             manifest_path.write_bytes(manifest_bytes)
             manifest_path.chmod(0o600)
-            manifest_sha = _sha256_bytes(manifest_bytes)
+            manifest_sha = digest_bytes(content_hash_algorithm, manifest_bytes)
 
             encrypted_path: Path | None = None
             encrypted_sha: str | None = None
             if output_format == "directory":
-                tree_sha = _tree_digest(root)
+                tree_sha = _tree_digest(root, content_hash_algorithm)
                 shutil.copytree(root, destination)
                 placed_outputs.append(destination)
                 output_sha = tree_sha
@@ -615,7 +606,7 @@ def create_export(
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 _canonical_tar_gz(root, destination)
                 placed_outputs.append(destination)
-                output_sha = _sha256_file(destination)
+                output_sha = digest_file(content_hash_algorithm, destination)
                 if encrypt_to:
                     encrypted_path = _encrypt_output(
                         destination,
@@ -623,25 +614,25 @@ def create_export(
                         encrypt_to,
                     )
                     placed_outputs.append(encrypted_path)
-                    encrypted_sha = _sha256_file(encrypted_path)
+                    encrypted_sha = digest_file(content_hash_algorithm, encrypted_path)
 
         completed_sequence = _complete_export(
             project_root,
             actor,
             export_id,
-            manifest_sha256=manifest_sha,
-            output_sha256=output_sha,
+            manifest_digest=manifest_sha,
+            output_digest=output_sha,
             items=output_items,
-            encrypted_sha256=encrypted_sha,
+            encrypted_digest=encrypted_sha,
         )
         verified_after = verify_chain(project_root)
         return {
             "export_id": export_id,
             "output": destination,
             "encrypted": encrypted_path,
-            "manifest_sha256": manifest_sha,
-            "output_sha256": output_sha,
-            "encrypted_sha256": encrypted_sha,
+            "manifest_digest": manifest_sha,
+            "output_digest": output_sha,
+            "encrypted_digest": encrypted_sha,
             "file_count": len(output_items),
             "completed_sequence": completed_sequence,
             "verified_event_count": verified_after["event_count"],

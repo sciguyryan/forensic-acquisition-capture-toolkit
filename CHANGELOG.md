@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.16.0 - Hash Agility
+
+- Added immutable per-project integrity policy with independently selectable rolling-chain and evidential-content hash algorithms.
+- Added curated profiles for `sha256`, `sha512`, `sha3-256`, `sha3-512`, `blake2b-256`, `blake2b-512`, `blake2s-256` and `blake3-256`, with SHA-256 remaining the default for both purposes.
+- Added BLAKE3 as an explicit runtime dependency and fail-closed algorithm validation. FACT never substitutes a different digest when a configured profile is unavailable.
+- Upgraded the rolling provenance envelope to `fact-audit-event/v3`, binding the selected chain algorithm into every canonical event hash.
+- Bound the chain/content policy into `PROJECT.toml`, catalogue metadata, signed `PROJECT_GENESIS` authority and checkpoint state, and reject any disagreement during verification.
+- Generalised committed-file, note and export digest fields so 256-bit and 512-bit profiles are represented without SHA-256-specific schema names or fixed-length assumptions.
+- Upgraded portable export descriptors to `fact-export/v2` and record the project content-hash algorithm used for source, output, manifest and export-tree digests.
+- Added `--chain-hash` and `--content-hash` project-initialisation options while retaining SHA-256 defaults for unattended or existing workflows.
+- Added regression coverage for every standard-library chain profile plus a SHA3-512 acquisition, export verification and exhaustive full-project verification path.
+- Bumped the unreleased project/catalogue schema boundary to version 9. No in-place migration is provided for earlier development schemas.
+
 ## 2.15.0 - Provenance Spine
 
 - Added a randomly generated immutable UUID to every operator when that identity first enters project authority. The UUID is independent of signing credentials and therefore survives future key rotation.

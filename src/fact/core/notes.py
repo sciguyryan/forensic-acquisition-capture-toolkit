@@ -14,7 +14,6 @@ it never rewrites historical ciphertext.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import sqlite3
@@ -41,6 +40,7 @@ from .files import (
     _prepare_payload_candidates,
     commit_payload_files,
 )
+from .hashing import digest_bytes, project_content_hash
 
 NOTE_PAYLOAD_SCHEMA = "fact-note-payload/v1"
 NOTE_MEDIA_TYPE = "application/vnd.fact.note+json"
@@ -124,7 +124,7 @@ def _read_revision_bytes(
     file_id: str,
 ) -> bytes:
     row = connection.execute(
-        "SELECT sha256, size_bytes, storage_path FROM files WHERE file_id = ?",
+        "SELECT content_digest, size_bytes, storage_path FROM files WHERE file_id = ?",
         (file_id,),
     ).fetchone()
     if row is None:
@@ -135,9 +135,9 @@ def _read_revision_bytes(
     if path.is_symlink() or not path.is_file():
         raise ToolkitError(f"Committed note revision file is missing: {file_id}")
     stored = path.read_bytes()
-    if len(stored) != int(row["size_bytes"]) or hashlib.sha256(
-        stored
-    ).hexdigest() != str(row["sha256"]):
+    if len(stored) != int(row["size_bytes"]) or digest_bytes(
+        project_content_hash(project_root), stored
+    ) != str(row["content_digest"]):
         raise ToolkitError(f"Note revision file integrity check failed: {file_id}")
     return stored
 
@@ -207,7 +207,7 @@ def create_note(
     else:
         stored = raw
     note_id = issue_identifier(project_root, "note", "NOTE")
-    digest = hashlib.sha256(stored).hexdigest()
+    digest = digest_bytes(project_content_hash(project_root), stored)
 
     def mutation(connection, committed: list[dict[str, object]]) -> None:
         _require_authority_tables(connection)
@@ -228,7 +228,7 @@ def create_note(
                 "revision": 1,
                 "revision_type": "content",
                 "file_id": revision_file_id,
-                "payload_sha256": digest,
+                "payload_digest": digest,
                 "package_disclosure": "withheld",
                 "confidential_authority_id": actor.operator_id
                 if visibility == "confidential"
@@ -397,7 +397,7 @@ def revise_note(
         )
     else:
         stored = raw
-    digest = hashlib.sha256(stored).hexdigest()
+    digest = digest_bytes(project_content_hash(project_root), stored)
 
     def mutation(connection, committed: list[dict[str, object]]) -> int:
         live = connection.execute(
@@ -428,7 +428,7 @@ def revise_note(
                 "revision": revision,
                 "revision_type": "content",
                 "file_id": revision_file_id,
-                "payload_sha256": digest,
+                "payload_digest": digest,
                 "reason": reason.strip(),
             },
             verification_key=str(key["public_key"]),
@@ -555,7 +555,13 @@ def reencrypt_confidential_notes_for_transfer(
                 )
         finally:
             plaintext = b""
-        staged.append((row, replacement, hashlib.sha256(replacement).hexdigest()))
+        staged.append(
+            (
+                row,
+                replacement,
+                digest_bytes(project_content_hash(project_root), replacement),
+            )
+        )
 
     created_directories: list[Path] = []
     transfer_roots: list[Path] = []
@@ -600,7 +606,7 @@ def reencrypt_confidential_notes_for_transfer(
                     "revision": revision,
                     "revision_type": "cryptographic",
                     "file_id": revision_file_id,
-                    "payload_sha256": digest,
+                    "payload_digest": digest,
                     "reason": reason,
                 },
                 verification_key=str(key["public_key"]),
@@ -638,7 +644,9 @@ def reencrypt_confidential_notes_for_transfer(
         for transfer_root in transfer_roots:
             shutil.rmtree(transfer_root, ignore_errors=True)
 
-    aggregate = hashlib.sha256("\n".join(new_hashes).encode("ascii")).hexdigest()
+    aggregate = digest_bytes(
+        project_content_hash(project_root), "\n".join(new_hashes).encode("ascii")
+    )
     return {
         "confidential_revision_count": len(rows),
         "confidential_ciphertext_digest": aggregate,
@@ -663,7 +671,9 @@ def reencrypt_confidential_notes_for_authority_transfer(
     if not note_ids:
         return {
             "confidential_revision_count": 0,
-            "confidential_ciphertext_digest": hashlib.sha256(b"").hexdigest(),
+            "confidential_ciphertext_digest": digest_bytes(
+                project_content_hash(project_root), b""
+            ),
             "_created_file_directories": [],
         }
     placeholders = ",".join("?" for _ in note_ids)
@@ -711,7 +721,13 @@ def reencrypt_confidential_notes_for_authority_transfer(
                 )
         finally:
             plaintext = b""
-        staged.append((row, replacement, hashlib.sha256(replacement).hexdigest()))
+        staged.append(
+            (
+                row,
+                replacement,
+                digest_bytes(project_content_hash(project_root), replacement),
+            )
+        )
 
     created_directories: list[Path] = []
     transfer_roots: list[Path] = []
@@ -755,7 +771,7 @@ def reencrypt_confidential_notes_for_authority_transfer(
                     "revision": revision,
                     "revision_type": "cryptographic",
                     "file_id": revision_file_id,
-                    "payload_sha256": digest,
+                    "payload_digest": digest,
                     "reason": reason,
                 },
                 verification_key=str(key["public_key"]),
@@ -793,7 +809,9 @@ def reencrypt_confidential_notes_for_authority_transfer(
         for transfer_root in transfer_roots:
             shutil.rmtree(transfer_root, ignore_errors=True)
 
-    aggregate = hashlib.sha256("\n".join(new_hashes).encode("ascii")).hexdigest()
+    aggregate = digest_bytes(
+        project_content_hash(project_root), "\n".join(new_hashes).encode("ascii")
+    )
     return {
         "confidential_revision_count": len(rows),
         "confidential_ciphertext_digest": aggregate,

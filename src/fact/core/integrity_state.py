@@ -252,8 +252,8 @@ def _verify_exports(connection: sqlite3.Connection, rows: list[sqlite3.Row]) -> 
                 "view_mode": str(data["view_mode"]),
                 "representation": str(data["representation"]),
                 "output_format": str(data["output_format"]),
-                "output_sha256": None,
-                "manifest_sha256": None,
+                "output_digest": None,
+                "manifest_digest": None,
                 "state": "preparing",
                 "policy_sequence": int(data["policy_sequence"]),
                 "created_sequence": sequence,
@@ -267,13 +267,13 @@ def _verify_exports(connection: sqlite3.Connection, rows: list[sqlite3.Row]) -> 
                 current["state"] = "failed"
                 current["completed_sequence"] = sequence
                 continue
-            manifest_sha = str(data["manifest_sha256"])
-            output_sha = str(data["output_sha256"])
+            manifest_sha = str(data["manifest_digest"])
+            output_sha = str(data["output_digest"])
             item_data = data.get("items")
             if not isinstance(item_data, list):
                 raise ToolkitError("Completed export has malformed item membership")
-            current["manifest_sha256"] = manifest_sha
-            current["output_sha256"] = output_sha
+            current["manifest_digest"] = manifest_sha
+            current["output_digest"] = output_sha
             current["state"] = "completed"
             current["completed_sequence"] = sequence
             for item in item_data:
@@ -284,8 +284,8 @@ def _verify_exports(connection: sqlite3.Connection, rows: list[sqlite3.Row]) -> 
                         export_id,
                         str(item["file_id"]),
                         str(item["output_path"]),
-                        str(item["source_sha256"]),
-                        str(item["output_sha256"]),
+                        str(item["source_digest"]),
+                        str(item["output_digest"]),
                         str(item["mode"]),
                     )
                 )
@@ -293,7 +293,7 @@ def _verify_exports(connection: sqlite3.Connection, rows: list[sqlite3.Row]) -> 
         str(row["export_id"]): dict(row)
         for row in connection.execute(
             "SELECT export_id, actor_id, scope_type, scope_id, view_mode, representation, "
-            "output_format, output_sha256, manifest_sha256, state, policy_sequence, "
+            "output_format, output_digest, manifest_digest, state, policy_sequence, "
             "created_sequence, completed_sequence FROM exports"
         ).fetchall()
     }
@@ -304,12 +304,12 @@ def _verify_exports(connection: sqlite3.Connection, rows: list[sqlite3.Row]) -> 
             str(row["export_id"]),
             str(row["file_id"]),
             str(row["output_path"]),
-            str(row["source_sha256"]),
-            str(row["output_sha256"]),
+            str(row["source_digest"]),
+            str(row["output_digest"]),
             str(row["mode"]),
         )
         for row in connection.execute(
-            "SELECT export_id, file_id, output_path, source_sha256, output_sha256, mode "
+            "SELECT export_id, file_id, output_path, source_digest, output_digest, mode "
             "FROM export_items"
         ).fetchall()
     }

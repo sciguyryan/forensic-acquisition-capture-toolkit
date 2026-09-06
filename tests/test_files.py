@@ -74,7 +74,7 @@ def test_batch_checkin_assigns_permanent_ids_and_preserves_exact_bytes(
     for row in rows:
         stored = tmp_path / str(row["storage_path"])
         assert stored.is_file()
-        assert hashlib.sha256(stored.read_bytes()).hexdigest() == row["sha256"]
+        assert hashlib.sha256(stored.read_bytes()).hexdigest() == row["content_digest"]
     assert verify_chain(tmp_path)["event_count"] >= 7
 
 
@@ -95,7 +95,7 @@ def test_identical_bytes_are_distinct_evidential_checkins(tmp_path: Path) -> Non
         ],
     )
     assert rows[0]["file_id"] != rows[1]["file_id"]
-    assert rows[0]["sha256"] == rows[1]["sha256"]
+    assert rows[0]["content_digest"] == rows[1]["content_digest"]
 
 
 def test_changed_or_missing_committed_file_is_a_sanctity_failure(

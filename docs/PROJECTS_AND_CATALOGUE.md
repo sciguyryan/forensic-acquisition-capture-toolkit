@@ -46,7 +46,7 @@ The current implementation does not delete case material when a case is retired.
 
 ## Audit journal
 
-Every catalogue-changing operation appends an audit event. The versioned audit envelope commits the event sequence, UTC timestamp, event and object identity, explicit actor representation, canonical event details and previous event hash into the event's own SHA-256 hash. Operator-authored authority events additionally commit the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis.
+Every catalogue-changing operation appends an audit event. The versioned audit envelope commits the event sequence, UTC timestamp, event and object identity, explicit actor representation, canonical event details and previous event hash into the event digest under the project-selected chain-hash profile. Operator-authored authority events additionally commit the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis.
 
 The first event refers to a fixed all-zero genesis hash. Every later event cryptographically commits to the previous event. Altering, deleting, inserting or reordering historical events therefore breaks verification unless the attacker reconstructs the subsequent chain.
 
@@ -54,7 +54,7 @@ FACT never silently repairs a broken chain. A chain-verification failure is an i
 
 ## State digest
 
-The audit chain protects logical history. Signed checkpoints additionally contain a deterministic SHA-256 digest of the current identifier and authority state. This allows FACT to detect direct changes to live catalogue state, including identifier, identity, membership, ownership, transfer and approval records, even if the audit journal itself was left untouched.
+The audit chain protects logical history. Signed checkpoints additionally contain a deterministic digest of the current identifier and authority state under the project-selected chain-hash profile. This allows FACT to detect direct changes to live catalogue state, including identifier, identity, membership, ownership, transfer and approval records, even if the audit journal itself was left untouched.
 
 ## Signed checkpoints
 
@@ -75,13 +75,13 @@ A checkpoint describes an exact catalogue state. After legitimate catalogue muta
 
 A self-contained signed catalogue cannot by itself detect replacement with an older catalogue and its matching older valid checkpoint. This is a rollback attack.
 
-Signed FACT project packages bind the project ID, catalogue event sequence and chain-head hash. Once a package has been independently retained, it becomes an external anchor against silent rollback of the local project catalogue. Additional external checkpoint publication or protected backup can provide stronger anchoring where required.
+Signed FACT project packages bind the project ID, catalogue event sequence and chain-head digest. Once a package has been independently retained, it becomes an external anchor against silent rollback of the local project catalogue. Additional external checkpoint publication or protected backup can provide stronger anchoring where required.
 
 ## Threat model
 
 The catalogue is intended to detect accidental edits and make casual manual tampering substantially more difficult. It protects against common attempts such as changing an issued identifier, removing a retirement event, rewriting current state without updating history, or modifying a checkpoint without the signing key.
 
-It does not claim to defeat an attacker who simultaneously controls the host, FACT process, signing credentials, all historical checkpoints and every externally retained project package.
+It does not claim to defeat an attacker who simultaneously controls the host, FACT process, signing credentials, all historical checkpoints and every externally retained signed project package.
 
 ## Encryption
 
@@ -138,6 +138,13 @@ As a result, a direct SQL edit to a contributor state, owner, operator identity,
 The catalogue state digest used by signed checkpoints now covers identifiers and authority state. This means a signed checkpoint is sensitive to ex post facto changes to identity, membership, ownership, transfer and approval records as well as identifier state.
 
 See `docs/AUTHORITY_AND_IDENTITY.md` for the signed transaction model, session authentication, contributor admission, ownership transfer, approval lifecycle, threat model and current key-lifecycle limitations.
+
+
+## Project hash policy
+
+Each project selects separate chain and evidential-content hash profiles at genesis. The policy is recorded in `PROJECT.toml`, catalogue metadata and signed project genesis, and verification requires those representations to agree. The current project schema does not permit an in-place hash-policy change.
+
+FACT uses a curated registry rather than accepting arbitrary algorithm names. SHA-256 remains the default, while the supported profiles may include SHA-512, SHA-3, BLAKE2 and BLAKE3 variants exposed by the current implementation. If a selected implementation is unavailable, FACT fails closed rather than silently substituting another algorithm. Package transport checksums may remain fixed by the package format and are distinct from the project's live integrity policy.
 
 
 ## Provenance event envelope

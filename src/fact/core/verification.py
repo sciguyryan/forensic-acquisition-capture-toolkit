@@ -9,7 +9,6 @@ project without rehashing unrelated sibling payloads.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -17,14 +16,7 @@ from pathlib import Path, PurePosixPath
 from ..errors import ToolkitError
 from .catalogue import _connect, verify_chain
 from .exports import EXPORT_MANIFEST, EXPORT_SCHEMA, _tree_digest
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+from .hashing import digest_bytes, digest_file, project_content_hash
 
 
 def _base_result(kind: str, target: str) -> dict[str, object]:
@@ -217,12 +209,13 @@ def verify_external_file(project_root: Path, path: Path) -> dict[str, object]:
     path = path.resolve()
     if path.is_symlink() or not path.is_file():
         raise ToolkitError(f"File verification requires a regular file: {path}")
-    digest = _sha256_file(path)
+    content_hash_algorithm = project_content_hash(project_root)
+    digest = digest_file(content_hash_algorithm, path)
     size = path.stat().st_size
     connection = _connect(project_root)
     try:
         rows = connection.execute(
-            "SELECT * FROM files WHERE sha256 = ? AND size_bytes = ? "
+            "SELECT * FROM files WHERE content_digest = ? AND size_bytes = ? "
             "ORDER BY committed_sequence, file_id",
             (digest, size),
         ).fetchall()
@@ -239,7 +232,7 @@ def verify_external_file(project_root: Path, path: Path) -> dict[str, object]:
     finally:
         connection.close()
     result = _base_result("external-file-correspondence", str(path))
-    result["scope"] = {"observed_sha256": digest, "observed_size_bytes": size}
+    result["scope"] = {"observed_content_digest": digest, "observed_size_bytes": size}
     if not matches:
         # Verify the history itself so an unmatched result is not produced from a
         # silently corrupted catalogue lookup.
@@ -249,7 +242,7 @@ def verify_external_file(project_root: Path, path: Path) -> dict[str, object]:
         result["scope"]["project_chain"] = _chain_summary(verified, [])
         result["checks"] = [
             "Authenticated project history verified",
-            "No matching SHA-256 and size pair found",
+            "No matching configured content digest and size pair found",
         ]
         return result
     file_ids = [str(row["file_id"]) for row in matches]
@@ -260,14 +253,16 @@ def verify_external_file(project_root: Path, path: Path) -> dict[str, object]:
     result["matches"] = matches
     result["scope"]["project_chain"] = _chain_summary(verified, file_ids)
     result["checks"] = [
-        "External SHA-256 and size calculated",
+        "External configured content digest and size calculated",
         "Every matching authoritative project payload independently rehashed",
         "Matching FILE identities and provenance verified against authenticated history",
     ]
     return result
 
 
-def _manifest_from_directory(path: Path) -> tuple[dict[str, object], str]:
+def _manifest_from_directory(
+    path: Path, algorithm: str
+) -> tuple[dict[str, object], str]:
     """Read and validate an export manifest from a directory export."""
 
     manifest_path = path / EXPORT_MANIFEST
@@ -280,11 +275,11 @@ def _manifest_from_directory(path: Path) -> tuple[dict[str, object], str]:
         raise ToolkitError("FACT export manifest is not valid JSON") from exc
     if not isinstance(data, dict) or data.get("schema") != EXPORT_SCHEMA:
         raise ToolkitError("Unsupported FACT export manifest schema")
-    return data, hashlib.sha256(payload).hexdigest()
+    return data, digest_bytes(algorithm, payload)
 
 
 def _manifest_from_tar(
-    path: Path,
+    path: Path, algorithm: str
 ) -> tuple[dict[str, object], str, str, dict[str, str]]:
     """Read a tar export safely and return its manifest and member digests.
 
@@ -313,7 +308,7 @@ def _manifest_from_tar(
                     raise ToolkitError(
                         f"FACT export archive member cannot be read: {member.name}"
                     )
-                member_hashes[member.name] = hashlib.sha256(stream.read()).hexdigest()
+                member_hashes[member.name] = digest_bytes(algorithm, stream.read())
 
         if len(manifest_members) != 1:
             raise ToolkitError(
@@ -331,7 +326,7 @@ def _manifest_from_tar(
         if not isinstance(data, dict) or data.get("schema") != EXPORT_SCHEMA:
             raise ToolkitError("Unsupported FACT export manifest schema")
         prefix = str(PurePosixPath(manifest_member.name).parent)
-        return data, hashlib.sha256(payload).hexdigest(), prefix, member_hashes
+        return data, digest_bytes(algorithm, payload), prefix, member_hashes
 
 
 def _completed_export_event(connection, export_id: str) -> dict[str, object]:
@@ -353,7 +348,8 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
 
     path = path.resolve()
     if path.suffix == ".gpg":
-        digest = _sha256_file(path)
+        content_hash_algorithm = project_content_hash(project_root)
+        digest = digest_file(content_hash_algorithm, path)
         connection = _connect(project_root)
         try:
             match: tuple[str, dict[str, object]] | None = None
@@ -363,7 +359,7 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
             ).fetchall():
                 details = json.loads(row["details_json"])
                 data = details["authority_transaction"]["data"]
-                if data.get("encrypted_sha256") == digest:
+                if data.get("encrypted_digest") == digest:
                     match = (str(row["object_id"]), data)
                     break
             if match is None:
@@ -374,7 +370,7 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
                     "Encrypted file does not match any recorded FACT export envelope."
                 )
                 result["scope"] = {
-                    "observed_sha256": digest,
+                    "observed_content_digest": digest,
                     "project_chain": _chain_summary(verified, []),
                 }
                 return result
@@ -391,7 +387,7 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
         verified = verify_chain(project_root, file_ids_to_hash=set(file_ids))
         result = _base_result("external-export-encrypted-envelope", str(path))
         result["summary"] = f"Encrypted container exactly matches recorded {export_id}."
-        result["matches"] = [{"export_id": export_id, "encrypted_sha256": digest}]
+        result["matches"] = [{"export_id": export_id, "encrypted_digest": digest}]
         result["scope"] = {"project_chain": _chain_summary(verified, file_ids)}
         result["limitations"] = [
             "The encrypted envelope was matched exactly, but its internal export files were not decrypted or independently inspected."
@@ -400,12 +396,15 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
 
     archive_member_hashes: dict[str, str] | None = None
     prefix = ""
+    content_hash_algorithm = project_content_hash(project_root)
     if path.is_dir():
-        manifest, manifest_sha = _manifest_from_directory(path)
-        observed_output_sha = _tree_digest(path)
+        manifest, manifest_sha = _manifest_from_directory(path, content_hash_algorithm)
+        observed_output_sha = _tree_digest(path, content_hash_algorithm)
     elif path.is_file():
-        manifest, manifest_sha, prefix, archive_member_hashes = _manifest_from_tar(path)
-        observed_output_sha = _sha256_file(path)
+        manifest, manifest_sha, prefix, archive_member_hashes = _manifest_from_tar(
+            path, content_hash_algorithm
+        )
+        observed_output_sha = digest_file(content_hash_algorithm, path)
     else:
         raise ToolkitError(f"Export verification target does not exist: {path}")
 
@@ -421,11 +420,11 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
             raise ToolkitError(
                 f"Manifest refers to an unknown or incomplete export: {export_id}"
             )
-        if str(row["manifest_sha256"]) != manifest_sha:
+        if str(row["manifest_digest"]) != manifest_sha:
             raise ToolkitError(
                 "Export manifest differs from the authenticated completion event"
             )
-        if str(row["output_sha256"]) != observed_output_sha:
+        if str(row["output_digest"]) != observed_output_sha:
             raise ToolkitError(
                 "External export container/tree digest differs from recorded export"
             )
@@ -445,7 +444,7 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
             )
         for output_path, expected in expected_items.items():
             observed = manifest_items[output_path]
-            for field in ("file_id", "source_sha256", "output_sha256", "mode"):
+            for field in ("file_id", "source_digest", "output_digest", "mode"):
                 if str(observed.get(field)) != str(expected[field]):
                     raise ToolkitError(
                         f"Export manifest item differs from history: {output_path} ({field})"
@@ -454,7 +453,7 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
                 member_path = path / Path(output_path)
                 if member_path.is_symlink() or not member_path.is_file():
                     raise ToolkitError(f"Exported file is missing: {output_path}")
-                output_hash = _sha256_file(member_path)
+                output_hash = digest_file(content_hash_algorithm, member_path)
             else:
                 member_name = str(PurePosixPath(prefix) / PurePosixPath(output_path))
                 try:
@@ -463,7 +462,7 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
                     raise ToolkitError(
                         f"Exported archive member is missing: {output_path}"
                     ) from exc
-            if output_hash != str(expected["output_sha256"]):
+            if output_hash != str(expected["output_digest"]):
                 raise ToolkitError(
                     f"Exported file bytes differ from recorded export: {output_path}"
                 )
@@ -499,8 +498,8 @@ def verify_export(project_root: Path, path: Path) -> dict[str, object]:
     result["matches"] = [
         {
             "export_id": export_id,
-            "manifest_sha256": manifest_sha,
-            "output_sha256": observed_output_sha,
+            "manifest_digest": manifest_sha,
+            "output_digest": observed_output_sha,
             "file_ids": file_ids,
         }
     ]

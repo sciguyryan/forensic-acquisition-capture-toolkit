@@ -4,13 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fact-forensic-toolkit"
-version = "2.15.0"
+version = "2.16.0"
 description = "Source-agnostic forensic acquisition, capture, packaging, signing, and verification toolkit"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "LGPL-2.1-or-later"
 authors = [{name = "FACT contributors"}]
-dependencies = []
+dependencies = [
+    "blake3>=1,<2",
+]
 
 [project.optional-dependencies]
 screenshot = [

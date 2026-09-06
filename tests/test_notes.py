@@ -131,7 +131,8 @@ def test_confidential_note_file_contains_ciphertext_not_plaintext(
     connection = sqlite3.connect(catalogue_path(tmp_path))
     try:
         row = connection.execute(
-            "SELECT classification, sha256 FROM files WHERE file_id = ?", (file_id,)
+            "SELECT classification, content_digest FROM files WHERE file_id = ?",
+            (file_id,),
         ).fetchone()
     finally:
         connection.close()
