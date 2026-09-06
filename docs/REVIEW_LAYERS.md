@@ -6,7 +6,7 @@ The governing rule is:
 
 > Acquisition creates evidence. Review describes evidence. Derivation creates representations of evidence.
 
-The screenshot collector therefore continues to preserve the original capture bytes unchanged. Annotation and proposed-redaction data are separate structured layers that refer to the immutable original by its committed content digest and original dimensions.
+The screenshot collector therefore continues to preserve the original capture bytes unchanged. Annotation and proposed-redaction data are separate structured layers that refer to the immutable original by committed content digest or stable file identity and original dimensions.
 
 ## Initial annotation vocabulary
 

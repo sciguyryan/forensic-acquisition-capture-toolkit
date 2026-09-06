@@ -577,3 +577,53 @@ def test_operator_reference_tampering_is_detected(tmp_path: Path) -> None:
     connection.close()
     with pytest.raises(ToolkitError, match="current operators state"):
         verify_chain(tmp_path)
+
+
+def test_complete_initialisation_enrols_additional_local_operator_before_activation(
+    tmp_path: Path,
+) -> None:
+    from fact.core.project import initialise_owned_project
+
+    owner_identity = operator("owner", "Owner", "A")
+    contributor = operator("analyst", "Analyst", "B")
+    initialise_owned_project(
+        tmp_path,
+        "P-SETUP",
+        "Complete setup",
+        owner_identity,
+        "PUBLIC OWNER",
+        additional_operators=[(contributor, "PUBLIC ANALYST")],
+    )
+
+    members = {row["operator_id"]: row for row in list_members(tmp_path)}
+    assert members["owner"]["membership_role"] == "owner"
+    assert members["analyst"]["membership_role"] == "contributor"
+    assert members["analyst"]["state"] == "active"
+    assert not (tmp_path / ".fact-initialising").exists()
+    assert verify_chain(tmp_path)["event_count"] >= 3
+
+
+def test_complete_initialisation_unwinds_failed_initial_contributor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fact.core import project as project_module
+
+    owner_identity = operator("owner", "Owner", "A")
+    contributor = operator("analyst", "Analyst", "B")
+    monkeypatch.setattr(
+        project_module,
+        "invite_contributor",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ToolkitError("invite failed")),
+    )
+    with pytest.raises(ToolkitError, match="invite failed"):
+        project_module.initialise_owned_project(
+            tmp_path,
+            "P-SETUP",
+            "Complete setup",
+            owner_identity,
+            "PUBLIC OWNER",
+            additional_operators=[(contributor, "PUBLIC ANALYST")],
+        )
+    assert not (tmp_path / "PROJECT.toml").exists()
+    assert not (tmp_path / ".fact").exists()
+    assert not (tmp_path / ".fact-initialising").exists()

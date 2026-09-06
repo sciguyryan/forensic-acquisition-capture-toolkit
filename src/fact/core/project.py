@@ -10,7 +10,12 @@ from pathlib import Path
 from .. import __version__
 from ..errors import ToolkitError
 from ..identity import OperatorIdentity
-from .authority import assign_case_owner, establish_project_genesis
+from .authority import (
+    accept_contributor,
+    assign_case_owner,
+    establish_project_genesis,
+    invite_contributor,
+)
 from .catalogue import (
     PROJECT_NAME,
     SCHEMA_VERSION,
@@ -83,6 +88,7 @@ def initialise_owned_project(
     *,
     chain_hash: str = DEFAULT_CHAIN_HASH,
     content_hash: str = DEFAULT_CONTENT_HASH,
+    additional_operators: list[tuple[OperatorIdentity, str]] | None = None,
 ) -> Path:
     """Create a project whose first usable state includes a signed owner.
 
@@ -111,6 +117,9 @@ def initialise_owned_project(
         raise
     try:
         establish_project_genesis(root, owner, owner_public_key)
+        for contributor, public_key in additional_operators or []:
+            invite_contributor(root, owner, contributor, public_key)
+            accept_contributor(root, contributor)
         # Initialisation is not considered complete merely because the genesis
         # write returned successfully. Reconstruct the authenticated project
         # state before removing the interruption marker.

@@ -22,6 +22,7 @@ from typing import TypeVar
 
 from ..errors import ToolkitError
 from .catalogue import _append_event, _utc_now, _write_transaction
+from .file_protection import protect_committed_file
 from .hashing import digest_bytes, digest_file, project_content_hash
 
 T = TypeVar("T")
@@ -312,6 +313,10 @@ def _commit_with_mutation(
                 prepared=prepared,
             )
             result = mutation(connection, committed) if mutation is not None else None
+        for directory in created:
+            for payload in directory.iterdir():
+                if payload.is_file() and not payload.is_symlink():
+                    protect_committed_file(payload)
         return committed, result
     except Exception:
         for directory in reversed(created):

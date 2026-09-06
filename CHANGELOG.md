@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.19.0 - Setup Stewardship
+
+- Completed the current-capability project setup orchestration so guided initialisation collects missing project metadata interactively, always tests the mandatory owner signing credential, optionally enrols additional locally available operators, and keeps authority construction inside the interruption-marker boundary until exhaustive verification succeeds.
+- Preserved fail-closed rollback semantics when owner genesis, initial contributor enrolment or final verification fails, so partially configured authority is not presented as an active FACT project.
+- Added `docs/CRYPTOGRAPHIC_INTEGRITY.md` as the normative, independently reproducible specification of content hashing, canonical JSON, `fact-audit-event/v3`, rolling chain construction, state digests, checkpoints, exports, limitations and independent auditing.
+- Added executable SHA-256 and SHA3-512 normative audit-event test vectors, including a UTF-8 non-ASCII canonicalisation case.
+- Added committed-payload read-only protection using owner-readable mode `0400` after successful check-in, while keeping filesystem permissions explicitly advisory rather than treating them as the integrity boundary.
+- Added verification reporting for committed payloads that have unexpectedly regained filesystem write bits without misclassifying byte-identical evidence as cryptographically compromised.
+- Added a safe temporary-writability helper for non-authoritative operational files that restores the exact prior mode even on failure. Committed evidential bytes remain revision-based and should not be edited in place.
+- Corrected stale pre-hash-agility documentation and linked the README to the normative integrity specification.
+- Pruned completed initialisation, identity, hash-documentation and read-only-baseline work from the forward TODO list while retaining only genuinely outstanding recovery, credential, revocation and hardening work.
+
 ## 2.18.0 - Identity Inception
 
 - Formalised immutable project-local `OPERATOR-######` references alongside human-friendly operator aliases and globally unique operator UUIDs.

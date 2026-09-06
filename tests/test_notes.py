@@ -19,6 +19,7 @@ from fact.core.authority import (
     propose_ownership_transfer,
 )
 from fact.core.catalogue import catalogue_path, issue_identifier, verify_chain
+from fact.core.file_protection import temporarily_writable
 from fact.core.files import FileCandidate, commit_files
 from fact.core.notes import (
     create_note,
@@ -415,10 +416,12 @@ def test_note_file_byte_tampering_and_removal_are_detected(tmp_path: Path) -> No
     note_id = create_note(tmp_path, alice, "Retained", "Original")
     _, path = _revision_file(tmp_path, note_id)
     original = path.read_bytes()
-    path.write_bytes(b"tampered")
+    with temporarily_writable(path):
+        path.write_bytes(b"tampered")
     with pytest.raises(ToolkitError, match="bytes have changed"):
         verify_chain(tmp_path)
-    path.write_bytes(original)
+    with temporarily_writable(path):
+        path.write_bytes(original)
     path.unlink()
     with pytest.raises(ToolkitError, match="missing from the authoritative tree"):
         verify_chain(tmp_path)

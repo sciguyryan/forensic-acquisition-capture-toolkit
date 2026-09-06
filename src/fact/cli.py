@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -269,9 +270,10 @@ def parser() -> argparse.ArgumentParser:
     )
     project_init = project_commands.add_parser("init")
     project_init.add_argument("path", type=Path, nargs="?", default=Path.cwd())
-    project_init.add_argument("--project-id", required=True)
-    project_init.add_argument("--title", required=True)
-    project_init.add_argument("--test-key", action="store_true")
+    project_init.add_argument("--project-id")
+    project_init.add_argument("--title")
+    project_init.add_argument("--test-key", action="store_true", help=argparse.SUPPRESS)
+    project_init.add_argument("--no-additional-operators", action="store_true")
     project_init.add_argument(
         "--chain-hash", choices=SUPPORTED_HASHES, default=DEFAULT_CHAIN_HASH
     )
@@ -774,19 +776,60 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "export-keypair":
             return _export_keypair(args)
         if args.command == "project" and args.project_command == "init":
-            identity = interactive_identity(test_key=args.test_key)
+            interactive = os.isatty(0)
+            project_id = args.project_id
+            title = args.title
+            if not project_id:
+                if not interactive:
+                    raise ToolkitError(
+                        "Project initialisation requires --project-id outside an "
+                        "interactive terminal"
+                    )
+                project_id = input("Project ID: ").strip()
+            if not title:
+                if not interactive:
+                    raise ToolkitError(
+                        "Project initialisation requires --title outside an "
+                        "interactive terminal"
+                    )
+                title = input("Project title: ").strip()
+            if not project_id or not title:
+                raise ToolkitError("Project ID and title are required")
+
+            # Project bootstrap always exercises the selected signing credential.
+            # A project must not become active on an untested owner credential.
+            identity = interactive_identity(test_key=True)
             public_key = export_public_key_text(identity)
+            additional: list[tuple[object, str]] = []
+            if interactive and not args.no_additional_operators:
+                while input(
+                    "Add another operator during setup? [y/N]: "
+                ).strip().lower() in {"y", "yes"}:
+                    contributor = interactive_identity(test_key=True)
+                    contributor_public_key = export_public_key_text(contributor)
+                    additional.append((contributor, contributor_public_key))
+
             path = initialise_owned_project(
                 args.path,
-                args.project_id,
-                args.title,
+                project_id,
+                title,
                 identity,
                 public_key,
                 chain_hash=args.chain_hash,
                 content_hash=args.content_hash,
+                additional_operators=additional,
             )
-            log("PASS", f"FACT project created: {path.parent}")
+            log(
+                "PASS", f"FACT project created and exhaustively verified: {path.parent}"
+            )
             log("PASS", f"Initial owner recorded and signed: {identity.operator_id}")
+            if additional:
+                log("PASS", f"Additional active operators enrolled: {len(additional)}")
+            log(
+                "INFO",
+                "Recovery and separate encryption-credential setup will be added "
+                "to this workflow when those reviewed subsystems are implemented",
+            )
             return 0
         if args.command == "case":
             project_root = discover_project_root(args.root)

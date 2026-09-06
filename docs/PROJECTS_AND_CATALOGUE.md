@@ -6,7 +6,7 @@ FACT organises work as projects containing cases, acquisitions and individually 
 
 The catalogue is designed to make casual or accidental rewriting of project history detectable. It is not claimed to make a fully compromised host trustworthy.
 
-Normal project initialisation is fail-closed. The mandatory owner bootstrap remains marked incomplete until signed genesis has been reconstructed and exhaustive project verification succeeds. A project that does not cross that verification boundary must not be presented as active or usable.
+Normal project initialisation is fail-closed. The guided `fact project init` workflow keeps a bootstrap marker in place while project metadata, mandatory owner authority and any selected initial contributors are established. The project is not presented as active until authenticated authority reconstruction and exhaustive project verification succeed. Ordinary setup failure removes setup-created state rather than leaving an apparently usable partial project.
 
 ## Project layout
 
@@ -49,15 +49,15 @@ The current implementation does not delete case material when a case is retired.
 
 ## Audit journal
 
-Every catalogue-changing operation appends an audit event. The versioned audit envelope commits the event sequence, UTC timestamp, event and object identity, explicit actor representation, canonical event details and previous event hash into the event digest under the project-selected chain-hash profile. Operator-authored authority events additionally commit the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis.
+Every catalogue-changing operation appends an audit event. Events use the project-selected `chain_hash` and the versioned `fact-audit-event/v3` canonical envelope. The exact hashed fields, canonical JSON rules and reproducible vectors are normative in `CRYPTOGRAPHIC_INTEGRITY.md`.
 
-The first event refers to a fixed all-zero genesis hash. Every later event cryptographically commits to the previous event. Altering, deleting, inserting or reordering historical events therefore breaks verification unless the attacker reconstructs the subsequent chain.
+The first event refers to an all-zero predecessor whose hexadecimal width matches the selected chain digest. Every later event cryptographically commits to the previous event. Altering, deleting, inserting or reordering historical events therefore breaks verification unless the attacker reconstructs the subsequent chain.
 
 FACT never silently repairs a broken chain. A chain-verification failure is an integrity failure requiring explicit investigation and recovery.
 
 ## State digest
 
-The audit chain protects logical history. Signed checkpoints additionally contain a deterministic digest of the current identifier and authority state under the project-selected chain-hash profile. This allows FACT to detect direct changes to live catalogue state, including identifier, identity, membership, ownership, transfer, approval and confidential-access records, even if the audit journal itself was left untouched.
+The audit chain protects logical history. Signed checkpoints additionally contain a deterministic digest, using the project chain-hash profile, of authenticated current catalogue state. This allows FACT to detect direct changes to the live identifier table even if the audit journal itself was left untouched.
 
 ## Signed checkpoints
 
@@ -78,7 +78,7 @@ A checkpoint describes an exact catalogue state. After legitimate catalogue muta
 
 A self-contained signed catalogue cannot by itself detect replacement with an older catalogue and its matching older valid checkpoint. This is a rollback attack.
 
-Signed FACT project packages bind the project ID, catalogue event sequence and chain-head digest. Once a package has been independently retained, it becomes an external anchor against silent rollback of the local project catalogue. Additional external checkpoint publication or protected backup can provide stronger anchoring where required.
+Future sealed FACT acquisition packages should cryptographically bind the relevant project ID, catalogue event sequence and chain-head hash. Once such a package has been independently retained, it becomes an external anchor against silent rollback of the local project catalogue. Additional external checkpoint publication or protected backup can provide stronger anchoring where required.
 
 ## Threat model
 
@@ -134,7 +134,7 @@ FACT extends the project catalogue so project-relevant operator identity and aut
 
 These tables do not contain private keys, passphrases or GnuPG session state. They retain the public information necessary to understand and verify project history. FACT has no separate mutable operator-profile authority outside the project catalogue.
 
-Authority changes are represented by signed canonical transactions in the audit event chain. The transaction binds the actor, immutable operator UUID, signing fingerprint, event sequence and previous chain head before it is appended. Verification reconstructs the authority tables from those events and compares the reconstructed state with the live relational state.
+Authority changes are represented by signed canonical transactions in the audit event chain. The transaction binds the actor, signing fingerprint, event sequence and previous chain head before it is appended. Verification reconstructs the authority tables from those events and compares the reconstructed state with the live relational state.
 
 As a result, a direct SQL edit to a contributor state, owner, operator identity, retained public key or acquisition approval state is not treated as a legitimate project change. It creates a discrepancy that `catalogue verify` reports.
 
@@ -143,22 +143,6 @@ The catalogue state digest used by signed checkpoints covers identifiers and aut
 See `docs/AUTHORITY_AND_IDENTITY.md` for the signed transaction model, session authentication, contributor admission, ownership transfer, approval lifecycle, threat model and current key-lifecycle limitations.
 
 
-## Project hash policy
-
-Each project selects separate chain and evidential-content hash profiles at genesis. The policy is recorded in `PROJECT.toml`, catalogue metadata and signed project genesis, and verification requires those representations to agree. The current project schema does not permit an in-place hash-policy change.
-
-FACT uses a curated registry rather than accepting arbitrary algorithm names. SHA-256 remains the default, while the supported profiles include the SHA-512, SHA-3, BLAKE2 and BLAKE3 variants exposed by the current implementation. If a selected implementation is unavailable, FACT fails closed rather than silently substituting another algorithm. Package transport checksums may remain fixed by the package format and are distinct from the project's live integrity policy.
-
-
 ## Provenance event envelope
 
-Schema 10 uses the versioned `fact-audit-event/v3` canonical hash envelope. Every chain event commits its selected chain-hash algorithm, sequence, recorded UTC timestamp, event and object identity, explicit actor representation, event details and previous event digest. Operator-authored authority events bind the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis. System lifecycle events use an explicit system actor. Signed authority transactions independently carry the same operator UUID and credential fingerprint, and catalogue verification rejects any mismatch between the signed transaction and the rolling-chain event.
-
-
-## Confidential access state
-
-Confidential access grants are retained in the same authenticated catalogue as other authority state. A single operator may hold several independent bases for one confidential object. `CONFIDENTIAL_ACCESS_GRANTED` and `CONFIDENTIAL_ACCESS_REVOKED` events preserve when each basis began and ended, while the live access table records the corresponding grant and revocation sequences for efficient current-state queries.
-
-Revoking one basis does not erase another surviving basis. Project ownership transfer therefore revokes only the outgoing owner's role-derived `project-owner` grants and creates the incoming owner's corresponding grants. Direct `object-owner` or other independent authority remains unchanged unless a separate authenticated event changes it.
-
-This access state governs FACT-mediated decryption. It does not claim to invalidate historical ciphertext keys or erase material that an operator obtained while authorised. See `CONFIDENTIAL_ACCESS.md` for the current cryptographic boundary.
+Schema 11 uses the versioned `fact-audit-event/v3` canonical hash envelope. Every chain event commits its selected chain-hash algorithm, sequence, recorded UTC timestamp, event and object identity, explicit actor representation, event details and previous event digest. Operator-authored authority events bind the project-local operator ID, immutable operator UUID, credential fingerprint and authority basis. System lifecycle events use an explicit system actor. Signed authority transactions independently carry the same operator UUID and credential fingerprint, and catalogue verification rejects any mismatch between the signed transaction and the rolling-chain event.

@@ -227,7 +227,7 @@ The omission is a presentation/disclosure decision. It is not deletion from the 
 
 An included project note is packaged as its committed plaintext revision file. An included confidential note is packaged as its committed ciphertext revision file. Project packaging never decrypts confidential notes.
 
-The generalised export subsystem provides explicit selection, full-record and presented-record views, authorised confidential-note plaintext export, and optional output encryption. Layered and rendered representations remain future work until their transformation and verification semantics are implemented. Packaging remains a distinct self-contained archival operation rather than becoming the only export mechanism.
+The later generalised export subsystem will provide richer selection, full-record versus presented-record views, owner-authorised decrypted export, layered rendering and optional output encryption. Packaging remains a distinct self-contained archival operation rather than becoming the only export mechanism.
 
 ## Retraction
 

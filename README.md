@@ -25,7 +25,7 @@ FACT is built around several core forensic principles:
 - **Preserve acquisition records.** Relevant command execution, output, errors, metadata and supporting information should be retained where appropriate.
 - **Separate evidence from interpretation.** Acquired material and observable source data should remain distinguishable from subsequently generated documentation, analysis or conclusions.
 - **Fail conservatively.** An incomplete or unsuccessful acquisition must not be presented as successfully committed evidence.
-- **Make integrity verifiable.** Committed files and authenticated catalogue state should retain the integrity information required for verification.
+- **Make integrity verifiable.** Committed files and authenticated catalogue state should provide the integrity information required for independent verification.
 - **Bind evidence to its operator.** Operator identity and signing material should provide an auditable relationship between an acquisition and the person responsible for it.
 - **Verify independently.** Verification should not depend upon trusting the originating machine or its normal cryptographic environment.
 - **Retain useful failure state.** Failed acquisition staging data should remain available where doing so assists investigation, diagnosis or recovery.
@@ -46,10 +46,13 @@ Acquisition
   v
 Staging
   |
-  +--> Retained source files
+  +--> Acquired artefacts
   +--> Source metadata
-  +--> Acquisition transcript
-  +--> Operator context
+  +--> Acquisition records
+  +--> Operator information
+  |
+  v
+Retained files
   |
   v
 Immutable file check-in
@@ -64,7 +67,7 @@ Project verification
 Committed project state
 ```
 
-An acquisition is not considered successful merely because source material was downloaded. Retention, immutable check-in, authenticated recording and verification are separate stages. Packaging and export operate later on verified project state rather than forming part of acquisition commitment.
+An acquisition is not considered successfully committed merely because source material was downloaded. Collection, immutable check-in, authenticated recording and project verification form the live commitment path. Packaging and export are later operations that create portable or disclosed representations without redefining the acquisition.
 
 ## Acquisition sources
 
@@ -84,8 +87,9 @@ Depending on the source and available material, acquisition can include:
 - subtitles or captions;
 - live chat where available;
 - acquisition command transcripts;
-- tool and inspection information; and
-- retained source or network capture material where available.
+- tool information;
+- evidence manifests; and
+- cryptographic integrity and signature material.
 
 Original downloaded media is preserved without transcoding.
 
@@ -178,7 +182,7 @@ This distinction also governs decryption and export. Cryptographic possession is
 
 ## Cryptographic integrity
 
-FACT's live integrity model is catalogue-centred. Every project declares immutable chain and evidential-content hash profiles in `PROJECT.toml`. Normal `fact project init` uses a mandatory-owner bootstrap marker and does not remove that marker until signed genesis has been reconstructed and exhaustive project verification succeeds. Every committed file has its own digest under the selected content profile and immutable metadata, and those file-commit events participate in the authenticated rolling catalogue history. Each recorded acquisition additionally binds the exact ordered set of committed `FILE-######` identifiers to its source, tool, operator and observation provenance.
+FACT's live integrity model is catalogue-centred. The normative construction, canonicalisation rules, worked test vectors and independent audit procedure are documented in [`docs/CRYPTOGRAPHIC_INTEGRITY.md`](docs/CRYPTOGRAPHIC_INTEGRITY.md). Every project declares immutable chain and evidential-content hash profiles in `PROJECT.toml`. Normal `fact project init` is a guided, fail-closed setup workflow. It validates the selected owner signing credential, permits optional locally available additional operators to be enrolled before activation, uses a bootstrap marker throughout authority construction, and does not remove that marker until signed genesis and any selected initial memberships have been reconstructed and exhaustive project verification succeeds. Every committed file has its own digest under the selected content profile and immutable metadata, and those file-commit events participate in the authenticated rolling catalogue history. Each recorded acquisition additionally binds the exact ordered set of committed `FILE-######` identifiers to its source, tool, operator and observation provenance.
 
 The former per-acquisition `EVIDENCESET-SHA256.txt`, `FILELIST.txt`, `SHA256SUMS.txt`, `SHA512SUMS.txt`, archive checksum sidecars and detached acquisition-archive signatures are no longer part of the live project model. Maintaining parallel inventories and duplicate integrity layers would create additional representations that could drift from the authoritative catalogue without strengthening the underlying chain of custody.
 
@@ -186,9 +190,9 @@ Signed catalogue authority transactions, signed checkpoints and signed portable 
 
 ## Operator identity
 
-FACT maintains an operator identity system for associating project activity with the operator responsible for performing or authorising it. Each operator receives an immutable project-local `OPERATOR-######` reference and a randomly generated immutable UUID when first admitted to project authority, alongside the human-friendly operator alias. The project-local reference provides a stable within-project citation, while the UUID is the globally unique identity anchor. Both identity anchors are independent of any one signing credential, so later key rotation can preserve operator identity while retaining exact credential history. Project-relevant identity, public signing-key material, contributor membership, ownership and approval state are retained inside the tamper-evident project catalogue rather than relying on mutable local operator JSON as project authority.
+FACT maintains an operator identity system for associating project activity with the operator responsible for performing or authorising it. Each operator receives an immutable project-local `OPERATOR-######` reference and a randomly generated immutable UUID when first admitted to project authority, alongside the human-friendly operator alias. The project-local reference is intended for stable within-project citation while the UUID is the globally unique identity anchor. Both identity anchors are independent of any one signing credential, so later key rotation can preserve operator identity while retaining exact credential history. Project-relevant identity, public signing-key material, contributor membership, ownership and approval state are retained inside the tamper-evident project catalogue rather than relying on mutable local operator JSON as project authority.
 
-FACT does not maintain mutable local operator profile files as project authority. Project-relevant identity and public signing-key material are retained directly in the project catalogue. The project reserves protected `.fact/crypto/` space for project-scoped cryptographic state and an isolated operator public-keyring foundation. This release does not copy private operator keys out of the user's general GnuPG keyring; secure project-local private credential creation or import remains future credential-lifecycle work. Private keys and passphrases never enter the catalogue.
+FACT does not maintain mutable local operator profile files as project authority. Project-relevant identity and public signing-key material are retained directly in the project catalogue. The project now reserves protected `.fact/crypto/` space for project-scoped cryptographic state and an isolated operator public-keyring foundation. This release deliberately does not copy private operator keys out of the user's general GnuPG keyring; secure project-local private credential creation/import belongs to the credential-lifecycle work. Private keys and passphrases never enter the catalogue.
 
 FACT supports a curated hash registry rather than an arbitrary algorithm string. New projects may select `sha256`, `sha512`, `sha3-256`, `sha3-512`, `blake2b-256`, `blake2b-512`, `blake2s-256` or `blake3-256` independently for the rolling provenance chain and retained evidential content. SHA-256 remains the default. The selected policy is immutable for the lifetime of the current project schema, is included in signed project genesis, and must agree with `PROJECT.toml` and catalogue metadata during verification. FACT fails closed if a configured implementation is unavailable and never substitutes another algorithm.
 
@@ -297,7 +301,7 @@ The project's continuous-integration configuration should be treated as the auth
 
 FACT assists with acquisition, preservation, provenance and integrity verification. It does not by itself establish the legal admissibility, authenticity, meaning or evidential weight of acquired material.
 
-A valid FACT project or verified portable representation can demonstrate properties such as file integrity, authenticated project history and cryptographic provenance. It cannot prove that material published by a third-party source was truthful, that an account was controlled by a particular real-world individual, or that an online service supplied historically complete information.
+A valid FACT project or verified portable representation can demonstrate properties such as integrity and cryptographic provenance. It cannot prove that material published by a third-party source was truthful, that an account was controlled by a particular real-world individual, or that an online service supplied historically complete information.
 
 Remote digital sources can also change or disappear without notice. FACT can preserve material available to it during acquisition, but it cannot recover information that the source no longer exposes.
 
@@ -339,10 +343,13 @@ See the repository's licence information for the terms under which FACT is distr
 
 ## Projects and catalogue
 
-FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case, acquisition, note, file, artefact, export and authority-transfer identifiers (`CASE-######`, `ACQ-######`, `NOTE-######`, `FILE-######`, `ART-######`, `EXPORT-######` and `TRANSFER-######`), records lifecycle and authority events in the project-selected authenticated hash chain, retains project operator identities and public verification material, tracks contributor membership, confidential access authority and ownership, and supports signed checkpoints for independent verification.
+FACT projects use a human-readable `PROJECT.toml`, per-case `CASE.toml` records, and a tamper-evident SQLite catalogue under `.fact/`. The catalogue owns never-reused case, acquisition, note, file, artefact, export and authority-transfer identifiers (`CASE-######`, `ACQ-######`, `NOTE-######`, `FILE-######`, `ART-######`, `EXPORT-######` and `TRANSFER-######`), records lifecycle and authority events in the project-selected authenticated hash chain, retains project operator identities and public verification material, tracks contributor membership, confidential authority and ownership, and supports signed checkpoints for independent verification.
 
 The project owner is the human authority represented by this ledger. The SQLite catalogue is not intended to make a writable project impossible to alter; it is intended to make unauthorised modification detectable. Signed authority transactions and state reconstruction prevent changes to operator identity, ownership, membership or approval status from being silently accepted merely because somebody has edited the database.
 
 Routine acquisitions no longer require operators to retype a case identifier. FACT can infer the current case from the working directory, use the project's selected case, automatically use the sole active case, or present an interactive numbered selector when a choice is required. New cases are allocated sequentially and selected automatically.
 
-Detailed design and operational behaviour are documented in [`docs/EVERYTHING_AS_A_FILE.md`](docs/EVERYTHING_AS_A_FILE.md), [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md), [`docs/AUTHORITY_AND_IDENTITY.md`](docs/AUTHORITY_AND_IDENTITY.md), [`docs/CONFIDENTIAL_ACCESS.md`](docs/CONFIDENTIAL_ACCESS.md), [`docs/NOTES.md`](docs/NOTES.md), and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The interactive workflow is described in [`docs/SHELL.md`](docs/SHELL.md), while accepted future workflow work is recorded in [`docs/TODO.md`](docs/TODO.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).
+Detailed design and operational behaviour are documented in [`docs/PROJECTS_AND_CATALOGUE.md`](docs/PROJECTS_AND_CATALOGUE.md), [`docs/AUTHORITY_AND_IDENTITY.md`](docs/AUTHORITY_AND_IDENTITY.md), and [`docs/WORKFLOW_CONTEXT.md`](docs/WORKFLOW_CONTEXT.md). The interactive workflow is described in [`docs/SHELL.md`](docs/SHELL.md), while accepted future workflow work is recorded in [`docs/TODO.md`](docs/TODO.md). The non-destructive image review and future closed-project browser foundation is described in [`docs/REVIEW_LAYERS.md`](docs/REVIEW_LAYERS.md).
+
+
+For the current confidential-access authority model and planned cryptographic lifecycle, see `docs/CONFIDENTIAL_ACCESS.md`.

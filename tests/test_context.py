@@ -111,7 +111,7 @@ def test_discovery_rejects_project_from_different_schema(tmp_path: Path) -> None
     project_file = tmp_path / "PROJECT.toml"
     project_text = project_file.read_text(encoding="utf-8")
     assert "schema_version = 11" in project_text
-    assert 'fact_version = "2.18.0"' in project_text
+    assert 'fact_version = "2.19.0"' in project_text
     project_file.write_text(
         project_file.read_text(encoding="utf-8").replace(
             "schema_version = 11", "schema_version = 1"

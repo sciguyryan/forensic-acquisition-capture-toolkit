@@ -44,6 +44,7 @@ def _chain_summary(
         "state_digest": verified["state_digest"],
         "hashed_file_count": verified["hashed_file_count"],
         "file_ids_hashed": file_ids,
+        "writable_committed_files": verified.get("writable_committed_files", []),
     }
 
 
@@ -196,6 +197,11 @@ def verify_structural(
         "Selected object's catalogue state matches append-only history",
         f"{verified['hashed_file_count']} selected committed file payload(s) rehashed",
     ]
+    writable = [str(item) for item in verified.get("writable_committed_files", [])]
+    if writable:
+        result["warnings"].append(
+            "Committed payload(s) are unexpectedly writable: " + ", ".join(writable)
+        )
     if object_type != "project":
         result["limitations"] = [
             "Unrelated sibling file payloads were not rehashed; their catalogue metadata and shared authenticated history were still validated."

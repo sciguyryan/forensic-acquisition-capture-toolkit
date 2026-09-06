@@ -127,11 +127,11 @@ Completion includes the shell command surface, common subcommands and collector 
 
 ## Future command families
 
-The shell is intended to host later project and case operations, including ownership, notes, audit, verification, sealing, packaging, screenshot review, and project closure. Those capabilities should be implemented in reusable core/application services first and then exposed through both the ordinary CLI and this shell.
+The shell can continue to host later project and case operations such as case audit and sealing, richer timeline and contribution queries, screenshot review, and project closure. New capabilities should be implemented in reusable core/application services first and then exposed through both the ordinary CLI and this shell.
 
 ## Authenticated operator context
 
-FACT 2.8 adds a cryptographically authenticated operator context to the interactive shell. After selecting an authority-enabled project, run:
+FACT provides a cryptographically authenticated operator context to the interactive shell. After selecting an authority-enabled project, run:
 
 ```text
 PROJECT-ID> auth OPERATOR-ID

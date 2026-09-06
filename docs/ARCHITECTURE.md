@@ -164,7 +164,7 @@ There is no separate successful `logs/` copy after commitment. The checked-in `F
 
 `verify_chain()` verifies the rolling event chain and current state derived from it. It also checks operator and ownership state, notes, committed files, file relationships, presentation state and recorded acquisition membership.
 
-Every present committed file is checked directly against its recorded size and configured content digest. Missing or altered bytes therefore fail project verification without requiring a separate per-acquisition checksum file.
+Every present committed file is checked directly against its recorded size and project-selected content digest. Missing or altered bytes therefore fail project verification without requiring a separate per-acquisition checksum file.
 
 Filtered package construction may explicitly permit selected withheld note files to be absent from the staged package view. This exception is narrow and does not weaken normal live-project verification.
 
@@ -196,7 +196,7 @@ General export is a disclosure operation over verified project state, distinct f
 
 Every export attempt receives a never-reused `EXPORT-######`. FACT records `EXPORT_STARTED` before building in private temporary space and `EXPORT_COMPLETED` only after the final output exists. If completion cannot be authenticated, FACT removes the placed output rather than leave an apparently successful unaudited disclosure. Failed attempts remain historical state.
 
-A completed export binds the source project chain anchor, actor, policy sequence, scope, view, representation, exact source file identities, output paths, source and output content-digest values, manifest digest and final container/tree digest. The portable `FACT-EXPORT.json` is therefore a representation of a recorded disclosure, not a second authority ledger.
+A completed export binds the source project chain anchor, actor, policy sequence, scope, view, representation, exact source file identities, output paths, source and output content digests, manifest digest and final container/tree digest. The portable `FACT-EXPORT.json` is therefore a representation of a recorded disclosure, not a second authority ledger.
 
 The current representation is `native`. Directory and deterministic tar output are supported, and tar output may optionally be protected to recipient OpenPGP keys. Confidential note ciphertext is the default retained representation. Authorised plaintext note export is recorded as a derived output whose digest is distinct from its encrypted source `FILE-######`. Rendered, flattened and archival representations remain future work until their deterministic/provenance semantics are implemented.
 
@@ -207,6 +207,10 @@ Immutable creator attribution and current confidential access authority are sepa
 Only the project owner may propose a transfer, and the exact target object set is bound into the proposal. The nominated incoming active member must explicitly accept or reject it; the owner may cancel while pending. Acceptance must complete every required cryptographic transition before direct object-owner authority changes. Confidential notes implement this today by creating new immutable encrypted revision files. Generic encrypted file/artefact transfer is fail-closed until a generic encrypted-payload format exists.
 
 An operator may separately hold role-derived or explicitly granted access to the same object. Those bases are recorded and revoked independently. A transfer therefore cannot be described as revoking all access unless no other authenticated basis survives.
+
+## Confidential access authority
+
+Confidential access is provenance-aware and multi-basis. Cryptographic possession is necessary but is not treated as sufficient authority. Protected decryption paths must resolve current authenticated access before decrypting. See `CONFIDENTIAL_ACCESS.md` for the current authority model, transfer semantics, security limitations and the deliberately deferred envelope-encryption/recovery architecture.
 
 ## Verification scopes and reports
 

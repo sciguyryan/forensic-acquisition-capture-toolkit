@@ -16,7 +16,7 @@ FILE-000002
 FILE-000003
 ```
 
-A file identifier identifies one check-in event and one immutable byte sequence. It is not a content-addressing shortcut. If the same bytes are captured twice, FACT records two file identities because the two captures have different provenance even though their content-digest values happen to match.
+A file identifier identifies one check-in event and one immutable byte sequence. It is not a content-addressing shortcut. If the same bytes are captured twice, FACT records two file identities because the two captures have different provenance even though their content digests happen to match.
 
 For example:
 
@@ -93,7 +93,7 @@ A project package may still generate its own manifest, descriptor, checksum and 
 
 ## Verification and sanctity
 
-Catalogue verification checks more than the rolling event hashes. For every committed file, FACT expects the recorded storage path to exist as a regular file and expects its current size and configured content digest to match the committed values.
+Catalogue verification checks more than the rolling event hashes. For every committed file, FACT expects the recorded storage path to exist as a regular file and expects its current size and project-selected content digest to match the committed values.
 
 Changing a committed file is therefore a verification failure. Removing it is also a verification failure.
 
@@ -138,7 +138,7 @@ This keeps two statements simultaneously true: the chain can prove that an expor
 
 Encrypted artefacts are a planned extension of the same model rather than a separate evidence system. The encrypted bytes will themselves be the committed file representation and therefore have ordinary file IDs and hashes.
 
-Ownership transfer must be all or nothing for encrypted material that currently requires a cryptographic transition. FACT must successfully decrypt, re-encrypt, validate and stage every affected confidential note representation before the new ownership state is committed. No partial transition may become authoritative. Generic encrypted artefacts remain future work until their encrypted-payload format and transition semantics are defined.
+Ownership transfer must be all or nothing for encrypted material. FACT must successfully decrypt, re-encrypt, validate and stage every affected confidential note representation and encrypted artefact before the new ownership state is committed. No partial transfer may become authoritative.
 
 Large encrypted files may require chunked or streaming authenticated encryption so that confidentiality does not require loading an entire artefact into memory. That cryptographic design is intentionally deferred until the ordinary immutable file model is established.
 

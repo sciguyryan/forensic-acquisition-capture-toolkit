@@ -11,6 +11,7 @@ import pytest
 from fact.core import authority, catalogue
 from fact.core.authority import establish_project_genesis
 from fact.core.catalogue import catalogue_path, issue_identifier, verify_chain
+from fact.core.file_protection import temporarily_writable
 from fact.core.files import FileCandidate, commit_files, list_files
 from fact.core.project import _initialise_project as initialise_project
 from fact.core.project import create_case
@@ -112,7 +113,8 @@ def test_changed_or_missing_committed_file_is_a_sanctity_failure(
         candidates=[FileCandidate(source, "source.txt", "primary")],
     )[0]
     stored = tmp_path / str(row["storage_path"])
-    stored.write_text("changed", encoding="utf-8")
+    with temporarily_writable(stored):
+        stored.write_text("changed", encoding="utf-8")
     with pytest.raises(ToolkitError, match="bytes have changed"):
         verify_chain(tmp_path)
     stored.unlink()
@@ -230,3 +232,25 @@ def test_presentation_changes_and_relationships_append_without_erasing_files(
         set_file_presentation(
             tmp_path, str(rows[0]["file_id"]), state="deleted", reason="x"
         )
+
+
+def test_committed_payload_is_read_only_and_writable_state_is_reported(
+    tmp_path: Path,
+) -> None:
+    actor, case_id, acquisition_id = project(tmp_path)
+    source = tmp_path / "source.txt"
+    source.write_text("immutable", encoding="utf-8")
+    row = commit_files(
+        tmp_path,
+        case_id=case_id,
+        acquisition_id=acquisition_id,
+        actor_id=actor.operator_id,
+        candidates=[FileCandidate(source, "source.txt", "primary")],
+    )[0]
+    stored = tmp_path / str(row["storage_path"])
+    assert stored.stat().st_mode & 0o222 == 0
+    assert verify_chain(tmp_path)["writable_committed_files"] == []
+
+    stored.chmod(0o600)
+    verified = verify_chain(tmp_path)
+    assert verified["writable_committed_files"] == [row["file_id"]]

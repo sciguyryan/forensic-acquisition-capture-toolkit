@@ -15,7 +15,9 @@ from ..errors import ToolkitError
 from ..identity import verify_operator_payload
 from ..keys import fingerprint, prepare_gnupg, sign
 from ..services.commands import run
+from .file_protection import is_read_only
 from .hashing import (
+    canonical_json_bytes,
     digest_bytes,
     digest_file,
     genesis_hash,
@@ -37,9 +39,8 @@ def _utc_now() -> str:
 
 
 def _canonical(data: object) -> bytes:
-    return json.dumps(
-        data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
+    """Return the normative FACT canonical JSON byte representation."""
+    return canonical_json_bytes(data)
 
 
 def _integrity_algorithm(connection: sqlite3.Connection, key: str) -> str:
@@ -1218,10 +1219,11 @@ def _verify_file_sanctity(
     *,
     permitted_missing_file_ids: set[str] | None = None,
     file_ids_to_hash: set[str] | None = None,
-) -> int:
-    """Verify every committed file still exists with exactly its committed bytes."""
+) -> tuple[int, list[str]]:
+    """Verify committed bytes and report weakened read-only protection."""
     permitted_missing_file_ids = permitted_missing_file_ids or set()
     hashed_count = 0
+    writable_files: list[str] = []
     committed_events: dict[str, dict[str, object]] = {}
     presentation: dict[str, str] = {}
     relationships: set[tuple[str, str, str, int]] = set()
@@ -1289,6 +1291,8 @@ def _verify_file_sanctity(
             raise ToolkitError(
                 f"Committed file is missing from the authoritative tree: {file_id}"
             )
+        if not is_read_only(path):
+            writable_files.append(file_id)
         observed_digest = digest_file(_content_hash_algorithm(connection), path)
         if observed_digest != str(row["content_digest"]) or path.stat().st_size != int(
             row["size_bytes"]
@@ -1309,7 +1313,7 @@ def _verify_file_sanctity(
     }
     if live_relationships != relationships:
         raise ToolkitError("File relationships do not match their audit history")
-    return hashed_count
+    return hashed_count, writable_files
 
 
 def _verify_acquisition_membership(
@@ -1474,7 +1478,7 @@ def verify_chain(
 
         _verify_authority_state(connection, rows)
         _verify_note_sanctity(connection, rows)
-        hashed_file_count = _verify_file_sanctity(
+        hashed_file_count, writable_committed_files = _verify_file_sanctity(
             connection,
             project_root,
             rows,
@@ -1510,6 +1514,7 @@ def verify_chain(
             "state_digest": _state_digest(connection),
             "last_event_at": str(rows[-1]["occurred_at"]) if rows else None,
             "hashed_file_count": hashed_file_count,
+            "writable_committed_files": writable_committed_files,
         }
     finally:
         connection.close()

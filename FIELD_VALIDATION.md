@@ -1,26 +1,62 @@
-# FACT v2.18.0 field validation
+# FACT v2.19.0 Setup Stewardship field validation
 
-This candidate adds the first project-initialisation and operator-reference foundation on top of the v2.17 confidential-access model. Validation should concentrate on fail-closed owner bootstrap, immutable `OPERATOR-######` references, authenticated identity reconstruction, operator lookup and the new protected project cryptographic area without interpreting that area as project-local private-key migration.
+This candidate completes the current-capability project initialisation workflow, publishes the normative hash-chain specification and test vectors, and adds advisory read-only protection for committed evidential payloads. Recovery and separate encryption-credential provisioning remain intentionally unimplemented until their dedicated reviewed phases; when implemented, they must extend the same fail-closed setup boundary rather than create a second setup path.
 
-## Identity-inception checks
-
-1. Create a fresh project through the normal `fact project init` path. Confirm the project remains explicitly marked incomplete while owner bootstrap is in progress and that the marker is removed only after signed genesis can be reconstructed and exhaustive project verification succeeds.
-2. Force or simulate failure before signed genesis or final verification completes. FACT must not leave an apparently active ownerless or partially authoritative project. Ordinary bootstrap failure should unwind the incomplete project state conservatively.
-3. Inspect the retained owner identity. Confirm it has an immutable project-local `OPERATOR-######` reference, a separate immutable operator UUID and the human-friendly alias or ID used for interaction. The project reference and UUID must not be derived from mutable descriptive fields or signing credentials.
-4. Add another operator through the existing authority workflow. Confirm each retained operator receives a distinct project-local reference and UUID, and that reconstructed authority state contains the same immutable references.
-5. Exercise operator lookup by project-local reference and by UUID. Confirm both resolve to the intended retained operator without redefining project authority from mutable local state.
-6. In a disposable catalogue copy, alter only a retained operator reference. Full project or catalogue verification must fail because reconstructed authenticated operator state no longer agrees with the live relational state.
-7. Inspect `.fact/crypto/`. Confirm it is protected project-scoped cryptographic state and contains only the currently implemented public-keyring foundation. This release must not silently copy private operator keys or passphrases out of the user's ordinary GnuPG keyring.
-8. Run the complete existing provenance, confidential-access, acquisition, export and project-verification regressions. The new bootstrap and identity-reference layer must not weaken v2.17 authority or v2.16 hash-agility guarantees.
-
-Required local Arch checks:
+## Required local Arch checks
 
 ```fish
 python -m ruff check src tests
 python -m ruff format --check src tests
 python -m pytest
-python -m compileall -q src tests
 ```
+
+Ruff is not installed in the assistant validation environment, so both Ruff commands are mandatory local acceptance checks.
+
+## Complete setup workflow
+
+1. Run `fact project init /tmp/fact-setup-test` without `--project-id` or `--title` from a real terminal. Confirm the guided workflow prompts for both values. Repeat non-interactively without those options and confirm FACT fails closed rather than inventing values.
+2. Select the mandatory owner and a real signing credential. Confirm setup exercises the selected signing key before project creation can become active.
+3. Choose to add at least one additional locally available operator. Confirm that operator signs their own acceptance during the same setup and becomes an active contributor with the next immutable `OPERATOR-######` reference.
+4. Repeat with `--no-additional-operators` and confirm setup completes with only the owner.
+5. Confirm `.fact-initialising` exists during an intentionally interrupted setup and that project discovery refuses to treat that directory as active.
+6. Force an owner-signing, contributor-enrolment or final-verification failure in a disposable test. Confirm the setup-created `PROJECT.toml`, `.fact/`, `cases/` and `files/` state is unwound and the failed project is not discoverable as active.
+7. On a successful setup, run `fact --root /tmp/fact-setup-test verify project` and confirm exhaustive verification succeeds.
+
+## Cryptographic integrity specification
+
+1. Review `docs/CRYPTOGRAPHIC_INTEGRITY.md` independently of the implementation. Confirm it specifies exact content-byte hashing, canonical JSON rules, all `fact-audit-event/v3` fields, all-zero genesis predecessor construction, rolling linkage, current-state digest coverage, checkpoint semantics, package/export distinction and limitations.
+2. Independently reproduce normative vector A using SHA-256. The expected digest is `a35b6665e9e904d28036064a2f35ea2ca1783117b286dd8811c400033435e567`.
+3. Independently reproduce normative vector B using SHA3-512. The expected digest is `0d8fd4057c06c25126bb84d2ab312f04fa256dddd0d421774a6dcdff780b90d5d666eddc03b46d6b0680269634ee62a0ac8aa2b7437478e2f4afacd31827c007`.
+4. Confirm the UTF-8 word `café` is represented with bytes `c3 a9`, object keys are sorted, insignificant whitespace is absent and no newline is included in canonical material.
+5. Confirm `docs/PROJECTS_AND_CATALOGUE.md` describes the live chain using the project-selected chain-hash profile, schema 11 and `fact-audit-event/v3`.
+
+## Read-only committed payload protection
+
+1. Commit ordinary evidence and inspect each authoritative payload. On the normal Arch/POSIX filesystem it should have mode `0400`; containing project directories remain owner-only and traversable as required.
+2. Confirm `fact verify project` succeeds and reports no writable committed payloads.
+3. In a disposable copy, `chmod 600` one committed payload without changing its bytes. Full verification should still verify the bytes but report that the committed payload is unexpectedly writable.
+4. Alter the bytes of that writable payload. Verification must fail as changed evidence rather than merely issuing the permission warning.
+5. Restore or recreate the test project. Confirm a legitimate evidence change is represented by a new FILE/revision rather than by FACT making the committed payload writable in place.
+6. If testing on a filesystem where permission hardening is unsupported, confirm evidence commitment remains authoritative and verification exposes the weakened protection posture rather than leaving a half-committed database/filesystem state.
+
+---
+
+## v2.17 cryptographic-constitution candidate
+
+## v2.18.0 Identity Inception candidate
+
+Assistant-side validation for this candidate covers the schema-11 operator-reference and bootstrap changes. The complete automated suite passes with 197 tests and 80.63% branch-aware coverage; `python -m compileall -q src tests` also passes. The normal owner bootstrap now remains marked incomplete until signed genesis and exhaustive project verification succeed. `OPERATOR-######` references are included in authenticated reconstructed operator state, and tests cover lookup by project reference/UUID plus direct reference tampering. The protected `.fact/crypto/` directory is a structural foundation only; this candidate does not copy private operator keys into the project.
+
+Required local Arch checks remain:
+
+```fish
+python -m ruff check src tests
+python -m ruff format --check src tests
+python -m pytest
+```
+
+
+The v2.17 candidate introduces authenticated multi-basis confidential access state and changes project/catalogue schema to version 10. Before accepting the candidate on Arch Linux, run the complete test and Ruff validation suite and exercise a real confidential-note ownership transfer with the configured local cryptographic tooling.
 
 Required checks:
 
@@ -32,22 +68,11 @@ python -m pytest
 
 Confirm that an outgoing project owner loses access to confidential material they held only through the `project-owner` basis, while retaining access to confidential material for which they retain an independent `object-owner` basis. Confirm that the incoming owner can read the re-encrypted current revision and that `fact verify project` succeeds afterwards.
 
-The new access-authority foundation does not yet implement the planned DEK/envelope-encryption or threshold-recovery mechanisms. FACT can deny future use of its protected decryption path when authenticated access has ended, but the current GnuPG representation does not provide cryptographic erasure of keys, plaintext or external copies already retained by an operator.
+The new access-authority foundation does not yet implement the planned DEK/envelope-encryption, mediated decryption or threshold-recovery mechanisms. Do not interpret v2.17 as providing cryptographic erasure of access already exercised outside FACT.
 
+# FACT v2.15.0 field validation
 
-## Confidential-access checks
-
-1. Create a confidential note as an operator who is also the current project owner. Inspect the authenticated access state and confirm separate `object-owner` and `project-owner` grants exist rather than one ambiguous recipient record.
-2. Transfer project ownership to another active operator. Confirm the outgoing owner's `project-owner` basis is recorded as revoked and the incoming owner's corresponding basis is recorded as granted. Confirm the outgoing operator's independent `object-owner` basis remains active.
-3. Repeat with a confidential object for which the outgoing owner has only `project-owner` access. After transfer, confirm FACT refuses the outgoing operator's protected decryption path and allows the incoming owner to read the current re-encrypted revision.
-4. Revoke one access basis from an operator who still has another active basis for the same object. Confirm effective access remains. Revoke the final active basis in a disposable project and confirm protected decryption is denied.
-5. Inspect the catalogue history. `CONFIDENTIAL_ACCESS_GRANTED` and `CONFIDENTIAL_ACCESS_REVOKED` events must retain the basis, operator and object attribution required to explain current access. Historical grant events must remain present after revocation.
-6. Run `fact verify project` after grant, revocation and ownership-transfer operations. Directly alter the live access table in a disposable database copy without matching authenticated history and confirm verification fails.
-7. Confirm the user-facing result does not claim retroactive erasure. A revoked operator must be blocked by FACT's normal infrastructure, but documentation and diagnostics must not claim that previously retained plaintext, keys, screenshots, exports or independently copied ciphertext have been made inaccessible.
-
-## Provenance-spine regression checks
-
-The v2.15 provenance-spine behaviour remains part of the current security model. Confirm operator UUID persistence, audit-envelope tamper detection, export-to-history correspondence and exhaustive project verification alongside the new confidential-access checks.
+This release hardens FACT's provenance spine by assigning each retained operator an immutable UUID and binding operator identity, credential attribution and authority context directly into the versioned rolling-hash event envelope. It preserves the v2.14 export, verification and confidential-authority architecture. Field validation should concentrate on UUID persistence, audit-envelope tamper detection, export-to-history correspondence, exhaustive project verification and regression of acquisition, packaging and confidential authority.
 
 
 ## Provenance-spine checks
@@ -102,7 +127,7 @@ The v2.15 provenance-spine behaviour remains part of the current security model.
 6. Run `fact verify artefact ART-######`, `fact verify acquisition ACQ-######`, `fact verify case CASE-######`, `fact verify id FILE-######`, and `fact verify project`. Confirm narrow structural verification states that unrelated sibling payloads were not rehashed, while project verification is exhaustive.
 7. Produce text, HTML, JSON and PDF reports with `--report`, `--output` and `--detailed`. Confirm each carries the same result/status semantics, identifies its verification scope and limitations, and does not create a project file identity.
 8. Authenticate as a non-owner active member. Exercise ordinary and broad-scope export under both permissive and owner-only policies. Confirm policy enforcement is fail-closed and a denied operator cannot obtain a successful export merely by selecting a narrower CLI path.
-9. Create a confidential note. Confirm ordinary export emits its committed ciphertext. Confirm plaintext export requires both project export permission and current authenticated confidential access, and is recorded as a derived export output rather than byte-identical evidence.
+9. Create a confidential note. Confirm ordinary export emits its committed ciphertext. Confirm plaintext export requires both project export permission and current authenticated confidential access and is recorded as a derived export output rather than byte-identical evidence.
 10. As project owner, propose a `TRANSFER-######` for the confidential note to another active member. Confirm the outgoing authority holder cannot accept it. Have the nominated incoming member accept it and verify that immutable creator attribution is unchanged, a new cryptographic note revision is committed, current authority changes only after successful re-encryption, and the former authority holder can no longer decrypt through FACT.
 11. Repeat with rejection and owner cancellation. Confirm the proposal and outcome remain in authenticated history. Attempt a generic encrypted file/artefact authority transfer and confirm FACT refuses it until the generic encrypted-payload cryptographic transition is implemented rather than pretending authority moved.
 12. For a tar export protected to a recipient key, confirm the encrypted envelope's digest corresponds to the recorded export. `fact verify export` may establish exact envelope correspondence without decryption, but must clearly state that the internal plaintext representation was not independently inspected.

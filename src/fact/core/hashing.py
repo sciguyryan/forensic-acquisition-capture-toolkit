@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,6 +22,18 @@ SUPPORTED_HASHES = (
     "blake2s-256",
     "blake3-256",
 )
+
+
+def canonical_json_bytes(data: object) -> bytes:
+    """Serialise integrity material using FACT's normative canonical JSON rules.
+
+    Objects are encoded as UTF-8 JSON with recursively sorted object keys, no
+    insignificant whitespace, JSON-native scalar spelling, and Unicode emitted
+    directly rather than ASCII escaped. No trailing newline is added.
+    """
+    return json.dumps(
+        data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def _blake3_factory() -> object:
